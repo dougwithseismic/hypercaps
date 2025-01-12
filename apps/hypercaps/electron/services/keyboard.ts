@@ -306,32 +306,31 @@ export class KeyboardService {
         // Skip empty lines
         if (!trimmed) continue;
 
-        // If line starts with '[' or '{', treat as JSON
-        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        // If line starts with '[DEBUG]', log it
+        if (trimmed.startsWith("[DEBUG]")) {
+          console.log(trimmed);
+          continue;
+        }
+
+        // Parse JSON state updates
+        try {
           const state = JSON.parse(trimmed);
+          console.log("[KeyboardService] Parsed state:", state);
           this.mainWindow?.webContents.send("keyboard-event", {
-            ctrlKey: Boolean(state.ctrl),
-            altKey: Boolean(state.alt),
-            shiftKey: Boolean(state.shift),
-            metaKey: Boolean(state.win),
-            capsLock: Boolean(state.caps),
             pressedKeys: Array.isArray(state.pressedKeys)
               ? state.pressedKeys
               : [],
             timestamp: Date.now(),
           });
-        } else {
-          // Log other lines as debug output
-          console.log("[PowerShell]", trimmed);
+        } catch (parseError) {
+          // Only log parsing errors for lines that look like JSON
+          if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            console.error("Error parsing keyboard state:", parseError);
+          }
         }
       }
     } catch (error) {
-      // Only log parsing errors for lines that look like JSON
-      if (error instanceof SyntaxError) {
-        console.debug("Skipping non-JSON output");
-      } else {
-        console.error("Error handling keyboard output:", error);
-      }
+      console.error("Error handling keyboard output:", error);
     }
   };
 

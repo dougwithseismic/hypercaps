@@ -150,27 +150,25 @@ class KeyboardService {
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
-          if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+          if (trimmed.startsWith("[DEBUG]")) {
+            console.log(trimmed);
+            continue;
+          }
+          try {
             const state = JSON.parse(trimmed);
+            console.log("[KeyboardService] Parsed state:", state);
             (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-event", {
-              ctrlKey: Boolean(state.ctrl),
-              altKey: Boolean(state.alt),
-              shiftKey: Boolean(state.shift),
-              metaKey: Boolean(state.win),
-              capsLock: Boolean(state.caps),
               pressedKeys: Array.isArray(state.pressedKeys) ? state.pressedKeys : [],
               timestamp: Date.now()
             });
-          } else {
-            console.log("[PowerShell]", trimmed);
+          } catch (parseError) {
+            if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+              console.error("Error parsing keyboard state:", parseError);
+            }
           }
         }
       } catch (error) {
-        if (error instanceof SyntaxError) {
-          console.debug("Skipping non-JSON output");
-        } else {
-          console.error("Error handling keyboard output:", error);
-        }
+        console.error("Error handling keyboard output:", error);
       }
     });
     this.store = Store.getInstance();

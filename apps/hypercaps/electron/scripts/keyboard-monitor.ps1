@@ -23,6 +23,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Linq;
 
 public static class KeyboardMonitor {
     public const int WH_KEYBOARD_LL = 13;
@@ -88,6 +89,9 @@ public static class KeyboardMonitor {
     }
 
     private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
+
+    // Track last sent state for deduplication
+    private static string lastSentState = "";
 
     // Map Windows Forms Keys to their display names - only special cases
     private static Dictionary<Keys, string> keyDisplayNames = new Dictionary<Keys, string>() {
@@ -155,6 +159,25 @@ public static class KeyboardMonitor {
         if (UseAlt) SendKeyUp(Keys.LMenu);
         if (UseCtrl) SendKeyUp(Keys.LControlKey);
     }
+
+    public static void UpdateModifierState() {
+        // Convert HashSet to array directly
+        var keys = KeyboardMonitor.GetPressedKeys().ToArray();
+        var keyNames = new string[keys.Length];
+        for (int i = 0; i < keys.Length; i++) {
+            keyNames[i] = KeyboardMonitor.GetKeyDisplayName(keys[i]);
+        }
+
+        // Create JSON manually using string.Format
+        var quotedKeys = keyNames.Select(k => string.Format("\"{0}\"", k));
+        var json = string.Format("{{\"pressedKeys\":[{0}]}}", string.Join(",", quotedKeys));
+        
+        // Only send if state has changed
+        if (json != KeyboardMonitor.lastSentState) {
+            KeyboardMonitor.lastSentState = json;
+            Console.WriteLine(json);
+        }
+    }
 }
 
 public class KeyboardHook {
@@ -192,12 +215,14 @@ public class KeyboardHook {
             bool isKeyDown = wParam == (IntPtr)KeyboardMonitor.WM_KEYDOWN || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYDOWN;
             bool isKeyUp = wParam == (IntPtr)KeyboardMonitor.WM_KEYUP || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYUP;
 
-            // Always track key states
+            // Track key states and update output
             if (isKeyDown) {
                 KeyboardMonitor.AddPressedKey(key);
+                KeyboardMonitor.UpdateModifierState();
             }
             else if (isKeyUp) {
                 KeyboardMonitor.RemovePressedKey(key);
+                KeyboardMonitor.UpdateModifierState();
             }
 
             // If this key is our HyperKey trigger
@@ -264,35 +289,15 @@ public class KeyboardHook {
 
     Write-Debug-Message "HyperKey state after config: enabled=$([KeyboardMonitor]::IsHyperKeyEnabled), trigger=$([KeyboardMonitor]::HyperKeyTrigger)"
 
-    # Initialize the keyboard hook
-    [KeyboardHook]::Initialize()
-    Write-Debug-Message "Keyboard hook initialized"
-
     try {
-        while ($true) {
-            $ctrl = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LControlKey) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RControlKey)
-            $alt = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LMenu) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RMenu)
-            $shift = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LShiftKey) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RShiftKey)
-            $win = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LWin) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RWin)
-            $caps = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::CapsLock)
-            
-            # Get all currently pressed keys with proper display names
-            $pressedKeys = @([KeyboardMonitor]::GetPressedKeys() | ForEach-Object { [KeyboardMonitor]::GetKeyDisplayName($_) })
+        # Initialize the keyboard hook
+        [KeyboardHook]::Initialize()
+        Write-Debug-Message "Keyboard hook initialized"
 
-            # Ensure clean JSON output on a single line
-            $state = @{
-                ctrl = $ctrl
-                alt = $alt
-                shift = $shift
-                win = $win
-                caps = $caps
-                pressedKeys = $pressedKeys
-                hyperKeyActive = $Config.enabled -and [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::($Config.trigger))
-            } | ConvertTo-Json -Compress
-
-            # Write state to stdout
-            [Console]::WriteLine($state)
-            Start-Sleep -Milliseconds 16
+        # Keep the script running but no need to poll
+        $done = $false
+        while (-not $done) {
+            Start-Sleep -Seconds 1
         }
     }
     finally {
