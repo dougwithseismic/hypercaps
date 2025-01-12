@@ -70,6 +70,7 @@ export function HyperKeyConfig({
     updateHyperKeyConfig,
   } = useKeyboardStore();
   const [isCapturingTrigger, setIsCapturingTrigger] = useState(false);
+  const [wasEnabled, setWasEnabled] = useState(false);
   const [bufferedKeys, setBufferedKeys] = useState<BufferedKeys>({
     trigger: null,
     modifiers: {
@@ -147,6 +148,7 @@ export function HyperKeyConfig({
 
     const updatedConfig = {
       ...hyperKeyConfig,
+      enabled: wasEnabled,
       trigger: bufferedKeys.trigger,
       ...(singleKeyMode
         ? {}
@@ -213,6 +215,37 @@ export function HyperKeyConfig({
     });
   };
 
+  // Temporarily disable HyperKey during configuration
+  const handleOpenDialog = async () => {
+    if (!hyperKeyConfig) return;
+
+    // Store current enabled state
+    setWasEnabled(hyperKeyConfig.enabled);
+
+    // Only disable if it was enabled
+    if (hyperKeyConfig.enabled) {
+      await updateHyperKeyConfig({
+        ...hyperKeyConfig,
+        enabled: false,
+      });
+    }
+    setIsCapturingTrigger(true);
+  };
+
+  // Re-enable HyperKey only if it was enabled before
+  const handleDialogCloseWithRestore = async () => {
+    handleDialogClose();
+    if (!hyperKeyConfig) return;
+
+    // Only re-enable if it was enabled before configuration
+    if (wasEnabled) {
+      await updateHyperKeyConfig({
+        ...hyperKeyConfig,
+        enabled: true,
+      });
+    }
+  };
+
   if (!hyperKeyConfig) {
     return null;
   }
@@ -238,7 +271,7 @@ export function HyperKeyConfig({
             <Button
               variant="outline"
               className="justify-between w-full"
-              onClick={() => setIsCapturingTrigger(true)}
+              onClick={handleOpenDialog}
               disabled={!isEnabled || isLoading}
             >
               {normalizeKeyName(hyperKeyConfig.trigger)}
@@ -292,7 +325,10 @@ export function HyperKeyConfig({
         </CardContent>
       </Card>
 
-      <Dialog open={isCapturingTrigger} onOpenChange={handleDialogClose}>
+      <Dialog
+        open={isCapturingTrigger}
+        onOpenChange={handleDialogCloseWithRestore}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Press Any Key</DialogTitle>
