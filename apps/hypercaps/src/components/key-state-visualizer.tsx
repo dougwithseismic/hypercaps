@@ -4,26 +4,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { cn } from "../lib/utils";
 import { useKeyboardStore } from "../store/keyboard-store";
 
-// Key name mappings to match Windows.Forms.Keys enum names
-const KEY_NAME_MAPPINGS: Record<string, string> = {
-  Capital: "CapsLock",
-  Menu: "Alt",
-  ControlKey: "Control",
-  ShiftKey: "Shift",
-  LMenu: "Alt",
-  RMenu: "Alt",
-  LControlKey: "Control",
-  RControlKey: "Control",
-  LShiftKey: "Shift",
-  RShiftKey: "Shift",
-  LWin: "Win",
-  RWin: "Win",
-};
-
-// Helper to normalize key names
-const normalizeKeyName = (key: string): string => {
-  return KEY_NAME_MAPPINGS[key] || key;
-};
+// Helper to identify standard modifier keys
+const STANDARD_MODIFIER_KEYS = new Set([
+  "LControlKey",
+  "RControlKey",
+  "LMenu",
+  "RMenu",
+  "LShiftKey",
+  "RShiftKey",
+  "LWin",
+  "RWin",
+  "CapsLock",
+]);
 
 interface ModifierDisplayProps {
   modifiers: {
@@ -31,6 +23,7 @@ interface ModifierDisplayProps {
     altKey: boolean;
     shiftKey: boolean;
     metaKey: boolean;
+    capsLock: boolean;
     hyperKeyActive: boolean;
   };
   currentKeys: string[];
@@ -55,26 +48,32 @@ export function ModifierDisplay({
 }: ModifierDisplayProps) {
   // Format the HyperKey label
   const hyperKeyLabel = hyperKeyConfig
-    ? `HyperKey (${normalizeKeyName(hyperKeyConfig.trigger)})`
+    ? `HyperKey (${hyperKeyConfig.trigger})`
     : "HyperKey";
+
+  // Get specific modifier states from currentKeys
+  const leftCtrl = currentKeys.includes("LControlKey");
+  const rightCtrl = currentKeys.includes("RControlKey");
+  const leftAlt = currentKeys.includes("LMenu");
+  const rightAlt = currentKeys.includes("RMenu");
+  const leftShift = currentKeys.includes("LShiftKey");
+  const rightShift = currentKeys.includes("RShiftKey");
+  const win = currentKeys.some((key) => key === "LWin" || key === "RWin");
 
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      <Badge variant={modifiers.ctrlKey ? "default" : "secondary"}>Ctrl</Badge>
-      <Badge variant={modifiers.altKey ? "default" : "secondary"}>Alt</Badge>
-      <Badge variant={modifiers.shiftKey ? "default" : "secondary"}>
-        Shift
-      </Badge>
-      <Badge variant={modifiers.metaKey ? "default" : "secondary"}>Win</Badge>
+      <Badge variant={leftCtrl ? "default" : "secondary"}>L-Ctrl</Badge>
+      <Badge variant={rightCtrl ? "default" : "secondary"}>R-Ctrl</Badge>
+      <Badge variant={leftAlt ? "default" : "secondary"}>L-Alt</Badge>
+      <Badge variant={rightAlt ? "default" : "secondary"}>R-Alt</Badge>
+      <Badge variant={leftShift ? "default" : "secondary"}>L-Shift</Badge>
+      <Badge variant={rightShift ? "default" : "secondary"}>R-Shift</Badge>
+      <Badge variant={win ? "default" : "secondary"}>Win</Badge>
       <Badge
         variant={
           modifiers.hyperKeyActive ||
           (hyperKeyConfig?.trigger &&
-            currentKeys.some(
-              (key) =>
-                normalizeKeyName(key) ===
-                normalizeKeyName(hyperKeyConfig.trigger)
-            ))
+            currentKeys.includes(hyperKeyConfig.trigger))
             ? "default"
             : "secondary"
         }
@@ -103,31 +102,10 @@ interface KeyDisplayProps {
     shiftKey: boolean;
     metaKey: boolean;
     hyperKeyActive: boolean;
+    capsLock: boolean;
   };
   className?: string;
 }
-
-// Helper to identify standard modifier keys
-const STANDARD_MODIFIER_KEYS = new Set([
-  "Control",
-  "Alt",
-  "Shift",
-  "Win",
-  "Ctrl",
-  "LControl",
-  "RControl",
-  "LMenu",
-  "RMenu",
-  "LShift",
-  "RShift",
-  "LWin",
-  "RWin",
-  "CapsLock",
-  "Capital",
-  "ControlKey",
-  "ShiftKey",
-  "Menu",
-]);
 
 export function KeyDisplay({
   currentKeys,
@@ -142,24 +120,18 @@ export function KeyDisplay({
     modifiers.shiftKey ? "Shift" : null,
     modifiers.metaKey ? "Win" : null,
     modifiers.hyperKeyActive && hyperKeyConfig
-      ? `HyperKey (${normalizeKeyName(hyperKeyConfig.trigger)})`
+      ? `HyperKey (${hyperKeyConfig.trigger})`
       : modifiers.hyperKeyActive
         ? "HyperKey"
         : null,
   ].filter((mod): mod is string => Boolean(mod));
 
   // Get non-modifier keys
-  const regularKeys = currentKeys
-    .filter((key) => {
-      const normalizedKey = normalizeKeyName(key);
-      return (
-        !STANDARD_MODIFIER_KEYS.has(normalizedKey) &&
-        (!hyperKeyConfig ||
-          normalizedKey !== normalizeKeyName(hyperKeyConfig.trigger))
-      );
-    })
-    .map(normalizeKeyName);
-
+  const regularKeys = currentKeys.filter(
+    (key) =>
+      !STANDARD_MODIFIER_KEYS.has(key) &&
+      (!hyperKeyConfig || key !== hyperKeyConfig.trigger)
+  );
   if (currentKeys.length === 0) {
     return (
       <div className={cn("flex flex-wrap gap-2", className)}>

@@ -118,6 +118,14 @@ public static class KeyboardMonitor {
         return pressedKeys;
     }
 
+    public static Dictionary<string, string> GetPressedKeysWithRaw() {
+        var result = new Dictionary<string, string>();
+        foreach (var key in pressedKeys) {
+            result[key.ToString()] = GetKeyDisplayName(key);
+        }
+        return result;
+    }
+
     public static string GetKeyDisplayName(Keys key) {
         return keyDisplayNames.ContainsKey(key) ? keyDisplayNames[key] : key.ToString();
     }
@@ -299,7 +307,7 @@ public class KeyboardHook {
             $caps = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::CapsLock)
             
             # Get all currently pressed keys
-            $pressedKeys = [KeyboardMonitor]::GetPressedKeys() | ForEach-Object { [KeyboardMonitor]::GetKeyDisplayName($_) }
+            $pressedKeys = @([KeyboardMonitor]::GetPressedKeys() | ForEach-Object { $_.ToString() })
 
             # Ensure clean JSON output on a single line
             $state = @{

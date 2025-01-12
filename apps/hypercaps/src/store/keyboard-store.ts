@@ -87,12 +87,20 @@ export const useKeyboardStore = create<KeyboardStore>()((set) => ({
 if (typeof window !== "undefined") {
   window.api.onKeyboardEvent((event) => {
     useKeyboardStore.setState({
-      currentKeys: Array.isArray(event.pressedKeys) ? event.pressedKeys : [],
+      currentKeys: event.pressedKeys,
       modifiers: {
-        ctrlKey: Boolean(event.ctrlKey),
-        altKey: Boolean(event.altKey),
-        shiftKey: Boolean(event.shiftKey),
-        metaKey: Boolean(event.metaKey),
+        ctrlKey: event.pressedKeys.some(
+          (key) => key === "LControlKey" || key === "RControlKey"
+        ),
+        altKey: event.pressedKeys.some(
+          (key) => key === "LMenu" || key === "RMenu"
+        ),
+        shiftKey: event.pressedKeys.some(
+          (key) => key === "LShiftKey" || key === "RShiftKey"
+        ),
+        metaKey: event.pressedKeys.some(
+          (key) => key === "LWin" || key === "RWin"
+        ),
         capsLock: Boolean(event.capsLock),
         hyperKeyActive: Boolean(event.hyperKeyActive),
       },

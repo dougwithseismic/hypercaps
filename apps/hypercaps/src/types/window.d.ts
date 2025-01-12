@@ -1,12 +1,12 @@
 interface KeyboardEvent {
+  pressedKeys: string[];
+  rawPressedKeys: string[];
   ctrlKey: boolean;
   altKey: boolean;
   shiftKey: boolean;
   metaKey: boolean;
   capsLock: boolean;
   hyperKeyActive: boolean;
-  pressedKeys: string[];
-  timestamp: number;
 }
 
 interface HyperKeyConfig {
