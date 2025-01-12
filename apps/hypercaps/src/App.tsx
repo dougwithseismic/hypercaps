@@ -1,7 +1,7 @@
 import React from "react";
-import { KeyboardProvider, useKeyboard } from "./contexts/KeyboardContext";
-import { MappingList } from "./components/MappingList";
-import { Settings } from "./components/Settings";
+import { KeyboardProvider, useKeyboard } from "./contexts/keyboard-context";
+import { MappingList } from "./components/mapping-list";
+import { Settings } from "./components/settings";
 
 function KeyboardStatus() {
   const { state, toggleService } = useKeyboard();
