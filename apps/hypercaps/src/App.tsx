@@ -3,6 +3,36 @@ import { KeyboardProvider, useKeyboard } from "./contexts/keyboard-context";
 import { MappingList } from "./components/mapping-list";
 import { Settings } from "./components/settings";
 
+// Declare the window API type
+declare global {
+  interface Window {
+    electron: {
+      minimize: () => void;
+      close: () => void;
+    };
+  }
+}
+
+function WindowControls() {
+  const handleMinimize = () => window.electron?.minimize();
+  const handleClose = () => window.electron?.close();
+
+  return (
+    <div className="window-controls">
+      <button
+        className="window-control-button window-control-minimize"
+        onClick={handleMinimize}
+        aria-label="Minimize"
+      />
+      <button
+        className="window-control-button window-control-close"
+        onClick={handleClose}
+        aria-label="Close"
+      />
+    </div>
+  );
+}
+
 function KeyboardStatus() {
   const { state, toggleService } = useKeyboard();
 
@@ -55,9 +85,12 @@ function KeyboardStatus() {
 function App() {
   return (
     <KeyboardProvider>
-      <div className="min-h-screen bg-gray-900 text-white p-8">
-        <h1 className="text-3xl font-bold mb-8">HyperCaps</h1>
-        <div className="space-y-8">
+      <div className="title-bar">
+        <span className="text-white/50 text-sm">HyperCaps</span>
+        <WindowControls />
+      </div>
+      <div className="main-content">
+        <div className="space-y-6">
           <KeyboardStatus />
           <MappingList />
           <Settings />

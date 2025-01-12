@@ -18,4 +18,8 @@ electron.contextBridge.exposeInMainWorld("api", {
   setStartupOnBoot: (enabled) => electron.ipcRenderer.invoke("set-startup-on-boot", enabled),
   setEnableOnStartup: (enabled) => electron.ipcRenderer.invoke("set-enable-on-startup", enabled)
 });
+electron.contextBridge.exposeInMainWorld("electron", {
+  minimize: () => electron.ipcRenderer.send("minimize-window"),
+  close: () => electron.ipcRenderer.send("close-window")
+});
 //# sourceMappingURL=preload.js.map

@@ -15,6 +15,9 @@ export default defineConfig(async () => {
       electron([
         {
           entry: "electron/main.ts",
+          onstart(options) {
+            options.startup();
+          },
           vite: {
             build: {
               sourcemap: true,

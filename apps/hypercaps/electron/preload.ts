@@ -24,3 +24,9 @@ contextBridge.exposeInMainWorld("api", {
   setEnableOnStartup: (enabled: boolean) =>
     ipcRenderer.invoke("set-enable-on-startup", enabled),
 });
+
+// Expose window control methods
+contextBridge.exposeInMainWorld("electron", {
+  minimize: () => ipcRenderer.send("minimize-window"),
+  close: () => ipcRenderer.send("close-window"),
+});

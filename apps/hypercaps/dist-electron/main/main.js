@@ -327,6 +327,10 @@ class TrayFeature {
     }
   }
 }
+console.log("=== Environment Debug ===");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("isDev:", process.env.NODE_ENV === "development");
+console.log("======================");
 if (process.platform !== "win32") {
   electron.dialog.showErrorBox(
     "Unsupported Platform",
@@ -341,15 +345,37 @@ let keyboardService;
 let trayFeature = null;
 let mainWindow = null;
 const createWindow = () => {
+  console.log("Environment:", process.env.NODE_ENV);
   mainWindow = new electron.BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, "preload.js")
-    }
+      preload: path.join(__dirname, "../preload/preload.js")
+    },
+    // Visual settings for looking glass effect
+    vibrancy: "under-window",
+    visualEffectState: "active",
+    hasShadow: true,
+    // Remove default window chrome
+    // titleBarStyle: "hidden",
+    // titleBarOverlay: false,
+    // Ensure proper window behavior
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    // Round corners on Windows 11
+    roundedCorners: true
   });
+  mainWindow.setBackgroundColor("#00000000");
+  if (process.env.NODE_ENV === "development") {
+    mainWindow.loadURL("http://localhost:5173");
+    mainWindow.webContents.openDevTools();
+  } else {
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+  }
   mainWindow.on("close", (event) => {
     if (!mainWindow.isQuitting) {
       event.preventDefault();
@@ -385,13 +411,13 @@ const createWindow = () => {
       "Failed to initialize keyboard service. The application may not work as expected."
     );
   }
-  if (process.env.NODE_ENV === "development") {
-    mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
-  }
 };
+electron.ipcMain.on("minimize-window", () => {
+  mainWindow == null ? void 0 : mainWindow.minimize();
+});
+electron.ipcMain.on("close-window", () => {
+  mainWindow == null ? void 0 : mainWindow.hide();
+});
 electron.app.whenReady().then(async () => {
   const store = Store.getInstance();
   await store.load();

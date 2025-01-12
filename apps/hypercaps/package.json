@@ -1,20 +1,19 @@
 {
-  "name": "hypercaps",
-  "private": true,
-  "version": "0.0.1",
-  "main": "dist-electron/main.js",
-  "os": [
-    "win32"
-  ],
-  "engines": {
-    "node": ">=18",
-    "os": "win32"
-  },
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build && electron-builder",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+  "build": {
+    "appId": "com.hypercaps.app",
+    "directories": {
+      "output": "dist"
+    },
+    "linux": {
+      "target": null
+    },
+    "mac": {
+      "target": null
+    },
+    "productName": "HyperCaps",
+    "win": {
+      "target": "nsis"
+    }
   },
   "dependencies": {
     "@types/uuid": "^10.0.0",
@@ -32,6 +31,7 @@
     "@typescript-eslint/parser": "^6.14.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
+    "cross-env": "^7.0.3",
     "electron": "^28.1.0",
     "electron-builder": "^24.9.1",
     "electron-devtools-installer": "^4.0.0",
@@ -45,20 +45,22 @@
     "vite-plugin-electron": "^0.15.5",
     "vite-tsconfig-paths": "^5.1.4"
   },
-  "build": {
-    "appId": "com.hypercaps.app",
-    "productName": "HyperCaps",
-    "directories": {
-      "output": "dist"
-    },
-    "win": {
-      "target": "nsis"
-    },
-    "mac": {
-      "target": null
-    },
-    "linux": {
-      "target": null
-    }
-  }
+  "engines": {
+    "node": ">=18",
+    "os": "win32"
+  },
+  "main": "dist-electron/main/main.js",
+  "name": "hypercaps",
+  "os": [
+    "win32"
+  ],
+  "private": true,
+  "scripts": {
+    "build": "tsc && vite build && electron-builder",
+    "dev": "cross-env NODE_ENV=development vite dev",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
+    "start": "cross-env NODE_ENV=development electron ."
+  },
+  "version": "0.0.1"
 }

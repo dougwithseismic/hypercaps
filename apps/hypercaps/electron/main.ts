@@ -4,6 +4,12 @@ import { KeyboardService } from "./services/keyboard";
 import { Store } from "./services/store";
 import { TrayFeature } from "./features/tray";
 
+// Immediate environment logging
+console.log("=== Environment Debug ===");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("isDev:", process.env.NODE_ENV === "development");
+console.log("======================");
+
 // Check platform - exit if not Windows
 if (process.platform !== "win32") {
   dialog.showErrorBox(
@@ -23,6 +29,8 @@ let trayFeature: TrayFeature | null = null;
 let mainWindow: BrowserWindow | null = null;
 
 const createWindow = () => {
+  console.log("Environment:", process.env.NODE_ENV);
+
   // Create the browser window.
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -30,9 +38,35 @@ const createWindow = () => {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "../preload/preload.js"),
     },
+    // Visual settings for looking glass effect
+    vibrancy: "under-window",
+    visualEffectState: "active",
+    hasShadow: true,
+    // Remove default window chrome
+    // titleBarStyle: "hidden",
+    // titleBarOverlay: false,
+    // Ensure proper window behavior
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    // Round corners on Windows 11
+    roundedCorners: true,
   });
+
+  // Set window background color after creation for transparency
+  mainWindow.setBackgroundColor("#00000000");
+
+  // Load appropriate content based on environment
+  if (process.env.NODE_ENV === "development") {
+    mainWindow.loadURL("http://localhost:5173");
+    mainWindow.webContents.openDevTools();
+  } else {
+    // In production, load the built index.html file
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+  }
 
   // Hide window instead of closing when user clicks X
   mainWindow.on("close", (event) => {
@@ -80,16 +114,16 @@ const createWindow = () => {
       "Failed to initialize keyboard service. The application may not work as expected."
     );
   }
-
-  // In development, load the Vite dev server URL
-  if (process.env.NODE_ENV === "development") {
-    mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
-  } else {
-    // In production, load the built index.html file
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
-  }
 };
+
+// Add window control handlers
+ipcMain.on("minimize-window", () => {
+  mainWindow?.minimize();
+});
+
+ipcMain.on("close-window", () => {
+  mainWindow?.hide();
+});
 
 // This method will be called when Electron has finished initialization
 app.whenReady().then(async () => {
