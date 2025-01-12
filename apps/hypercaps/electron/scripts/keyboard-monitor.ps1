@@ -113,6 +113,7 @@ public static class KeyboardMonitor {
         if (UseAlt) SendKeyDown(Keys.Alt);
         if (UseShift) SendKeyDown(Keys.ShiftKey);
         if (UseWin) SendKeyDown(Keys.LWin);
+        SendKeyDown(HyperKeyTrigger);
     }
 
     public static void SendHyperKeyUp() {
@@ -120,6 +121,7 @@ public static class KeyboardMonitor {
         if (UseShift) SendKeyUp(Keys.ShiftKey);
         if (UseAlt) SendKeyUp(Keys.Alt);
         if (UseCtrl) SendKeyUp(Keys.ControlKey);
+        SendKeyUp(HyperKeyTrigger);
     }
 }
 
@@ -166,39 +168,19 @@ public class KeyboardHook {
                 KeyboardMonitor.RemovePressedKey(key);
             }
 
-            // Always block CapsLock
-            if (key == Keys.CapsLock) {
-                if (KeyboardMonitor.IsHyperKeyEnabled) {
-                    // If HyperKey is enabled, send our modifiers
-                    if (isKeyDown) {
-                        if (KeyboardMonitor.UseCtrl) KeyboardMonitor.SendKeyDown(Keys.ControlKey);
-                        if (KeyboardMonitor.UseAlt) KeyboardMonitor.SendKeyDown(Keys.Alt);
-                        if (KeyboardMonitor.UseShift) KeyboardMonitor.SendKeyDown(Keys.ShiftKey);
-                        if (KeyboardMonitor.UseWin) KeyboardMonitor.SendKeyDown(Keys.LWin);
-                    }
-                    else if (isKeyUp) {
-                        if (KeyboardMonitor.UseWin) KeyboardMonitor.SendKeyUp(Keys.LWin);
-                        if (KeyboardMonitor.UseShift) KeyboardMonitor.SendKeyUp(Keys.ShiftKey);
-                        if (KeyboardMonitor.UseAlt) KeyboardMonitor.SendKeyUp(Keys.Alt);
-                        if (KeyboardMonitor.UseCtrl) KeyboardMonitor.SendKeyUp(Keys.ControlKey);
-                    }
-                }
-                return (IntPtr)1; // Always block CapsLock
-            }
-            // Handle other trigger keys if not using CapsLock
-            else if (KeyboardMonitor.IsHyperKeyEnabled && key == KeyboardMonitor.HyperKeyTrigger) {
+            // If this key is our HyperKey trigger
+            if (KeyboardMonitor.IsHyperKeyEnabled && key == KeyboardMonitor.HyperKeyTrigger) {
                 if (isKeyDown) {
-                    if (KeyboardMonitor.UseCtrl) KeyboardMonitor.SendKeyDown(Keys.ControlKey);
-                    if (KeyboardMonitor.UseAlt) KeyboardMonitor.SendKeyDown(Keys.Alt);
-                    if (KeyboardMonitor.UseShift) KeyboardMonitor.SendKeyDown(Keys.ShiftKey);
-                    if (KeyboardMonitor.UseWin) KeyboardMonitor.SendKeyDown(Keys.LWin);
+                    KeyboardMonitor.SendHyperKeyDown();
                 }
                 else if (isKeyUp) {
-                    if (KeyboardMonitor.UseWin) KeyboardMonitor.SendKeyUp(Keys.LWin);
-                    if (KeyboardMonitor.UseShift) KeyboardMonitor.SendKeyUp(Keys.ShiftKey);
-                    if (KeyboardMonitor.UseAlt) KeyboardMonitor.SendKeyUp(Keys.Alt);
-                    if (KeyboardMonitor.UseCtrl) KeyboardMonitor.SendKeyUp(Keys.ControlKey);
+                    KeyboardMonitor.SendHyperKeyUp();
                 }
+                return (IntPtr)1;  // Block the original key
+            }
+
+            // Always block CapsLock toggle
+            if (key == Keys.CapsLock) {
                 return (IntPtr)1;
             }
         }

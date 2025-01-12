@@ -32,7 +32,12 @@ export class KeyboardService {
   public async init(): Promise<void> {
     await this.store.load();
     const isEnabled = await this.store.getIsEnabled();
+    const hyperKeyConfig = await this.store.getHyperKeyConfig();
+
+    // Send both states to the renderer
     this.mainWindow?.webContents.send("keyboard-service-state", isEnabled);
+    this.mainWindow?.webContents.send("hyperkey-state", hyperKeyConfig);
+
     if (isEnabled) {
       await this.startListening();
     }
@@ -95,7 +100,11 @@ export class KeyboardService {
       // Convert trigger to proper case for Windows.Forms.Keys enum
       const config = {
         ...hyperKeyConfig,
-        trigger: hyperKeyConfig.trigger.toUpperCase(),
+        enabled: hyperKeyConfig.enabled,
+        trigger:
+          hyperKeyConfig.trigger.toLowerCase() === "capslock"
+            ? "CapsLock"
+            : hyperKeyConfig.trigger,
       };
 
       // Create PowerShell command that sets config and runs script

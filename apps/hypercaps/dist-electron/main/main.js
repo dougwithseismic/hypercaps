@@ -176,10 +176,12 @@ class KeyboardService {
     this.store = Store.getInstance();
   }
   async init() {
-    var _a;
+    var _a, _b;
     await this.store.load();
     const isEnabled = await this.store.getIsEnabled();
+    const hyperKeyConfig = await this.store.getHyperKeyConfig();
     (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", isEnabled);
+    (_b = this.mainWindow) == null ? void 0 : _b.webContents.send("hyperkey-state", hyperKeyConfig);
     if (isEnabled) {
       await this.startListening();
     }
@@ -225,7 +227,8 @@ class KeyboardService {
       }
       const config = {
         ...hyperKeyConfig,
-        trigger: hyperKeyConfig.trigger.toUpperCase()
+        enabled: hyperKeyConfig.enabled,
+        trigger: hyperKeyConfig.trigger.toLowerCase() === "capslock" ? "CapsLock" : hyperKeyConfig.trigger
       };
       const command = [
         // First set the config
