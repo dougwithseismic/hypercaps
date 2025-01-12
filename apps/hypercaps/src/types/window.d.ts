@@ -49,6 +49,7 @@ interface Window {
     ) => Promise<KeyMapping>;
     deleteMapping: (id: string) => Promise<void>;
     getHyperKeyConfig: () => Promise<HyperKeyConfig>;
+    updateHyperKeyConfig: (config: HyperKeyConfig) => Promise<void>;
     onHyperKeyConfigChange: (
       callback: (config: HyperKeyConfig) => void
     ) => void;

@@ -7,6 +7,7 @@ import {
   CardTitle,
 } from "../components/ui/card";
 import { KeyStateVisualizer } from "@/components/key-state-visualizer";
+import { HyperKeyConfig } from "@/components/hyperkey-config";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -27,6 +28,7 @@ function Index() {
           <CardTitle>Active Mappings</CardTitle>
         </CardHeader>
         <CardContent>
+          <HyperKeyConfig />
           <MappingList />
           <KeyStateVisualizer />
         </CardContent>
