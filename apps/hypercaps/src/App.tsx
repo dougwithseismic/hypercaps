@@ -1,144 +1,67 @@
-import { useState, useEffect } from "react";
+import React from "react";
+import { KeyboardProvider, useKeyboard } from "./contexts/KeyboardContext";
 import { MappingList } from "./components/MappingList";
 
-declare global {
-  interface Window {
-    electron: {
-      ipcRenderer: {
-        send: (channel: string, ...args: any[]) => void;
-        on: (channel: string, func: (...args: any[]) => void) => void;
-        removeListener: (
-          channel: string,
-          func: (...args: any[]) => void
-        ) => void;
-        getMappings: () => Promise<any>;
-        addMapping: (mapping: any) => Promise<any>;
-        updateMapping: (id: string, updates: any) => Promise<any>;
-        deleteMapping: (id: string) => Promise<any>;
-      };
-    };
-  }
-}
+function KeyboardStatus() {
+  const { state, toggleService } = useKeyboard();
 
-interface KeyEvent {
-  keycode: number;
-  key: string;
-  ctrlKey: boolean;
-  altKey: boolean;
-  shiftKey: boolean;
-  metaKey: boolean;
-  capsLock: boolean;
-  timestamp: number;
+  return (
+    <div className="p-4 bg-gray-800 rounded-lg shadow-lg">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-white">Keyboard Status</h2>
+        <button
+          onClick={toggleService}
+          className={`px-4 py-2 rounded-md ${
+            state.isEnabled
+              ? "bg-green-500 hover:bg-green-600"
+              : "bg-red-500 hover:bg-red-600"
+          } text-white transition-colors`}
+        >
+          {state.isEnabled ? "Enabled" : "Disabled"}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-5 gap-4 mb-4">
+        {Object.entries(state.modifiers).map(([key, value]) => (
+          <div
+            key={key}
+            className={`p-2 rounded ${
+              value ? "bg-blue-500" : "bg-gray-700"
+            } text-white text-center`}
+          >
+            {key.replace(/[A-Z]/g, (letter) => ` ${letter}`)}
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-gray-700 p-4 rounded-lg">
+        <h3 className="text-lg font-semibold text-white mb-2">Pressed Keys</h3>
+        <div className="flex flex-wrap gap-2">
+          {state.currentKeys.map((key) => (
+            <span
+              key={key}
+              className="px-3 py-1 bg-blue-500 text-white rounded-md"
+            >
+              {key}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function App() {
-  const [isListening, setIsListening] = useState(false);
-  const [lastEvent, setLastEvent] = useState<KeyEvent | null>(null);
-
-  useEffect(() => {
-    const handleKeyEvent = (event: KeyEvent) => {
-      setLastEvent(event);
-    };
-
-    window.electron.ipcRenderer.on("keyboard-event", handleKeyEvent);
-
-    return () => {
-      window.electron.ipcRenderer.removeListener(
-        "keyboard-event",
-        handleKeyEvent
-      );
-    };
-  }, []);
-
-  const toggleListening = () => {
-    const newState = !isListening;
-    setIsListening(newState);
-    window.electron.ipcRenderer.send(
-      newState ? "start-listening" : "stop-listening"
-    );
-  };
-
   return (
-    <div className="container mx-auto px-4 py-8">
-      <header className="mb-8">
-        <h1 className="text-4xl font-bold mb-2">HyperCaps</h1>
-        <p className="text-gray-400">Advanced keyboard remapping for Windows</p>
-      </header>
-
-      <main className="space-y-8">
-        <div className="bg-gray-800 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-semibold">Keyboard Listener</h2>
-            <button
-              onClick={toggleListening}
-              className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                isListening
-                  ? "bg-red-600 hover:bg-red-700"
-                  : "bg-green-600 hover:bg-green-700"
-              }`}
-            >
-              {isListening ? "Stop Listening" : "Start Listening"}
-            </button>
-          </div>
-          <div className="bg-gray-900 rounded-md p-4 font-mono">
-            {isListening ? (
-              lastEvent ? (
-                <div className="space-y-1">
-                  <p className="text-green-400">Current key states:</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div
-                      className={`p-2 rounded ${
-                        lastEvent.ctrlKey ? "bg-green-600" : "bg-gray-700"
-                      }`}
-                    >
-                      Ctrl: {lastEvent.ctrlKey ? "Pressed" : "Released"}
-                    </div>
-                    <div
-                      className={`p-2 rounded ${
-                        lastEvent.altKey ? "bg-green-600" : "bg-gray-700"
-                      }`}
-                    >
-                      Alt: {lastEvent.altKey ? "Pressed" : "Released"}
-                    </div>
-                    <div
-                      className={`p-2 rounded ${
-                        lastEvent.shiftKey ? "bg-green-600" : "bg-gray-700"
-                      }`}
-                    >
-                      Shift: {lastEvent.shiftKey ? "Pressed" : "Released"}
-                    </div>
-                    <div
-                      className={`p-2 rounded ${
-                        lastEvent.metaKey ? "bg-green-600" : "bg-gray-700"
-                      }`}
-                    >
-                      Win: {lastEvent.metaKey ? "Pressed" : "Released"}
-                    </div>
-                    <div
-                      className={`p-2 rounded ${
-                        lastEvent.capsLock ? "bg-yellow-600" : "bg-gray-700"
-                      }`}
-                    >
-                      CapsLock: {lastEvent.capsLock ? "ON" : "OFF"}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-green-400">
-                  Listening for keyboard events...
-                </p>
-              )
-            ) : (
-              <p className="text-gray-500">Click Start Listening to begin</p>
-            )}
-          </div>
-        </div>
-
-        <div className="bg-gray-800 rounded-lg p-6">
+    <KeyboardProvider>
+      <div className="min-h-screen bg-gray-900 text-white p-8">
+        <h1 className="text-3xl font-bold mb-8">HyperCaps</h1>
+        <div className="space-y-8">
+          <KeyboardStatus />
           <MappingList />
         </div>
-      </main>
-    </div>
+      </div>
+    </KeyboardProvider>
   );
 }
 

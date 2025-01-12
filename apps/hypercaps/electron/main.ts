@@ -1,6 +1,15 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  Tray,
+  Menu,
+  nativeImage,
+} from "electron";
 import path from "path";
 import { KeyboardService } from "./services/keyboard";
+import { Store } from "./services/store";
 
 // Check platform - exit if not Windows
 if (process.platform !== "win32") {
@@ -17,10 +26,68 @@ if (require("electron-squirrel-startup")) {
 }
 
 let keyboardService: KeyboardService;
+let tray: Tray | null = null;
+let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
+
+const createTray = async () => {
+  // Create tray icon
+  const icon = nativeImage
+    .createFromPath(path.join(__dirname, "../src/assets/tray-icon.png"))
+    .resize({ width: 16, height: 16 });
+
+  tray = new Tray(icon);
+  tray.setToolTip("HyperCaps");
+
+  // Get initial state from store
+  const store = Store.getInstance();
+  const isEnabled = await store.getIsEnabled();
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "Show HyperCaps",
+      click: () => {
+        mainWindow?.show();
+      },
+    },
+    {
+      label: "Enable",
+      type: "checkbox",
+      checked: isEnabled,
+      click: (menuItem) => {
+        if (menuItem.checked) {
+          keyboardService?.startListening();
+        } else {
+          keyboardService?.stopListening();
+        }
+        // Notify renderer about state change
+        mainWindow?.webContents.send(
+          "keyboard-service-state",
+          menuItem.checked
+        );
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  // Double click shows the window
+  tray.on("double-click", () => {
+    mainWindow?.show();
+  });
+};
 
 const createWindow = () => {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
@@ -30,10 +97,20 @@ const createWindow = () => {
     },
   });
 
+  // Hide window instead of closing when user clicks X
+  mainWindow.on("close", (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+      return false;
+    }
+  });
+
   // Initialize keyboard service
   try {
     keyboardService = new KeyboardService();
     keyboardService.setMainWindow(mainWindow);
+    keyboardService.init(); // Initialize and load state
 
     // Setup IPC handlers
     ipcMain.on("start-listening", () => {
@@ -60,23 +137,6 @@ const createWindow = () => {
     ipcMain.handle("delete-mapping", (event, id) => {
       return keyboardService.deleteMapping(id);
     });
-
-    const handleKeyboardOutput = (data: string) => {
-      try {
-        const state = JSON.parse(data);
-        mainWindow?.webContents.send("keyboard-event", {
-          ctrlKey: state.ctrl,
-          altKey: state.alt,
-          shiftKey: state.shift,
-          metaKey: state.win,
-          capsLock: state.caps,
-          pressedKeys: state.pressedKeys || [],
-          timestamp: Date.now(),
-        });
-      } catch (error) {
-        console.error("Error parsing keyboard state:", error);
-      }
-    };
   } catch (error) {
     dialog.showErrorBox(
       "Keyboard Service Error",
@@ -94,9 +154,12 @@ const createWindow = () => {
   }
 };
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-app.whenReady().then(createWindow);
+// This method will be called when Electron has finished initialization
+app.whenReady().then(async () => {
+  await Store.getInstance().load(); // Load state before creating window
+  createWindow();
+  createTray();
+});
 
 // Quit when all windows are closed.
 app.on("window-all-closed", () => {
