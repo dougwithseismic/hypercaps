@@ -1,11 +1,16 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { MappingList } from '../components/mapping-list'
-import { Settings } from '../components/settings'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { createLazyFileRoute } from "@tanstack/react-router";
+import { MappingList } from "../components/mapping-list";
+import { Settings } from "../components/settings";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
 
-export const Route = createFileRoute('/')({
+export const Route = createLazyFileRoute("/")({
   component: Index,
-})
+});
 
 function Index() {
   return (
@@ -37,5 +42,5 @@ function Index() {
         </Card>
       </div>
     </div>
-  )
+  );
 }

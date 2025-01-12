@@ -28,7 +28,7 @@ let keyboardService: KeyboardService;
 let trayFeature: TrayFeature | null = null;
 let mainWindow: BrowserWindow | null = null;
 
-const createWindow = () => {
+const createWindow = async () => {
   console.log("Environment:", process.env.NODE_ENV);
 
   // Create the browser window.
@@ -51,29 +51,11 @@ const createWindow = () => {
     backgroundColor: "#00000000",
   });
 
-  // Load appropriate content based on environment
-  if (process.env.NODE_ENV === "development") {
-    mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
-  } else {
-    // In production, load the built index.html file
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
-  }
-
-  // Hide window instead of closing when user clicks X
-  mainWindow.on("close", (event) => {
-    if (!(mainWindow as any).isQuitting) {
-      event.preventDefault();
-      mainWindow?.hide();
-      return false;
-    }
-  });
-
   // Initialize keyboard service
   try {
     keyboardService = new KeyboardService();
     keyboardService.setMainWindow(mainWindow);
-    keyboardService.init(); // Initialize and load state
+    await keyboardService.init();
 
     // Setup IPC handlers
     ipcMain.on("start-listening", () => {
@@ -106,6 +88,24 @@ const createWindow = () => {
       "Failed to initialize keyboard service. The application may not work as expected."
     );
   }
+
+  // Load appropriate content based on environment
+  if (process.env.NODE_ENV === "development") {
+    mainWindow.loadURL("http://localhost:5173");
+    mainWindow.webContents.openDevTools();
+  } else {
+    // In production, load the built index.html file
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+  }
+
+  // Hide window instead of closing when user clicks X
+  mainWindow.on("close", (event) => {
+    if (!(mainWindow as any).isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+      return false;
+    }
+  });
 };
 
 // Add window control handlers
@@ -122,15 +122,9 @@ app.whenReady().then(async () => {
   const store = Store.getInstance();
   await store.load(); // Load state before creating window
 
-  // Initialize startup state
-  const enableOnStartup = await store.getEnableOnStartup();
-  if (enableOnStartup) {
-    keyboardService?.startListening();
-  }
+  await createWindow();
 
-  createWindow();
-
-  // Initialize tray feature
+  // Initialize tray feature after window is created
   if (mainWindow && keyboardService) {
     trayFeature = new TrayFeature(mainWindow, keyboardService);
     await trayFeature.initialize();

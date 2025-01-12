@@ -42,11 +42,18 @@ export class KeyboardService {
   }
 
   public async startListening(): Promise<void> {
+    console.log("[KeyboardService] startListening() called");
     if (this.keyboardProcess || this.isStarting) {
+      console.log(
+        "[KeyboardService] Process already running or starting, returning early"
+      );
       return;
     }
 
     this.isStarting = true;
+    console.log(
+      "[KeyboardService] Setting isStarting flag and sending loading state"
+    );
     this.mainWindow?.webContents.send("keyboard-service-loading", true);
 
     const scriptPath =
@@ -54,9 +61,11 @@ export class KeyboardService {
         ? path.resolve(process.cwd(), "electron/scripts/keyboard-monitor.ps1")
         : path.resolve(__dirname, "../scripts/keyboard-monitor.ps1");
 
-    console.log("Starting keyboard monitor with script:", scriptPath);
+    console.log("[KeyboardService] Using script path:", scriptPath);
+    console.log("[KeyboardService] Current environment:", process.env.NODE_ENV);
 
     try {
+      console.log("[KeyboardService] Spawning PowerShell process");
       this.keyboardProcess = spawn("powershell.exe", [
         "-ExecutionPolicy",
         "Bypass",
@@ -64,24 +73,39 @@ export class KeyboardService {
         scriptPath,
       ]);
 
-      // Set a timeout for startup
+      console.log("[KeyboardService] Setting startup timeout");
       this.startupTimeout = setTimeout(() => {
         if (this.isStarting) {
-          this.handleStartupFailure(
-            "Keyboard monitor failed to start within timeout"
+          console.warn(
+            "[KeyboardService] Initial startup timeout reached (10s)"
           );
+          setTimeout(() => {
+            if (this.isStarting) {
+              console.error(
+                "[KeyboardService] Extended startup timeout reached (15s total)"
+              );
+              this.handleStartupFailure(
+                "Keyboard monitor failed to start within extended timeout"
+              );
+            }
+          }, 5000);
         }
-      }, 5000); // 5 second timeout
+      }, 10000);
 
-      // Wait for first data or error
+      console.log("[KeyboardService] Creating startup promise");
       const startupPromise = new Promise<void>((resolve, reject) => {
         const onFirstData = (data: Buffer) => {
+          console.log(
+            "[KeyboardService] Received first data:",
+            data.toString().trim()
+          );
           this.clearStartupState();
           this.handleKeyboardOutput(data);
           resolve();
         };
 
         const onStartupError = (error: Buffer) => {
+          console.error("[KeyboardService] Startup error:", error.toString());
           this.clearStartupState();
           reject(new Error(error.toString()));
         };
@@ -89,8 +113,11 @@ export class KeyboardService {
         this.keyboardProcess?.stdout?.once("data", onFirstData);
         this.keyboardProcess?.stderr?.once("data", onStartupError);
 
-        // Clean up startup listeners if process exits before first data
         this.keyboardProcess?.once("close", (code) => {
+          console.log(
+            "[KeyboardService] Process closed during startup with code:",
+            code
+          );
           this.keyboardProcess?.stdout?.removeListener("data", onFirstData);
           this.keyboardProcess?.stderr?.removeListener("data", onStartupError);
           if (this.isStarting) {
@@ -101,24 +128,31 @@ export class KeyboardService {
         });
       });
 
+      console.log("[KeyboardService] Awaiting startup promise");
       await startupPromise;
 
-      // Setup normal operation listeners
-      this.keyboardProcess.stdout?.on("data", this.handleKeyboardOutput);
+      console.log("[KeyboardService] Setting up operation listeners");
+      this.keyboardProcess.stdout?.on("data", (data) => {
+        console.log("[KeyboardService] Received data:", data.toString().trim());
+        this.handleKeyboardOutput(data);
+      });
+
       this.keyboardProcess.stderr?.on("data", (data) => {
-        console.error("Keyboard monitor error:", data.toString());
+        console.error("[KeyboardService] Runtime error:", data.toString());
       });
 
       this.keyboardProcess.on("close", (code) => {
-        console.log("Keyboard monitor process exited with code", code);
+        console.log("[KeyboardService] Process closed with code:", code);
         this.clearStartupState();
         this.keyboardProcess = null;
         this.mainWindow?.webContents.send("keyboard-service-state", false);
       });
 
+      console.log("[KeyboardService] Updating store and sending success state");
       await this.store.setIsEnabled(true);
       this.mainWindow?.webContents.send("keyboard-service-state", true);
     } catch (error) {
+      console.error("[KeyboardService] Startup error:", error);
       this.handleStartupFailure(
         error instanceof Error ? error.message : "Unknown error during startup"
       );

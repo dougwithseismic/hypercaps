@@ -145,35 +145,61 @@ class KeyboardService {
   }
   async startListening() {
     var _a, _b, _c, _d;
+    console.log("[KeyboardService] startListening() called");
     if (this.keyboardProcess || this.isStarting) {
+      console.log(
+        "[KeyboardService] Process already running or starting, returning early"
+      );
       return;
     }
     this.isStarting = true;
+    console.log(
+      "[KeyboardService] Setting isStarting flag and sending loading state"
+    );
     (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-loading", true);
     const scriptPath = process.env.NODE_ENV === "development" ? path.resolve(process.cwd(), "electron/scripts/keyboard-monitor.ps1") : path.resolve(__dirname, "../scripts/keyboard-monitor.ps1");
-    console.log("Starting keyboard monitor with script:", scriptPath);
+    console.log("[KeyboardService] Using script path:", scriptPath);
+    console.log("[KeyboardService] Current environment:", process.env.NODE_ENV);
     try {
+      console.log("[KeyboardService] Spawning PowerShell process");
       this.keyboardProcess = child_process.spawn("powershell.exe", [
         "-ExecutionPolicy",
         "Bypass",
         "-File",
         scriptPath
       ]);
+      console.log("[KeyboardService] Setting startup timeout");
       this.startupTimeout = setTimeout(() => {
         if (this.isStarting) {
-          this.handleStartupFailure(
-            "Keyboard monitor failed to start within timeout"
+          console.warn(
+            "[KeyboardService] Initial startup timeout reached (10s)"
           );
+          setTimeout(() => {
+            if (this.isStarting) {
+              console.error(
+                "[KeyboardService] Extended startup timeout reached (15s total)"
+              );
+              this.handleStartupFailure(
+                "Keyboard monitor failed to start within extended timeout"
+              );
+            }
+          }, 5e3);
         }
-      }, 5e3);
+      }, 1e4);
+      console.log("[KeyboardService] Creating startup promise");
       const startupPromise = new Promise((resolve, reject) => {
         var _a2, _b2, _c2, _d2, _e;
         const onFirstData = (data) => {
+          console.log(
+            "[KeyboardService] Received first data:",
+            data.toString().trim()
+          );
           this.clearStartupState();
           this.handleKeyboardOutput(data);
           resolve();
         };
         const onStartupError = (error) => {
+          console.error("[KeyboardService] Startup error:", error.toString());
           this.clearStartupState();
           reject(new Error(error.toString()));
         };
@@ -181,6 +207,10 @@ class KeyboardService {
         (_d2 = (_c2 = this.keyboardProcess) == null ? void 0 : _c2.stderr) == null ? void 0 : _d2.once("data", onStartupError);
         (_e = this.keyboardProcess) == null ? void 0 : _e.once("close", (code) => {
           var _a3, _b3, _c3, _d3;
+          console.log(
+            "[KeyboardService] Process closed during startup with code:",
+            code
+          );
           (_b3 = (_a3 = this.keyboardProcess) == null ? void 0 : _a3.stdout) == null ? void 0 : _b3.removeListener("data", onFirstData);
           (_d3 = (_c3 = this.keyboardProcess) == null ? void 0 : _c3.stderr) == null ? void 0 : _d3.removeListener("data", onStartupError);
           if (this.isStarting) {
@@ -190,21 +220,28 @@ class KeyboardService {
           }
         });
       });
+      console.log("[KeyboardService] Awaiting startup promise");
       await startupPromise;
-      (_b = this.keyboardProcess.stdout) == null ? void 0 : _b.on("data", this.handleKeyboardOutput);
+      console.log("[KeyboardService] Setting up operation listeners");
+      (_b = this.keyboardProcess.stdout) == null ? void 0 : _b.on("data", (data) => {
+        console.log("[KeyboardService] Received data:", data.toString().trim());
+        this.handleKeyboardOutput(data);
+      });
       (_c = this.keyboardProcess.stderr) == null ? void 0 : _c.on("data", (data) => {
-        console.error("Keyboard monitor error:", data.toString());
+        console.error("[KeyboardService] Runtime error:", data.toString());
       });
       this.keyboardProcess.on("close", (code) => {
         var _a2;
-        console.log("Keyboard monitor process exited with code", code);
+        console.log("[KeyboardService] Process closed with code:", code);
         this.clearStartupState();
         this.keyboardProcess = null;
         (_a2 = this.mainWindow) == null ? void 0 : _a2.webContents.send("keyboard-service-state", false);
       });
+      console.log("[KeyboardService] Updating store and sending success state");
       await this.store.setIsEnabled(true);
       (_d = this.mainWindow) == null ? void 0 : _d.webContents.send("keyboard-service-state", true);
     } catch (error) {
+      console.error("[KeyboardService] Startup error:", error);
       this.handleStartupFailure(
         error instanceof Error ? error.message : "Unknown error during startup"
       );
@@ -407,7 +444,7 @@ if (require("electron-squirrel-startup")) {
 let keyboardService;
 let trayFeature = null;
 let mainWindow = null;
-const createWindow = () => {
+const createWindow = async () => {
   console.log("Environment:", process.env.NODE_ENV);
   mainWindow = new electron.BrowserWindow({
     width: 1200,
@@ -427,23 +464,10 @@ const createWindow = () => {
     darkTheme: true,
     backgroundColor: "#00000000"
   });
-  if (process.env.NODE_ENV === "development") {
-    mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
-  }
-  mainWindow.on("close", (event) => {
-    if (!mainWindow.isQuitting) {
-      event.preventDefault();
-      mainWindow == null ? void 0 : mainWindow.hide();
-      return false;
-    }
-  });
   try {
     keyboardService = new KeyboardService();
     keyboardService.setMainWindow(mainWindow);
-    keyboardService.init();
+    await keyboardService.init();
     electron.ipcMain.on("start-listening", () => {
       keyboardService.startListening();
     });
@@ -468,6 +492,19 @@ const createWindow = () => {
       "Failed to initialize keyboard service. The application may not work as expected."
     );
   }
+  if (process.env.NODE_ENV === "development") {
+    mainWindow.loadURL("http://localhost:5173");
+    mainWindow.webContents.openDevTools();
+  } else {
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+  }
+  mainWindow.on("close", (event) => {
+    if (!mainWindow.isQuitting) {
+      event.preventDefault();
+      mainWindow == null ? void 0 : mainWindow.hide();
+      return false;
+    }
+  });
 };
 electron.ipcMain.on("minimize-window", () => {
   mainWindow == null ? void 0 : mainWindow.minimize();
@@ -478,11 +515,7 @@ electron.ipcMain.on("close-window", () => {
 electron.app.whenReady().then(async () => {
   const store = Store.getInstance();
   await store.load();
-  const enableOnStartup = await store.getEnableOnStartup();
-  if (enableOnStartup) {
-    keyboardService == null ? void 0 : keyboardService.startListening();
-  }
-  createWindow();
+  await createWindow();
   if (mainWindow && keyboardService) {
     trayFeature = new TrayFeature(mainWindow, keyboardService);
     await trayFeature.initialize();
