@@ -589,6 +589,15 @@ const createWindow = async () => {
   electron.ipcMain.handle("delete-mapping", (event, id) => {
     return keyboardService == null ? void 0 : keyboardService.deleteMapping(id);
   });
+  electron.ipcMain.handle("get-hyperkey-config", async () => {
+    const store = Store.getInstance();
+    return store.getHyperKeyConfig();
+  });
+  electron.ipcMain.handle("set-hyperkey-config", async (event, config) => {
+    const store = Store.getInstance();
+    await store.setHyperKeyConfig(config);
+    await (keyboardService == null ? void 0 : keyboardService.restartWithConfig(config));
+  });
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
   } else {

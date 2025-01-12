@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
-import { useKeyboard } from "../contexts/keyboard-context";
+import React from "react";
 import { Badge } from "./ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { cn } from "../lib/utils";
+import { useKeyboardStore } from "../store/keyboard-store";
 
 // Key name mappings to match Windows.Forms.Keys enum names
 const KEY_NAME_MAPPINGS: Record<string, string> = {
@@ -34,7 +34,16 @@ interface ModifierDisplayProps {
     hyperKeyActive: boolean;
   };
   currentKeys: string[];
-  hyperKeyConfig?: { trigger: string };
+  hyperKeyConfig: {
+    enabled: boolean;
+    trigger: string;
+    modifiers: {
+      ctrl?: boolean;
+      alt?: boolean;
+      shift?: boolean;
+      win?: boolean;
+    };
+  } | null;
   className?: string;
 }
 
@@ -78,7 +87,16 @@ export function ModifierDisplay({
 
 interface KeyDisplayProps {
   currentKeys: string[];
-  hyperKeyConfig?: { trigger: string };
+  hyperKeyConfig: {
+    enabled: boolean;
+    trigger: string;
+    modifiers: {
+      ctrl?: boolean;
+      alt?: boolean;
+      shift?: boolean;
+      win?: boolean;
+    };
+  } | null;
   modifiers: {
     ctrlKey: boolean;
     altKey: boolean;
@@ -182,22 +200,7 @@ export function KeyDisplay({
 }
 
 export function KeyStateVisualizer() {
-  const { state } = useKeyboard();
-  const { modifiers, currentKeys } = state;
-  const [hyperKeyConfig, setHyperKeyConfig] = useState<{ trigger: string }>();
-
-  // Load HyperKey config
-  useEffect(() => {
-    const loadConfig = async () => {
-      try {
-        const config = await window.api.getHyperKeyConfig();
-        setHyperKeyConfig(config);
-      } catch (err) {
-        console.error("Failed to load HyperKey config:", err);
-      }
-    };
-    loadConfig();
-  }, []);
+  const { modifiers, currentKeys, hyperKeyConfig } = useKeyboardStore();
 
   return (
     <Card className="bg-background/50 backdrop-blur-md border-border/50">

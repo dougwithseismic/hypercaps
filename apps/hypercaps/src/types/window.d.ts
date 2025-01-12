@@ -49,7 +49,7 @@ interface Window {
     ) => Promise<KeyMapping>;
     deleteMapping: (id: string) => Promise<void>;
     getHyperKeyConfig: () => Promise<HyperKeyConfig>;
-    updateHyperKeyConfig: (config: HyperKeyConfig) => Promise<void>;
+    setHyperKeyConfig: (config: HyperKeyConfig) => Promise<void>;
     onHyperKeyConfigChange: (
       callback: (config: HyperKeyConfig) => void
     ) => void;
@@ -61,5 +61,9 @@ interface Window {
     }>;
     setStartupOnBoot: (enabled: boolean) => Promise<void>;
     setEnableOnStartup: (enabled: boolean) => Promise<void>;
+  };
+  electron: {
+    minimize: () => void;
+    close: () => void;
   };
 }

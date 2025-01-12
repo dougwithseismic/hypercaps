@@ -19,6 +19,9 @@ electron.contextBridge.exposeInMainWorld("api", {
   addMapping: (mapping) => electron.ipcRenderer.invoke("add-mapping", mapping),
   updateMapping: (id, updates) => electron.ipcRenderer.invoke("update-mapping", id, updates),
   deleteMapping: (id) => electron.ipcRenderer.invoke("delete-mapping", id),
+  // HyperKey config
+  getHyperKeyConfig: () => electron.ipcRenderer.invoke("get-hyperkey-config"),
+  setHyperKeyConfig: (config) => electron.ipcRenderer.invoke("set-hyperkey-config", config),
   // Startup settings
   getStartupSettings: () => electron.ipcRenderer.invoke("get-startup-settings"),
   setStartupOnBoot: (enabled) => electron.ipcRenderer.invoke("set-startup-on-boot", enabled),

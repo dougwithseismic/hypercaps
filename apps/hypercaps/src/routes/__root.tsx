@@ -1,29 +1,29 @@
 import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/router-devtools";
 import { ShellLayout } from "../components/shell-layout";
-import { KeyboardProvider, useKeyboard } from "../contexts/keyboard-context";
 import { Button } from "../components/ui/button";
 import { Keyboard, Settings as SettingsIcon } from "lucide-react";
+import { useKeyboardStore } from "@/store/keyboard-store";
 
 function RootComponent() {
-  const { state } = useKeyboard();
-  const statusText = state.isEnabled
+  const isEnabled = useKeyboardStore((state) => state.isEnabled);
+  const statusText = isEnabled
     ? "Keyboard Service: Active"
     : "Keyboard Service: Inactive";
 
   return (
     <ShellLayout statusText={statusText}>
       <div className="flex h-full">
-        <nav className="border-r p-4 space-y-2 w-48">
-          <Button asChild variant="ghost" className="w-full justify-start">
-            <Link to="/mappings">
-              <Keyboard className="mr-2 h-4 w-4" />
+        <nav className="w-48 p-4 space-y-2 border-r">
+          <Button asChild variant="ghost" className="justify-start w-full">
+            <Link to="/">
+              <Keyboard className="w-4 h-4 mr-2" />
               Mappings
             </Link>
           </Button>
-          <Button asChild variant="ghost" className="w-full justify-start">
+          <Button asChild variant="ghost" className="justify-start w-full">
             <Link to="/settings">
-              <SettingsIcon className="mr-2 h-4 w-4" />
+              <SettingsIcon className="w-4 h-4 mr-2" />
               Settings
             </Link>
           </Button>
@@ -38,9 +38,5 @@ function RootComponent() {
 }
 
 export const Route = createRootRoute({
-  component: () => (
-    <KeyboardProvider>
-      <RootComponent />
-    </KeyboardProvider>
-  ),
+  component: () => <RootComponent />,
 });

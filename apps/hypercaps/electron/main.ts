@@ -77,6 +77,18 @@ const createWindow = async () => {
     return keyboardService?.deleteMapping(id);
   });
 
+  // HyperKey config handlers
+  ipcMain.handle("get-hyperkey-config", async () => {
+    const store = Store.getInstance();
+    return store.getHyperKeyConfig();
+  });
+
+  ipcMain.handle("set-hyperkey-config", async (event, config) => {
+    const store = Store.getInstance();
+    await store.setHyperKeyConfig(config);
+    await keyboardService?.restartWithConfig(config);
+  });
+
   // Load appropriate content based on environment
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");

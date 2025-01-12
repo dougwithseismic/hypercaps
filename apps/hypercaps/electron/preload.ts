@@ -22,6 +22,11 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("update-mapping", id, updates),
   deleteMapping: (id: string) => ipcRenderer.invoke("delete-mapping", id),
 
+  // HyperKey config
+  getHyperKeyConfig: () => ipcRenderer.invoke("get-hyperkey-config"),
+  setHyperKeyConfig: (config: any) =>
+    ipcRenderer.invoke("set-hyperkey-config", config),
+
   // Startup settings
   getStartupSettings: () => ipcRenderer.invoke("get-startup-settings"),
   setStartupOnBoot: (enabled: boolean) =>
