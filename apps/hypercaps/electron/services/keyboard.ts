@@ -49,6 +49,7 @@ export class KeyboardService {
       enabled: isEnabled,
     });
 
+    console.log("[KeyboardService] isEnabled:", isEnabled);
     // Only start if service is enabled
     if (isEnabled) {
       await this.startListening();

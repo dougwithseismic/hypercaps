@@ -189,6 +189,7 @@ class KeyboardService {
       ...hyperKeyConfig,
       enabled: isEnabled
     });
+    console.log("[KeyboardService] isEnabled:", isEnabled);
     if (isEnabled) {
       await this.startListening();
     }
