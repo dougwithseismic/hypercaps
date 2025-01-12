@@ -103,10 +103,11 @@ class KeyboardService {
     this.store = Store.getInstance();
   }
   async init() {
+    var _a;
     await this.store.load();
     const isEnabled = await this.store.getIsEnabled();
     if (isEnabled) {
-      this.startListening();
+      (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", true);
     }
   }
   setMainWindow(window) {
@@ -143,7 +144,11 @@ class KeyboardService {
     }
   }
   stopListening() {
+    var _a, _b;
     if (this.keyboardProcess) {
+      (_a = this.keyboardProcess.stdout) == null ? void 0 : _a.removeAllListeners();
+      (_b = this.keyboardProcess.stderr) == null ? void 0 : _b.removeAllListeners();
+      this.keyboardProcess.removeAllListeners();
       this.keyboardProcess.kill();
       this.keyboardProcess = null;
     }
@@ -163,6 +168,7 @@ class KeyboardService {
   }
   dispose() {
     this.stopListening();
+    this.mainWindow = null;
   }
 }
 if (process.platform !== "win32") {
@@ -310,17 +316,23 @@ electron.app.whenReady().then(async () => {
   createWindow();
   createTray();
 });
-electron.app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    if (keyboardService) {
-      keyboardService.dispose();
-    }
-    electron.globalShortcut.unregisterAll();
-    electron.app.quit();
+electron.app.on("before-quit", () => {
+  isQuitting = true;
+  if (keyboardService) {
+    keyboardService.dispose();
   }
+  electron.globalShortcut.unregisterAll();
 });
 electron.app.on("will-quit", () => {
-  electron.globalShortcut.unregisterAll();
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+});
+electron.app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    electron.app.quit();
+  }
 });
 electron.app.on("activate", () => {
   if (electron.BrowserWindow.getAllWindows().length === 0) {

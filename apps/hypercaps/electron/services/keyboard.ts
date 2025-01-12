@@ -30,7 +30,7 @@ export class KeyboardService {
     await this.store.load();
     const isEnabled = await this.store.getIsEnabled();
     if (isEnabled) {
-      this.startListening();
+      this.mainWindow?.webContents.send("keyboard-service-state", true);
     }
   }
 
@@ -79,6 +79,10 @@ export class KeyboardService {
 
   public stopListening(): void {
     if (this.keyboardProcess) {
+      this.keyboardProcess.stdout?.removeAllListeners();
+      this.keyboardProcess.stderr?.removeAllListeners();
+      this.keyboardProcess.removeAllListeners();
+
       this.keyboardProcess.kill();
       this.keyboardProcess = null;
     }
@@ -125,5 +129,6 @@ export class KeyboardService {
 
   public dispose(): void {
     this.stopListening();
+    this.mainWindow = null;
   }
 }

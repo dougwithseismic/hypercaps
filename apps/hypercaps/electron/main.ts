@@ -198,22 +198,27 @@ app.whenReady().then(async () => {
   createTray();
 });
 
-// Quit when all windows are closed.
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    if (keyboardService) {
-      keyboardService.dispose();
-    }
-    // Unregister all shortcuts
-    globalShortcut.unregisterAll();
-    app.quit();
+// Add proper cleanup
+app.on("before-quit", () => {
+  isQuitting = true;
+  if (keyboardService) {
+    keyboardService.dispose();
+  }
+  globalShortcut.unregisterAll();
+});
+
+app.on("will-quit", () => {
+  if (tray) {
+    tray.destroy();
+    tray = null;
   }
 });
 
-// Clean up before quit
-app.on("will-quit", () => {
-  // Unregister all shortcuts
-  globalShortcut.unregisterAll();
+// Quit when all windows are closed, except on macOS
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
 });
 
 app.on("activate", () => {
