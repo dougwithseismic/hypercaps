@@ -28,7 +28,7 @@ function Index() {
           <CardTitle>Active Mappings</CardTitle>
         </CardHeader>
         <CardContent>
-          <HyperKeyConfig />
+          <HyperKeyConfig singleKeyMode={false} />
           <MappingList />
           <KeyStateVisualizer />
         </CardContent>

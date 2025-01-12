@@ -102,16 +102,9 @@ public static class KeyboardMonitor {
 
     private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
 
-    // Map Windows Forms Keys to their display names
+    // Map Windows Forms Keys to their display names - only special cases
     private static Dictionary<Keys, string> keyDisplayNames = new Dictionary<Keys, string>() {
-        { Keys.LMenu, "Alt" },
-        { Keys.RMenu, "Alt" },
-        { Keys.LControlKey, "Ctrl" },
-        { Keys.RControlKey, "Ctrl" },
-        { Keys.LShiftKey, "Shift" },
-        { Keys.RShiftKey, "Shift" },
-        { Keys.LWin, "Win" },
-        { Keys.RWin, "Win" }
+        { Keys.Capital, "CapsLock" }
     };
 
     public static HashSet<Keys> GetPressedKeys() {

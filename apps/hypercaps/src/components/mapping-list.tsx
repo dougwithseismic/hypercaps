@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -34,6 +34,51 @@ export function MappingList() {
   const [error, setError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [editingMapping, setEditingMapping] = useState<KeyMapping | null>(null);
+  const [keyBuffer, setKeyBuffer] = useState<string[]>([]);
+  const [isBufferCompleted, setIsBufferCompleted] = useState(false);
+  const timeoutRef = useRef<number>();
+
+  // Update key buffer when currentKeys change
+  useEffect(() => {
+    if (!isCapturing) return;
+
+    // Clear existing timeout
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+    }
+
+    // If no keys are pressed
+    if (currentKeys.length === 0) {
+      // If we had keys in buffer, mark it as completed
+      if (keyBuffer.length > 0 && !isBufferCompleted) {
+        setIsBufferCompleted(true);
+      }
+      return;
+    }
+
+    // If buffer is completed and new keys are pressed, start fresh
+    if (isBufferCompleted && currentKeys.length > 0) {
+      setKeyBuffer(currentKeys);
+      setIsBufferCompleted(false);
+      return;
+    }
+
+    // If buffer is open, update it with current keys
+    if (!isBufferCompleted) {
+      setKeyBuffer(currentKeys);
+    }
+  }, [currentKeys, isCapturing, keyBuffer.length, isBufferCompleted]);
+
+  // Clear buffer when stopping capture
+  useEffect(() => {
+    if (!isCapturing) {
+      setKeyBuffer([]);
+      setIsBufferCompleted(false);
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    }
+  }, [isCapturing]);
 
   useEffect(() => {
     loadMappings();
@@ -54,10 +99,10 @@ export function MappingList() {
   };
 
   const handleAddMapping = async () => {
-    if (currentKeys.length === 0) return;
+    if (keyBuffer.length === 0) return;
 
     const newMapping: Omit<KeyMapping, "id"> = {
-      sourceKey: currentKeys[0],
+      sourceKey: keyBuffer.join("+"),
       targetModifiers: {
         ctrl: modifiers.ctrlKey,
         alt: modifiers.altKey,
@@ -71,6 +116,7 @@ export function MappingList() {
       const mapping = await window.api.addMapping(newMapping);
       setMappings((prev) => [...prev, mapping]);
       setIsCapturing(false);
+      setKeyBuffer([]);
     } catch (err) {
       console.error("Failed to add mapping:", err);
     }
@@ -182,22 +228,50 @@ export function MappingList() {
       <Dialog open={isCapturing} onOpenChange={setIsCapturing}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Press Source Key</DialogTitle>
+            <DialogTitle>Press Key Combination</DialogTitle>
             <DialogDescription>
-              Press the key you want to create a mapping for.
+              Press the keys you want to create a mapping for. The keys will be
+              buffered together.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="flex flex-col gap-2">
+              <div className="text-sm font-medium">Current Buffer:</div>
+              <div className="flex flex-wrap gap-2">
+                {keyBuffer.length > 0 ? (
+                  keyBuffer.map((key, index) => (
+                    <Badge key={index} variant="secondary">
+                      {key}
+                    </Badge>
+                  ))
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    No keys pressed yet
+                  </div>
+                )}
+              </div>
+            </div>
             <KeyDisplay
               currentKeys={currentKeys}
               hyperKeyConfig={hyperKeyConfig}
               modifiers={modifiers}
             />
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setIsCapturing(false)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setIsCapturing(false);
+                  setKeyBuffer([]);
+                }}
+              >
                 Cancel
               </Button>
-              <Button onClick={handleAddMapping}>Add Mapping</Button>
+              <Button
+                onClick={handleAddMapping}
+                disabled={keyBuffer.length === 0}
+              >
+                Add Mapping
+              </Button>
             </div>
           </div>
         </DialogContent>

@@ -14,6 +14,10 @@ import { Label } from "./ui/label";
 import { Switch } from "./ui/switch";
 import { useKeyboardStore } from "../store/keyboard-store";
 
+interface HyperKeyConfigProps {
+  singleKeyMode?: boolean;
+}
+
 interface HyperKeyConfig {
   enabled: boolean;
   trigger: string;
@@ -25,28 +29,27 @@ interface HyperKeyConfig {
   };
 }
 
+interface BufferedKeys {
+  trigger: string | null;
+  modifiers: {
+    ctrl: boolean;
+    alt: boolean;
+    shift: boolean;
+    win: boolean;
+  };
+}
+
 // Key name mappings to match Windows.Forms.Keys enum names
 const KEY_NAME_MAPPINGS: Record<string, string> = {
   Capital: "CapsLock",
-  Menu: "Alt",
-  ControlKey: "Control",
-  ShiftKey: "Shift",
-  LMenu: "Alt",
-  RMenu: "Alt",
-  LControlKey: "Control",
-  RControlKey: "Control",
-  LShiftKey: "Shift",
-  RShiftKey: "Shift",
-  LWin: "Win",
-  RWin: "Win",
 };
 
-// Helper to normalize key names
+// Helper to normalize key names - only handle special cases
 const normalizeKeyName = (key: string): string => {
   return KEY_NAME_MAPPINGS[key] || key;
 };
 
-export function HyperKeyConfig() {
+export function HyperKeyConfig({ singleKeyMode = false }: HyperKeyConfigProps) {
   const {
     isEnabled,
     isLoading,
@@ -56,18 +59,84 @@ export function HyperKeyConfig() {
     updateHyperKeyConfig,
   } = useKeyboardStore();
   const [isCapturingTrigger, setIsCapturingTrigger] = useState(false);
+  const [bufferedKeys, setBufferedKeys] = useState<BufferedKeys>({
+    trigger: null,
+    modifiers: {
+      ctrl: false,
+      alt: false,
+      shift: false,
+      win: false,
+    },
+  });
+
+  // Update buffered keys when currentKeys changes during capture
+  useEffect(() => {
+    if (!isCapturingTrigger) return;
+
+    if (singleKeyMode) {
+      // In single key mode, just take the last pressed key
+      const lastKey = currentKeys[currentKeys.length - 1];
+      if (lastKey) {
+        setBufferedKeys({
+          trigger: lastKey,
+          modifiers: {
+            ctrl: false,
+            alt: false,
+            shift: false,
+            win: false,
+          },
+        });
+      }
+    } else {
+      // In combo mode, separate modifiers from the trigger key
+      const nonModifierKeys = currentKeys.filter(
+        (key) => !Object.values(KEY_NAME_MAPPINGS).includes(key)
+      );
+      const lastNonModifierKey = nonModifierKeys[nonModifierKeys.length - 1];
+
+      if (lastNonModifierKey) {
+        setBufferedKeys({
+          trigger: lastNonModifierKey,
+          modifiers: {
+            ctrl: modifiers.ctrlKey,
+            alt: modifiers.altKey,
+            shift: modifiers.shiftKey,
+            win: modifiers.metaKey,
+          },
+        });
+      }
+    }
+  }, [currentKeys, modifiers, isCapturingTrigger, singleKeyMode]);
 
   const handleTriggerCapture = async () => {
-    setIsCapturingTrigger(true);
-    const firstKey = currentKeys[0];
-    if (firstKey && hyperKeyConfig) {
-      const updatedConfig = {
-        ...hyperKeyConfig,
-        trigger: firstKey,
-      };
-      await updateHyperKeyConfig(updatedConfig);
-      setIsCapturingTrigger(false);
-    }
+    if (!hyperKeyConfig || !bufferedKeys.trigger) return;
+
+    const updatedConfig = {
+      ...hyperKeyConfig,
+      trigger: bufferedKeys.trigger,
+      ...(singleKeyMode
+        ? {}
+        : {
+            modifiers: {
+              ctrl: bufferedKeys.modifiers.ctrl,
+              alt: bufferedKeys.modifiers.alt,
+              shift: bufferedKeys.modifiers.shift,
+              win: bufferedKeys.modifiers.win,
+            },
+          }),
+    };
+
+    await updateHyperKeyConfig(updatedConfig);
+    setIsCapturingTrigger(false);
+    setBufferedKeys({
+      trigger: null,
+      modifiers: {
+        ctrl: false,
+        alt: false,
+        shift: false,
+        win: false,
+      },
+    });
   };
 
   const handleModifierToggle = async (
@@ -97,6 +166,19 @@ export function HyperKeyConfig() {
     await updateHyperKeyConfig(updatedConfig);
   };
 
+  const handleDialogClose = () => {
+    setIsCapturingTrigger(false);
+    setBufferedKeys({
+      trigger: null,
+      modifiers: {
+        ctrl: false,
+        alt: false,
+        shift: false,
+        win: false,
+      },
+    });
+  };
+
   if (!hyperKeyConfig) {
     return null;
   }
@@ -121,7 +203,7 @@ export function HyperKeyConfig() {
             <Label>Trigger Key</Label>
             <Button
               variant="outline"
-              className="w-full justify-between"
+              className="justify-between w-full"
               onClick={() => setIsCapturingTrigger(true)}
               disabled={!isEnabled || isLoading}
             >
@@ -130,68 +212,101 @@ export function HyperKeyConfig() {
             </Button>
           </div>
 
-          <div className="space-y-2">
-            <Label>Modifiers to Apply</Label>
-            <div className="flex flex-wrap gap-2">
-              <Badge
-                variant={
-                  hyperKeyConfig.modifiers.ctrl ? "default" : "secondary"
-                }
-                className="cursor-pointer"
-                onClick={() => handleModifierToggle("ctrl")}
-              >
-                Ctrl
-              </Badge>
-              <Badge
-                variant={hyperKeyConfig.modifiers.alt ? "default" : "secondary"}
-                className="cursor-pointer"
-                onClick={() => handleModifierToggle("alt")}
-              >
-                Alt
-              </Badge>
-              <Badge
-                variant={
-                  hyperKeyConfig.modifiers.shift ? "default" : "secondary"
-                }
-                className="cursor-pointer"
-                onClick={() => handleModifierToggle("shift")}
-              >
-                Shift
-              </Badge>
-              <Badge
-                variant={hyperKeyConfig.modifiers.win ? "default" : "secondary"}
-                className="cursor-pointer"
-                onClick={() => handleModifierToggle("win")}
-              >
-                Win
-              </Badge>
+          {!singleKeyMode && (
+            <div className="space-y-2">
+              <Label>Modifiers to Apply</Label>
+              <div className="flex flex-wrap gap-2">
+                <Badge
+                  variant={
+                    hyperKeyConfig.modifiers.ctrl ? "default" : "secondary"
+                  }
+                  className="cursor-pointer"
+                  onClick={() => handleModifierToggle("ctrl")}
+                >
+                  Ctrl
+                </Badge>
+                <Badge
+                  variant={
+                    hyperKeyConfig.modifiers.alt ? "default" : "secondary"
+                  }
+                  className="cursor-pointer"
+                  onClick={() => handleModifierToggle("alt")}
+                >
+                  Alt
+                </Badge>
+                <Badge
+                  variant={
+                    hyperKeyConfig.modifiers.shift ? "default" : "secondary"
+                  }
+                  className="cursor-pointer"
+                  onClick={() => handleModifierToggle("shift")}
+                >
+                  Shift
+                </Badge>
+                <Badge
+                  variant={
+                    hyperKeyConfig.modifiers.win ? "default" : "secondary"
+                  }
+                  className="cursor-pointer"
+                  onClick={() => handleModifierToggle("win")}
+                >
+                  Win
+                </Badge>
+              </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
-      <Dialog open={isCapturingTrigger} onOpenChange={setIsCapturingTrigger}>
+      <Dialog open={isCapturingTrigger} onOpenChange={handleDialogClose}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Press Any Key</DialogTitle>
             <DialogDescription>
-              Press the key you want to use as the HyperKey trigger.
+              {singleKeyMode
+                ? "Press the key you want to use as the HyperKey trigger."
+                : "Press the key combination you want to use as the trigger."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="p-4 rounded-lg bg-muted">
+              <p className="text-sm font-medium">
+                {bufferedKeys.trigger
+                  ? `${
+                      [
+                        bufferedKeys.modifiers.ctrl && "Ctrl",
+                        bufferedKeys.modifiers.alt && "Alt",
+                        bufferedKeys.modifiers.shift && "Shift",
+                        bufferedKeys.modifiers.win && "Win",
+                      ]
+                        .filter(Boolean)
+                        .join(" + ") +
+                      (bufferedKeys.modifiers.ctrl ||
+                      bufferedKeys.modifiers.alt ||
+                      bufferedKeys.modifiers.shift ||
+                      bufferedKeys.modifiers.win
+                        ? " + "
+                        : "") +
+                      normalizeKeyName(bufferedKeys.trigger)
+                    }`
+                  : "Waiting for key press..."}
+              </p>
+            </div>
             <KeyDisplay
               currentKeys={currentKeys}
               hyperKeyConfig={hyperKeyConfig}
               modifiers={modifiers}
             />
             <div className="flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setIsCapturingTrigger(false)}
-              >
+              <Button variant="ghost" onClick={handleDialogClose}>
                 Cancel
               </Button>
-              <Button onClick={handleTriggerCapture}>Set Key</Button>
+              <Button
+                onClick={handleTriggerCapture}
+                disabled={!bufferedKeys.trigger}
+              >
+                Set Key
+              </Button>
             </div>
           </div>
         </DialogContent>

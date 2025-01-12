@@ -15,6 +15,11 @@ const STANDARD_MODIFIER_KEYS = new Set([
   "LWin",
   "RWin",
   "CapsLock",
+  "Capital",
+  "Menu",
+  "ControlKey",
+  "ShiftKey",
+  "Win",
 ]);
 
 interface ModifierDisplayProps {
@@ -51,33 +56,45 @@ export function ModifierDisplay({
     ? `HyperKey (${hyperKeyConfig.trigger})`
     : "HyperKey";
 
-  // Get specific modifier states from currentKeys
-  const leftCtrl = currentKeys.includes("LControlKey");
-  const rightCtrl = currentKeys.includes("RControlKey");
-  const leftAlt = currentKeys.includes("LMenu");
-  const rightAlt = currentKeys.includes("RMenu");
-  const leftShift = currentKeys.includes("LShiftKey");
-  const rightShift = currentKeys.includes("RShiftKey");
-  const win = currentKeys.some((key) => key === "LWin" || key === "RWin");
+  // Get specific modifier states directly from currentKeys
+  const modifierStates = {
+    lctrl: currentKeys.includes("LControlKey"),
+    rctrl: currentKeys.includes("RControlKey"),
+    lalt: currentKeys.includes("LMenu"),
+    ralt: currentKeys.includes("RMenu"),
+    lshift: currentKeys.includes("LShiftKey"),
+    rshift: currentKeys.includes("RShiftKey"),
+    lwin: currentKeys.includes("LWin"),
+    rwin: currentKeys.includes("RWin"),
+  };
 
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      <Badge variant={leftCtrl ? "default" : "secondary"}>L-Ctrl</Badge>
-      <Badge variant={rightCtrl ? "default" : "secondary"}>R-Ctrl</Badge>
-      <Badge variant={leftAlt ? "default" : "secondary"}>L-Alt</Badge>
-      <Badge variant={rightAlt ? "default" : "secondary"}>R-Alt</Badge>
-      <Badge variant={leftShift ? "default" : "secondary"}>L-Shift</Badge>
-      <Badge variant={rightShift ? "default" : "secondary"}>R-Shift</Badge>
-      <Badge variant={win ? "default" : "secondary"}>Win</Badge>
-      <Badge
-        variant={
-          modifiers.hyperKeyActive ||
-          (hyperKeyConfig?.trigger &&
-            currentKeys.includes(hyperKeyConfig.trigger))
-            ? "default"
-            : "secondary"
-        }
-      >
+      <Badge variant={modifierStates.lctrl ? "default" : "secondary"}>
+        LCtrl
+      </Badge>
+      <Badge variant={modifierStates.rctrl ? "default" : "secondary"}>
+        RCtrl
+      </Badge>
+      <Badge variant={modifierStates.lalt ? "default" : "secondary"}>
+        LAlt
+      </Badge>
+      <Badge variant={modifierStates.ralt ? "default" : "secondary"}>
+        RAlt
+      </Badge>
+      <Badge variant={modifierStates.lshift ? "default" : "secondary"}>
+        LShift
+      </Badge>
+      <Badge variant={modifierStates.rshift ? "default" : "secondary"}>
+        RShift
+      </Badge>
+      <Badge variant={modifierStates.lwin ? "default" : "secondary"}>
+        LWin
+      </Badge>
+      <Badge variant={modifierStates.rwin ? "default" : "secondary"}>
+        RWin
+      </Badge>
+      <Badge variant={modifiers.hyperKeyActive ? "default" : "secondary"}>
         {hyperKeyLabel}
       </Badge>
     </div>
