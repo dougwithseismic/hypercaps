@@ -1,13 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply min-h-screen m-0;
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+:root {
+  --color-text: #ffffff;
+  --color-bg-primary: rgba(23, 23, 23, 0.8);
+  --color-bg-secondary: rgba(15, 15, 15, 0.3);
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-close: #ff5f57;
+  --color-minimize: #febc2e;
+  --color-scrollbar: rgba(255, 255, 255, 0.2);
+}
+
 body {
   margin: 0;
   padding: 0;
-  background: transparent !important;
+  background: transparent;
   font-family:
     system-ui,
     -apple-system,
     sans-serif;
   height: 100vh;
   overflow: hidden;
+  color: var(--color-text);
 }
 
 #root {
@@ -16,14 +36,13 @@ body {
   padding: 0;
   height: 100vh;
   text-align: left;
-  background: rgba(23, 23, 23, 0.75);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .title-bar {
@@ -33,10 +52,10 @@ body {
   align-items: center;
   padding: 0 12px;
   gap: 8px;
-  background: rgba(0, 0, 0, 0.2);
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-secondary);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .window-controls {
@@ -66,22 +85,21 @@ body {
 }
 
 .window-control-close {
-  background: #ff5f57;
+  background: var(--color-close);
 }
 
 .window-control-minimize {
-  background: #febc2e;
+  background: var(--color-minimize);
 }
 
 .main-content {
   flex: 1;
   padding: 24px;
-  color: white;
   overflow: auto;
   margin: 0;
   /* Improved scrollbar styling */
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  scrollbar-color: var(--color-scrollbar) transparent;
 }
 
 .main-content::-webkit-scrollbar {
@@ -93,7 +111,7 @@ body {
 }
 
 .main-content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--color-scrollbar);
   border-radius: 4px;
 }
 
