@@ -180,8 +180,17 @@ class KeyboardService {
     await this.store.load();
     const isEnabled = await this.store.getIsEnabled();
     const hyperKeyConfig = await this.store.getHyperKeyConfig();
+    if (hyperKeyConfig.enabled !== isEnabled) {
+      await this.store.setHyperKeyConfig({
+        ...hyperKeyConfig,
+        enabled: isEnabled
+      });
+    }
     (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", isEnabled);
-    (_b = this.mainWindow) == null ? void 0 : _b.webContents.send("hyperkey-state", hyperKeyConfig);
+    (_b = this.mainWindow) == null ? void 0 : _b.webContents.send("hyperkey-state", {
+      ...hyperKeyConfig,
+      enabled: isEnabled
+    });
     if (isEnabled) {
       await this.startListening();
     }
@@ -225,30 +234,28 @@ class KeyboardService {
       if (!hyperKeyConfig) {
         throw new Error("Failed to get hyperkey config");
       }
+      console.log("[KeyboardService] Got hyperkey config:", hyperKeyConfig);
       const config = {
         ...hyperKeyConfig,
-        enabled: hyperKeyConfig.enabled,
         trigger: hyperKeyConfig.trigger.toLowerCase() === "capslock" ? "CapsLock" : hyperKeyConfig.trigger
       };
       const command = [
         // First set the config
         "$Config = @{",
-        `enabled=[bool]$${config.enabled.toString().toLowerCase()};`,
+        `enabled=$${config.enabled.toString().toLowerCase()};`,
         `trigger='${config.trigger}';`,
         "modifiers=@{",
-        `ctrl=[bool]$${(_b = config.modifiers.ctrl) == null ? void 0 : _b.toString().toLowerCase()};`,
-        `alt=[bool]$${(_c = config.modifiers.alt) == null ? void 0 : _c.toString().toLowerCase()};`,
-        `shift=[bool]$${(_d = config.modifiers.shift) == null ? void 0 : _d.toString().toLowerCase()};`,
-        `win=[bool]$${(_e = config.modifiers.win) == null ? void 0 : _e.toString().toLowerCase()}`,
+        `ctrl=$${(_b = config.modifiers.ctrl) == null ? void 0 : _b.toString().toLowerCase()};`,
+        `alt=$${(_c = config.modifiers.alt) == null ? void 0 : _c.toString().toLowerCase()};`,
+        `shift=$${(_d = config.modifiers.shift) == null ? void 0 : _d.toString().toLowerCase()};`,
+        `win=$${(_e = config.modifiers.win) == null ? void 0 : _e.toString().toLowerCase()}`,
         "}};",
         // Log the config for debugging
         "Write-Host 'Config:' $($Config | ConvertTo-Json);",
         // Then run the script
         `& {`,
         `  Set-Location '${path.dirname(scriptPath)}';`,
-        // Ensure we're in the right directory
         `  . '${scriptPath}'`,
-        // Source the script instead of running it
         `}`
       ].join(" ");
       console.log(

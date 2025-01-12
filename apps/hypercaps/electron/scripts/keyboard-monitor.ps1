@@ -113,7 +113,6 @@ public static class KeyboardMonitor {
         if (UseAlt) SendKeyDown(Keys.Alt);
         if (UseShift) SendKeyDown(Keys.ShiftKey);
         if (UseWin) SendKeyDown(Keys.LWin);
-        SendKeyDown(HyperKeyTrigger);
     }
 
     public static void SendHyperKeyUp() {
@@ -121,7 +120,6 @@ public static class KeyboardMonitor {
         if (UseShift) SendKeyUp(Keys.ShiftKey);
         if (UseAlt) SendKeyUp(Keys.Alt);
         if (UseCtrl) SendKeyUp(Keys.ControlKey);
-        SendKeyUp(HyperKeyTrigger);
     }
 }
 
@@ -170,6 +168,8 @@ public class KeyboardHook {
 
             // If this key is our HyperKey trigger
             if (KeyboardMonitor.IsHyperKeyEnabled && key == KeyboardMonitor.HyperKeyTrigger) {
+                // Early return for CapsLock to prevent Windows from toggling caps state
+
                 if (isKeyDown) {
                     KeyboardMonitor.SendHyperKeyDown();
                 }
@@ -179,10 +179,7 @@ public class KeyboardHook {
                 return (IntPtr)1;  // Block the original key
             }
 
-            // Always block CapsLock toggle
-            if (key == Keys.CapsLock) {
-                return (IntPtr)1;
-            }
+
         }
         return KeyboardMonitor.CallNextHookEx(hookId, nCode, wParam, lParam);
     }

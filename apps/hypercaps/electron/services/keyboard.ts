@@ -34,10 +34,22 @@ export class KeyboardService {
     const isEnabled = await this.store.getIsEnabled();
     const hyperKeyConfig = await this.store.getHyperKeyConfig();
 
+    // Update hyperkey config to match service state
+    if (hyperKeyConfig.enabled !== isEnabled) {
+      await this.store.setHyperKeyConfig({
+        ...hyperKeyConfig,
+        enabled: isEnabled,
+      });
+    }
+
     // Send both states to the renderer
     this.mainWindow?.webContents.send("keyboard-service-state", isEnabled);
-    this.mainWindow?.webContents.send("hyperkey-state", hyperKeyConfig);
+    this.mainWindow?.webContents.send("hyperkey-state", {
+      ...hyperKeyConfig,
+      enabled: isEnabled,
+    });
 
+    // Only start if service is enabled
     if (isEnabled) {
       await this.startListening();
     }
@@ -91,16 +103,17 @@ export class KeyboardService {
         this.keyboardProcess = null;
       }
 
-      // Get hyperkey config
+      // Get hyperkey config - store is already loaded in init()
       const hyperKeyConfig = await this.store.getHyperKeyConfig();
       if (!hyperKeyConfig) {
         throw new Error("Failed to get hyperkey config");
       }
 
+      console.log("[KeyboardService] Got hyperkey config:", hyperKeyConfig);
+
       // Convert trigger to proper case for Windows.Forms.Keys enum
       const config = {
         ...hyperKeyConfig,
-        enabled: hyperKeyConfig.enabled,
         trigger:
           hyperKeyConfig.trigger.toLowerCase() === "capslock"
             ? "CapsLock"
@@ -111,20 +124,20 @@ export class KeyboardService {
       const command = [
         // First set the config
         "$Config = @{",
-        `enabled=[bool]$${config.enabled.toString().toLowerCase()};`,
+        `enabled=$${config.enabled.toString().toLowerCase()};`,
         `trigger='${config.trigger}';`,
         "modifiers=@{",
-        `ctrl=[bool]$${config.modifiers.ctrl?.toString().toLowerCase()};`,
-        `alt=[bool]$${config.modifiers.alt?.toString().toLowerCase()};`,
-        `shift=[bool]$${config.modifiers.shift?.toString().toLowerCase()};`,
-        `win=[bool]$${config.modifiers.win?.toString().toLowerCase()}`,
+        `ctrl=$${config.modifiers.ctrl?.toString().toLowerCase()};`,
+        `alt=$${config.modifiers.alt?.toString().toLowerCase()};`,
+        `shift=$${config.modifiers.shift?.toString().toLowerCase()};`,
+        `win=$${config.modifiers.win?.toString().toLowerCase()}`,
         "}};",
         // Log the config for debugging
         "Write-Host 'Config:' $($Config | ConvertTo-Json);",
         // Then run the script
         `& {`,
-        `  Set-Location '${path.dirname(scriptPath)}';`, // Ensure we're in the right directory
-        `  . '${scriptPath}'`, // Source the script instead of running it
+        `  Set-Location '${path.dirname(scriptPath)}';`,
+        `  . '${scriptPath}'`,
         `}`,
       ].join(" ");
 
