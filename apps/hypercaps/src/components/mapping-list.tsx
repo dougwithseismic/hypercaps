@@ -104,7 +104,7 @@ export function MappingList() {
   return (
     <Card className="bg-background/50 backdrop-blur-md border-border/50">
       <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-        <CardTitle className="text-xl flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-xl">
           <Keyboard className="size-5" />
           Keyboard Shortcuts
         </CardTitle>
@@ -115,7 +115,7 @@ export function MappingList() {
       </CardHeader>
       <CardContent>
         {mappings.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="py-8 text-center text-muted-foreground">
             <p>No shortcuts configured yet.</p>
             <p className="text-sm">
               Click the Add Shortcut button to create your first shortcut.
