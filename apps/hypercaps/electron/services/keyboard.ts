@@ -2,6 +2,7 @@ import { BrowserWindow, dialog } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import { Store } from "./store";
+import { HyperKeyConfig } from "./types";
 
 interface KeyMapping {
   id: string;
@@ -85,14 +86,53 @@ export class KeyboardService {
         this.keyboardProcess = null;
       }
 
-      console.log("[KeyboardService] Spawning PowerShell process");
+      // Get hyperkey config
+      const hyperKeyConfig = await this.store.getHyperKeyConfig();
+      if (!hyperKeyConfig) {
+        throw new Error("Failed to get hyperkey config");
+      }
+
+      // Convert trigger to proper case for Windows.Forms.Keys enum
+      const config = {
+        ...hyperKeyConfig,
+        trigger: hyperKeyConfig.trigger.toUpperCase(),
+      };
+
+      // Create PowerShell command that sets config and runs script
+      const command = [
+        // First set the config
+        "$Config = @{",
+        `enabled=[bool]$${config.enabled.toString().toLowerCase()};`,
+        `trigger='${config.trigger}';`,
+        "modifiers=@{",
+        `ctrl=[bool]$${config.modifiers.ctrl?.toString().toLowerCase()};`,
+        `alt=[bool]$${config.modifiers.alt?.toString().toLowerCase()};`,
+        `shift=[bool]$${config.modifiers.shift?.toString().toLowerCase()};`,
+        `win=[bool]$${config.modifiers.win?.toString().toLowerCase()}`,
+        "}};",
+        // Log the config for debugging
+        "Write-Host 'Config:' $($Config | ConvertTo-Json);",
+        // Then run the script
+        `& {`,
+        `  Set-Location '${path.dirname(scriptPath)}';`, // Ensure we're in the right directory
+        `  . '${scriptPath}'`, // Source the script instead of running it
+        `}`,
+      ].join(" ");
+
+      console.log(
+        "[KeyboardService] Spawning PowerShell process with config:",
+        config,
+        "\nCommand:",
+        command
+      );
+
       this.keyboardProcess = spawn("powershell.exe", [
         "-ExecutionPolicy",
         "Bypass",
-        "-NoProfile", // Added to speed up startup
-        "-NonInteractive", // Added to prevent hanging
-        "-File",
-        scriptPath,
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        command,
       ]);
 
       console.log("[KeyboardService] Setting startup timeout");
@@ -238,23 +278,49 @@ export class KeyboardService {
 
   private handleKeyboardOutput = (data: Buffer) => {
     try {
-      const state = JSON.parse(data.toString());
-      this.mainWindow?.webContents.send("keyboard-event", {
-        ctrlKey: Boolean(state.ctrl),
-        altKey: Boolean(state.alt),
-        shiftKey: Boolean(state.shift),
-        metaKey: Boolean(state.win),
-        capsLock: Boolean(state.caps),
-        pressedKeys: Array.isArray(state.pressedKeys) ? state.pressedKeys : [],
-        timestamp: Date.now(),
-      });
+      const lines = data.toString().split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        // Skip empty lines
+        if (!trimmed) continue;
+
+        // If line starts with '[' or '{', treat as JSON
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+          const state = JSON.parse(trimmed);
+          this.mainWindow?.webContents.send("keyboard-event", {
+            ctrlKey: Boolean(state.ctrl),
+            altKey: Boolean(state.alt),
+            shiftKey: Boolean(state.shift),
+            metaKey: Boolean(state.win),
+            capsLock: Boolean(state.caps),
+            pressedKeys: Array.isArray(state.pressedKeys)
+              ? state.pressedKeys
+              : [],
+            timestamp: Date.now(),
+          });
+        } else {
+          // Log other lines as debug output
+          console.log("[PowerShell]", trimmed);
+        }
+      }
     } catch (error) {
-      console.error("Error parsing keyboard state:", error);
+      // Only log parsing errors for lines that look like JSON
+      if (error instanceof SyntaxError) {
+        console.debug("Skipping non-JSON output");
+      } else {
+        console.error("Error handling keyboard output:", error);
+      }
     }
   };
 
   public dispose(): void {
     this.stopListening();
     this.mainWindow = null;
+  }
+
+  public async restartWithConfig(config: HyperKeyConfig): Promise<void> {
+    await this.store.setHyperKeyConfig(config);
+    await this.stopListening();
+    await this.startListening();
   }
 }

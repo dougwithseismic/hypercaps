@@ -114,6 +114,19 @@ const _Store = class _Store {
   }
   // HyperKey config methods
   async getHyperKeyConfig() {
+    if (!this.state.hyperKeyConfig) {
+      this.state.hyperKeyConfig = {
+        enabled: false,
+        trigger: "capslock",
+        modifiers: {
+          ctrl: false,
+          alt: false,
+          shift: false,
+          win: false
+        }
+      };
+      await this.save();
+    }
     return this.state.hyperKeyConfig;
   }
   async setHyperKeyConfig(config) {
@@ -133,18 +146,31 @@ class KeyboardService {
     __publicField(this, "handleKeyboardOutput", (data) => {
       var _a;
       try {
-        const state = JSON.parse(data.toString());
-        (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-event", {
-          ctrlKey: Boolean(state.ctrl),
-          altKey: Boolean(state.alt),
-          shiftKey: Boolean(state.shift),
-          metaKey: Boolean(state.win),
-          capsLock: Boolean(state.caps),
-          pressedKeys: Array.isArray(state.pressedKeys) ? state.pressedKeys : [],
-          timestamp: Date.now()
-        });
+        const lines = data.toString().split("\n");
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            const state = JSON.parse(trimmed);
+            (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-event", {
+              ctrlKey: Boolean(state.ctrl),
+              altKey: Boolean(state.alt),
+              shiftKey: Boolean(state.shift),
+              metaKey: Boolean(state.win),
+              capsLock: Boolean(state.caps),
+              pressedKeys: Array.isArray(state.pressedKeys) ? state.pressedKeys : [],
+              timestamp: Date.now()
+            });
+          } else {
+            console.log("[PowerShell]", trimmed);
+          }
+        }
       } catch (error) {
-        console.error("Error parsing keyboard state:", error);
+        if (error instanceof SyntaxError) {
+          console.debug("Skipping non-JSON output");
+        } else {
+          console.error("Error handling keyboard output:", error);
+        }
       }
     });
     this.store = Store.getInstance();
@@ -162,7 +188,7 @@ class KeyboardService {
     this.mainWindow = window;
   }
   async startListening() {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     console.log("[KeyboardService] startListening() called");
     if (this.keyboardProcess) {
       console.log("[KeyboardService] Process already running, returning early");
@@ -193,16 +219,48 @@ class KeyboardService {
         this.keyboardProcess.kill();
         this.keyboardProcess = null;
       }
-      console.log("[KeyboardService] Spawning PowerShell process");
+      const hyperKeyConfig = await this.store.getHyperKeyConfig();
+      if (!hyperKeyConfig) {
+        throw new Error("Failed to get hyperkey config");
+      }
+      const config = {
+        ...hyperKeyConfig,
+        trigger: hyperKeyConfig.trigger.toUpperCase()
+      };
+      const command = [
+        // First set the config
+        "$Config = @{",
+        `enabled=[bool]$${config.enabled.toString().toLowerCase()};`,
+        `trigger='${config.trigger}';`,
+        "modifiers=@{",
+        `ctrl=[bool]$${(_b = config.modifiers.ctrl) == null ? void 0 : _b.toString().toLowerCase()};`,
+        `alt=[bool]$${(_c = config.modifiers.alt) == null ? void 0 : _c.toString().toLowerCase()};`,
+        `shift=[bool]$${(_d = config.modifiers.shift) == null ? void 0 : _d.toString().toLowerCase()};`,
+        `win=[bool]$${(_e = config.modifiers.win) == null ? void 0 : _e.toString().toLowerCase()}`,
+        "}};",
+        // Log the config for debugging
+        "Write-Host 'Config:' $($Config | ConvertTo-Json);",
+        // Then run the script
+        `& {`,
+        `  Set-Location '${path.dirname(scriptPath)}';`,
+        // Ensure we're in the right directory
+        `  . '${scriptPath}'`,
+        // Source the script instead of running it
+        `}`
+      ].join(" ");
+      console.log(
+        "[KeyboardService] Spawning PowerShell process with config:",
+        config,
+        "\nCommand:",
+        command
+      );
       this.keyboardProcess = child_process.spawn("powershell.exe", [
         "-ExecutionPolicy",
         "Bypass",
         "-NoProfile",
-        // Added to speed up startup
         "-NonInteractive",
-        // Added to prevent hanging
-        "-File",
-        scriptPath
+        "-Command",
+        command
       ]);
       console.log("[KeyboardService] Setting startup timeout");
       this.startupTimeout = setTimeout(() => {
@@ -215,7 +273,7 @@ class KeyboardService {
       }, 5e3);
       console.log("[KeyboardService] Creating startup promise");
       const startupPromise = new Promise((resolve, reject) => {
-        var _a2, _b2, _c2, _d2, _e;
+        var _a2, _b2, _c2, _d2, _e2;
         const cleanup = () => {
           var _a3, _b3;
           if (this.keyboardProcess) {
@@ -242,7 +300,7 @@ class KeyboardService {
         };
         (_b2 = (_a2 = this.keyboardProcess) == null ? void 0 : _a2.stdout) == null ? void 0 : _b2.once("data", onFirstData);
         (_d2 = (_c2 = this.keyboardProcess) == null ? void 0 : _c2.stderr) == null ? void 0 : _d2.once("data", onStartupError);
-        (_e = this.keyboardProcess) == null ? void 0 : _e.once("close", (code) => {
+        (_e2 = this.keyboardProcess) == null ? void 0 : _e2.once("close", (code) => {
           console.log(
             "[KeyboardService] Process closed during startup with code:",
             code
@@ -258,10 +316,10 @@ class KeyboardService {
       console.log("[KeyboardService] Awaiting startup promise");
       await startupPromise;
       console.log("[KeyboardService] Setting up operation listeners");
-      (_b = this.keyboardProcess.stdout) == null ? void 0 : _b.on("data", (data) => {
+      (_f = this.keyboardProcess.stdout) == null ? void 0 : _f.on("data", (data) => {
         this.handleKeyboardOutput(data);
       });
-      (_c = this.keyboardProcess.stderr) == null ? void 0 : _c.on("data", (data) => {
+      (_g = this.keyboardProcess.stderr) == null ? void 0 : _g.on("data", (data) => {
         console.error("[KeyboardService] Runtime error:", data.toString());
       });
       this.keyboardProcess.on("close", (code) => {
@@ -273,7 +331,7 @@ class KeyboardService {
       });
       console.log("[KeyboardService] Updating store and sending success state");
       await this.store.setIsEnabled(true);
-      (_d = this.mainWindow) == null ? void 0 : _d.webContents.send("keyboard-service-state", true);
+      (_h = this.mainWindow) == null ? void 0 : _h.webContents.send("keyboard-service-state", true);
     } catch (error) {
       console.error("[KeyboardService] Startup error:", error);
       this.handleStartupFailure(
@@ -330,6 +388,11 @@ class KeyboardService {
   dispose() {
     this.stopListening();
     this.mainWindow = null;
+  }
+  async restartWithConfig(config) {
+    await this.store.setHyperKeyConfig(config);
+    await this.stopListening();
+    await this.startListening();
   }
 }
 class TrayFeature {

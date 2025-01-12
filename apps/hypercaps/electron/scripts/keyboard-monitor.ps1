@@ -2,7 +2,22 @@
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
-Add-Type -TypeDefinition @"
+# Helper function for debug output
+function Write-Debug-Message {
+    param([string]$Message)
+    Write-Host "[DEBUG] $Message"
+}
+
+# Validate config
+if (-not (Get-Variable -Name Config -ErrorAction SilentlyContinue)) {
+    Write-Error "No config variable found"
+    exit 1
+}
+
+Write-Debug-Message "Starting keyboard monitor with config: $($Config | ConvertTo-Json)"
+
+try {
+    Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -76,6 +91,36 @@ public static class KeyboardMonitor {
     public static void RemovePressedKey(Keys key) {
         pressedKeys.Remove(key);
     }
+
+    public static bool IsHyperKeyEnabled = false;
+    public static Keys HyperKeyTrigger = Keys.CapsLock;
+    public static bool UseCtrl = false;
+    public static bool UseAlt = false;
+    public static bool UseShift = false;
+    public static bool UseWin = false;
+
+    public static void ConfigureHyperKey(bool enabled, string trigger, bool useCtrl, bool useAlt, bool useShift, bool useWin) {
+        IsHyperKeyEnabled = enabled;
+        HyperKeyTrigger = (Keys)Enum.Parse(typeof(Keys), trigger, true);
+        UseCtrl = useCtrl;
+        UseAlt = useAlt;
+        UseShift = useShift;
+        UseWin = useWin;
+    }
+
+    public static void SendHyperKeyDown() {
+        if (UseCtrl) SendKeyDown(Keys.ControlKey);
+        if (UseAlt) SendKeyDown(Keys.Alt);
+        if (UseShift) SendKeyDown(Keys.ShiftKey);
+        if (UseWin) SendKeyDown(Keys.LWin);
+    }
+
+    public static void SendHyperKeyUp() {
+        if (UseWin) SendKeyUp(Keys.LWin);
+        if (UseShift) SendKeyUp(Keys.ShiftKey);
+        if (UseAlt) SendKeyUp(Keys.Alt);
+        if (UseCtrl) SendKeyUp(Keys.ControlKey);
+    }
 }
 
 public class KeyboardHook {
@@ -110,30 +155,51 @@ public class KeyboardHook {
             );
 
             Keys key = (Keys)hookStruct.vkCode;
+            bool isKeyDown = wParam == (IntPtr)KeyboardMonitor.WM_KEYDOWN || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYDOWN;
+            bool isKeyUp = wParam == (IntPtr)KeyboardMonitor.WM_KEYUP || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYUP;
 
-            // Track key states
-            if (wParam == (IntPtr)KeyboardMonitor.WM_KEYDOWN || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYDOWN) {
+            // Always track key states
+            if (isKeyDown) {
                 KeyboardMonitor.AddPressedKey(key);
             }
-            else if (wParam == (IntPtr)KeyboardMonitor.WM_KEYUP || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYUP) {
+            else if (isKeyUp) {
                 KeyboardMonitor.RemovePressedKey(key);
             }
 
-            // Block CapsLock (vkCode 20)
-            if (hookStruct.vkCode == 20) {
-                // Key down event
-                if (wParam == (IntPtr)KeyboardMonitor.WM_KEYDOWN || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYDOWN) {
-                    KeyboardMonitor.SendKeyDown(Keys.ControlKey);
-                    KeyboardMonitor.SendKeyDown(Keys.ShiftKey);
-                    KeyboardMonitor.SendKeyDown(Keys.LWin);
+            // Always block CapsLock
+            if (key == Keys.CapsLock) {
+                if (KeyboardMonitor.IsHyperKeyEnabled) {
+                    // If HyperKey is enabled, send our modifiers
+                    if (isKeyDown) {
+                        if (KeyboardMonitor.UseCtrl) KeyboardMonitor.SendKeyDown(Keys.ControlKey);
+                        if (KeyboardMonitor.UseAlt) KeyboardMonitor.SendKeyDown(Keys.Alt);
+                        if (KeyboardMonitor.UseShift) KeyboardMonitor.SendKeyDown(Keys.ShiftKey);
+                        if (KeyboardMonitor.UseWin) KeyboardMonitor.SendKeyDown(Keys.LWin);
+                    }
+                    else if (isKeyUp) {
+                        if (KeyboardMonitor.UseWin) KeyboardMonitor.SendKeyUp(Keys.LWin);
+                        if (KeyboardMonitor.UseShift) KeyboardMonitor.SendKeyUp(Keys.ShiftKey);
+                        if (KeyboardMonitor.UseAlt) KeyboardMonitor.SendKeyUp(Keys.Alt);
+                        if (KeyboardMonitor.UseCtrl) KeyboardMonitor.SendKeyUp(Keys.ControlKey);
+                    }
                 }
-                // Key up event
-                else if (wParam == (IntPtr)KeyboardMonitor.WM_KEYUP || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYUP) {
-                    KeyboardMonitor.SendKeyUp(Keys.LWin);
-                    KeyboardMonitor.SendKeyUp(Keys.ShiftKey);
-                    KeyboardMonitor.SendKeyUp(Keys.ControlKey);
+                return (IntPtr)1; // Always block CapsLock
+            }
+            // Handle other trigger keys if not using CapsLock
+            else if (KeyboardMonitor.IsHyperKeyEnabled && key == KeyboardMonitor.HyperKeyTrigger) {
+                if (isKeyDown) {
+                    if (KeyboardMonitor.UseCtrl) KeyboardMonitor.SendKeyDown(Keys.ControlKey);
+                    if (KeyboardMonitor.UseAlt) KeyboardMonitor.SendKeyDown(Keys.Alt);
+                    if (KeyboardMonitor.UseShift) KeyboardMonitor.SendKeyDown(Keys.ShiftKey);
+                    if (KeyboardMonitor.UseWin) KeyboardMonitor.SendKeyDown(Keys.LWin);
                 }
-                return (IntPtr)1; // Block the original CapsLock
+                else if (isKeyUp) {
+                    if (KeyboardMonitor.UseWin) KeyboardMonitor.SendKeyUp(Keys.LWin);
+                    if (KeyboardMonitor.UseShift) KeyboardMonitor.SendKeyUp(Keys.ShiftKey);
+                    if (KeyboardMonitor.UseAlt) KeyboardMonitor.SendKeyUp(Keys.Alt);
+                    if (KeyboardMonitor.UseCtrl) KeyboardMonitor.SendKeyUp(Keys.ControlKey);
+                }
+                return (IntPtr)1;
             }
         }
         return KeyboardMonitor.CallNextHookEx(hookId, nCode, wParam, lParam);
@@ -141,35 +207,59 @@ public class KeyboardHook {
 }
 "@ -ReferencedAssemblies System.Windows.Forms
 
-# Initialize the keyboard hook
-[KeyboardHook]::Initialize()
+    # Configure the hyperkey based on config
+    Write-Debug-Message "Configuring HyperKey with: enabled=$($Config.enabled), trigger=$($Config.trigger)"
+    Write-Debug-Message "Modifiers: ctrl=$($Config.modifiers.ctrl), alt=$($Config.modifiers.alt), shift=$($Config.modifiers.shift), win=$($Config.modifiers.win)"
 
-try {
-    while ($true) {
-        $ctrl = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::ControlKey)
-        $alt = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::Alt)
-        $shift = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::ShiftKey)
-        $win = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LWin) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RWin)
-        $caps = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::CapsLock)
-        
-        # Get all currently pressed keys
-        $pressedKeys = [KeyboardMonitor]::GetPressedKeys() | ForEach-Object { $_.ToString() }
+    [KeyboardMonitor]::ConfigureHyperKey(
+        [bool]$Config.enabled,  # Explicitly cast to bool
+        $Config.trigger,
+        [bool]$Config.modifiers.ctrl,
+        [bool]$Config.modifiers.alt,
+        [bool]$Config.modifiers.shift,
+        [bool]$Config.modifiers.win
+    )
 
-        # Ensure clean JSON output
-        $state = @{
-            ctrl = $ctrl
-            alt = $alt
-            shift = $shift
-            win = $win
-            caps = $caps
-            pressedKeys = $pressedKeys
-        } | ConvertTo-Json -Compress
+    Write-Debug-Message "HyperKey state after config: enabled=$([KeyboardMonitor]::IsHyperKeyEnabled), trigger=$([KeyboardMonitor]::HyperKeyTrigger)"
 
-        [Console]::WriteLine($state)
-        Start-Sleep -Milliseconds 16
+    # Initialize the keyboard hook
+    [KeyboardHook]::Initialize()
+    Write-Debug-Message "Keyboard hook initialized"
+
+    try {
+        while ($true) {
+            $ctrl = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::ControlKey)
+            $alt = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::Alt)
+            $shift = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::ShiftKey)
+            $win = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LWin) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RWin)
+            $caps = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::CapsLock)
+            
+            # Get all currently pressed keys
+            $pressedKeys = [KeyboardMonitor]::GetPressedKeys() | ForEach-Object { $_.ToString() }
+
+            # Ensure clean JSON output on a single line
+            $state = @{
+                ctrl = $ctrl
+                alt = $alt
+                shift = $shift
+                win = $win
+                caps = $caps
+                pressedKeys = $pressedKeys
+                hyperKeyActive = $Config.enabled -and [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::($Config.trigger))
+            } | ConvertTo-Json -Compress
+
+            # Write state to stdout
+            [Console]::WriteLine($state)
+            Start-Sleep -Milliseconds 16
+        }
+    }
+    finally {
+        # Cleanup when the script exits
+        [KeyboardHook]::Cleanup()
+        Write-Debug-Message "Keyboard hook cleaned up"
     }
 }
-finally {
-    # Cleanup when the script exits
-    [KeyboardHook]::Cleanup()
+catch {
+    Write-Error "Error in keyboard monitor: $_"
+    exit 1
 } 

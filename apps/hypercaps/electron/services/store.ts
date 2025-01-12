@@ -1,31 +1,7 @@
 import { app } from "electron";
 import path from "path";
 import fs from "fs/promises";
-
-interface HyperKeyConfig {
-  enabled: boolean;
-  trigger: "capslock" | "alt" | "ctrl" | "shift" | "win";
-  modifiers: {
-    ctrl?: boolean;
-    alt?: boolean;
-    shift?: boolean;
-    win?: boolean;
-  };
-}
-
-interface KeyMapping {
-  id: string;
-  sourceKey: string;
-  targetModifiers: {
-    ctrl?: boolean;
-    alt?: boolean;
-    shift?: boolean;
-    win?: boolean;
-  };
-  targetKey?: string;
-  command?: string;
-  enabled: boolean;
-}
+import { HyperKeyConfig, KeyMapping } from "./types";
 
 interface AppState {
   mappings: KeyMapping[];
@@ -166,6 +142,20 @@ export class Store {
 
   // HyperKey config methods
   public async getHyperKeyConfig(): Promise<HyperKeyConfig> {
+    if (!this.state.hyperKeyConfig) {
+      // Ensure we have a default config if none exists
+      this.state.hyperKeyConfig = {
+        enabled: false,
+        trigger: "capslock",
+        modifiers: {
+          ctrl: false,
+          alt: false,
+          shift: false,
+          win: false,
+        },
+      };
+      await this.save();
+    }
     return this.state.hyperKeyConfig;
   }
 
