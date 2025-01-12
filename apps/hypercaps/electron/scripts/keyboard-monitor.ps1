@@ -65,7 +65,21 @@ public static class KeyboardMonitor {
     public const int KEYEVENTF_EXTENDEDKEY = 0x0001;
 
     public static bool IsKeyPressed(Keys key) {
-        return (GetAsyncKeyState(key) & 0x8000) != 0;
+        // Map keys that might have different names across Windows versions
+        var mappedKey = key;
+        switch (key) {
+            case Keys.Alt:
+                // Check both LMenu and RMenu for Alt
+                return (GetAsyncKeyState(Keys.LMenu) & 0x8000) != 0 || (GetAsyncKeyState(Keys.RMenu) & 0x8000) != 0;
+            case Keys.ControlKey:
+                // Check both LControlKey and RControlKey
+                return (GetAsyncKeyState(Keys.LControlKey) & 0x8000) != 0 || (GetAsyncKeyState(Keys.RControlKey) & 0x8000) != 0;
+            case Keys.ShiftKey:
+                // Check both LShiftKey and RShiftKey
+                return (GetAsyncKeyState(Keys.LShiftKey) & 0x8000) != 0 || (GetAsyncKeyState(Keys.RShiftKey) & 0x8000) != 0;
+            default:
+                return (GetAsyncKeyState(key) & 0x8000) != 0;
+        }
     }
 
     public static bool isHandlingSyntheticCapsLock = false;
@@ -88,8 +102,24 @@ public static class KeyboardMonitor {
 
     private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
 
+    // Map Windows Forms Keys to their display names
+    private static Dictionary<Keys, string> keyDisplayNames = new Dictionary<Keys, string>() {
+        { Keys.LMenu, "Alt" },
+        { Keys.RMenu, "Alt" },
+        { Keys.LControlKey, "Ctrl" },
+        { Keys.RControlKey, "Ctrl" },
+        { Keys.LShiftKey, "Shift" },
+        { Keys.RShiftKey, "Shift" },
+        { Keys.LWin, "Win" },
+        { Keys.RWin, "Win" }
+    };
+
     public static HashSet<Keys> GetPressedKeys() {
         return pressedKeys;
+    }
+
+    public static string GetKeyDisplayName(Keys key) {
+        return keyDisplayNames.ContainsKey(key) ? keyDisplayNames[key] : key.ToString();
     }
 
     public static void AddPressedKey(Keys key) {
@@ -124,20 +154,28 @@ public static class KeyboardMonitor {
         CapsLockHandling = (CapsLockBehavior)Enum.Parse(typeof(CapsLockBehavior), capsLockBehavior, true);
     }
 
+    private static Dictionary<Keys, Keys> keyMappings = new Dictionary<Keys, Keys>() {
+        { Keys.Alt, Keys.LMenu },
+        { Keys.ControlKey, Keys.LControlKey },
+        { Keys.ShiftKey, Keys.LShiftKey }
+    };
+
+    private static Keys GetMappedKey(Keys key) {
+        return keyMappings.ContainsKey(key) ? keyMappings[key] : key;
+    }
+
     public static void SendHyperKeyDown() {
-        if (UseCtrl) SendKeyDown(Keys.ControlKey);
-        if (UseAlt) SendKeyDown(Keys.Alt);
-        if (UseShift) SendKeyDown(Keys.ShiftKey);
+        if (UseCtrl) SendKeyDown(GetMappedKey(Keys.ControlKey));
+        if (UseAlt) SendKeyDown(GetMappedKey(Keys.Alt));
+        if (UseShift) SendKeyDown(GetMappedKey(Keys.ShiftKey));
         if (UseWin) SendKeyDown(Keys.LWin);
-        SendKeyDown(HyperKeyTrigger);
     }
 
     public static void SendHyperKeyUp() {
         if (UseWin) SendKeyUp(Keys.LWin);
-        if (UseShift) SendKeyUp(Keys.ShiftKey);
-        if (UseAlt) SendKeyUp(Keys.Alt);
-        if (UseCtrl) SendKeyUp(Keys.ControlKey);
-        SendKeyUp(HyperKeyTrigger);
+        if (UseShift) SendKeyUp(GetMappedKey(Keys.ShiftKey));
+        if (UseAlt) SendKeyUp(GetMappedKey(Keys.Alt));
+        if (UseCtrl) SendKeyUp(GetMappedKey(Keys.ControlKey));
     }
 }
 
@@ -193,21 +231,32 @@ public class KeyboardHook {
                                 System.Threading.Thread.Sleep(1);
                                 KeyboardMonitor.SendKeyDown(Keys.CapsLock);
                                 KeyboardMonitor.SendKeyUp(Keys.CapsLock);
+                                KeyboardMonitor.SendHyperKeyDown();
+                            } else if (isKeyUp) {
+                                KeyboardMonitor.SendHyperKeyUp();
                             }
                             break;
                         case KeyboardMonitor.CapsLockBehavior.BlockToggle:
-                            // Just block it, no additional keypress needed
-                            return (IntPtr)1;
+                            if (isKeyDown) {
+                                KeyboardMonitor.SendHyperKeyDown();
+                            } else if (isKeyUp) {
+                                KeyboardMonitor.SendHyperKeyUp();
+                            }
+                            break;
                         case KeyboardMonitor.CapsLockBehavior.None:
-                            // Let Windows handle it normally
+                            if (isKeyDown) {
+                                KeyboardMonitor.SendHyperKeyDown();
+                            } else if (isKeyUp) {
+                                KeyboardMonitor.SendHyperKeyUp();
+                            }
                             return KeyboardMonitor.CallNextHookEx(hookId, nCode, wParam, lParam);
                     }
-                }
-
-                if (isKeyDown) {
-                    KeyboardMonitor.SendHyperKeyDown();
-                } else if (isKeyUp) {
-                    KeyboardMonitor.SendHyperKeyUp();
+                } else {
+                    if (isKeyDown) {
+                        KeyboardMonitor.SendHyperKeyDown();
+                    } else if (isKeyUp) {
+                        KeyboardMonitor.SendHyperKeyUp();
+                    }
                 }
                 return (IntPtr)1;  // Block the original key signal
             }
@@ -250,7 +299,7 @@ public class KeyboardHook {
             $caps = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::CapsLock)
             
             # Get all currently pressed keys
-            $pressedKeys = [KeyboardMonitor]::GetPressedKeys() | ForEach-Object { $_.ToString() }
+            $pressedKeys = [KeyboardMonitor]::GetPressedKeys() | ForEach-Object { [KeyboardMonitor]::GetKeyDisplayName($_) }
 
             # Ensure clean JSON output on a single line
             $state = @{
