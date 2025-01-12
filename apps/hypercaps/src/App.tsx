@@ -6,46 +6,8 @@ import { Button } from "./components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
 import { Badge } from "./components/ui/badge";
 import { Separator } from "./components/ui/separator";
-import { X, Minus } from "lucide-react";
+import { ShellLayout } from "./components/shell-layout";
 import "./app.css";
-
-// Declare the window API type
-declare global {
-  interface Window {
-    electron: {
-      minimize: () => void;
-      close: () => void;
-    };
-  }
-}
-
-function WindowControls() {
-  const handleMinimize = () => window.electron?.minimize();
-  const handleClose = () => window.electron?.close();
-
-  return (
-    <div className="flex gap-2 window-controls">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="w-6 h-6"
-        onClick={handleMinimize}
-        aria-label="Minimize"
-      >
-        <Minus className="size-2" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="w-6 h-6 hover:bg-destructive"
-        onClick={handleClose}
-        aria-label="Close"
-      >
-        <X className="size-2" />
-      </Button>
-    </div>
-  );
-}
 
 function KeyboardStatus() {
   const { state, toggleService } = useKeyboard();
@@ -62,7 +24,7 @@ function KeyboardStatus() {
         >
           {state.isLoading ? (
             <span className="flex items-center gap-2">
-              <span className="size-4 border-2 border-current border-r-transparent rounded-full animate-spin" />
+              <span className="border-2 border-current rounded-full size-4 border-r-transparent animate-spin" />
               Loading...
             </span>
           ) : state.isEnabled ? (
@@ -102,20 +64,27 @@ function KeyboardStatus() {
   );
 }
 
+function AppContent() {
+  const { state } = useKeyboard();
+  const statusText = state.isEnabled
+    ? "Keyboard Service: Active"
+    : "Keyboard Service: Inactive";
+
+  return (
+    <ShellLayout statusText={statusText}>
+      <div className="space-y-6">
+        <KeyboardStatus />
+        <MappingList />
+        <Settings />
+      </div>
+    </ShellLayout>
+  );
+}
+
 function App() {
   return (
     <KeyboardProvider>
-      <div className="title-bar">
-        <span className="text-sm text-muted-foreground">HyperCaps</span>
-        <WindowControls />
-      </div>
-      <div className="main-content">
-        <div className="space-y-6">
-          <KeyboardStatus />
-          <MappingList />
-          <Settings />
-        </div>
-      </div>
+      <AppContent />
     </KeyboardProvider>
   );
 }
