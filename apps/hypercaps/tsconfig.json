@@ -7,5 +7,9 @@
       "@electron/*": ["electron/*"]
     }
   },
-  "include": ["./src", "./electron"]
+  "include": ["src", "electron"],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./electron/tsconfig.json" }
+  ]
 }

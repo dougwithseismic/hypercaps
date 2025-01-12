@@ -11,6 +11,9 @@
     "outDir": "dist",
     "moduleResolution": "node",
     "resolveJsonModule": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
     "paths": {
       "*": ["node_modules/*"]
     }

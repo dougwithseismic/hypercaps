@@ -1,4 +1,16 @@
 import React, { useState, useEffect } from "react";
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from "./ui/table";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Plus, Trash2, Keyboard } from "lucide-react";
+import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 
 interface KeyMapping {
   id: string;
@@ -71,75 +83,90 @@ export function MappingList() {
     }
   };
 
+  const formatShortcut = (mapping: KeyMapping) => {
+    const modifiers = Object.entries(mapping.targetModifiers)
+      .filter(([_, value]) => value)
+      .map(([key]) => key.toUpperCase())
+      .join(" + ");
+
+    const key = mapping.targetKey ? mapping.targetKey.toUpperCase() : "";
+    return [modifiers, key].filter(Boolean).join(" + ") || "Click to set";
+  };
+
   if (loading) {
-    return <div className="text-gray-400">Loading mappings...</div>;
+    return <div className="text-muted-foreground">Loading mappings...</div>;
   }
 
   if (error) {
-    return <div className="text-red-500">{error}</div>;
+    return <div className="text-destructive">{error}</div>;
   }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">Key Mappings</h2>
-        <button
-          onClick={handleAddMapping}
-          className="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-md text-white"
-        >
-          Add Mapping
-        </button>
-      </div>
-
-      {mappings.length === 0 ? (
-        <p className="text-gray-400">No mappings configured yet.</p>
-      ) : (
-        <div className="space-y-4">
-          {mappings.map((mapping) => (
-            <div
-              key={mapping.id}
-              className="bg-gray-700 p-4 rounded-lg flex items-center justify-between"
-            >
-              <div>
-                <span className="font-mono">
-                  {mapping.sourceKey || "Click to set key"}
-                </span>
-                {" → "}
-                <span className="font-mono">
-                  {Object.entries(mapping.targetModifiers)
-                    .filter(([_, value]) => value)
-                    .map(([key]) => key.toUpperCase())
-                    .join("+")}
-                  {mapping.targetKey && `+${mapping.targetKey}`}
-                  {mapping.command && ` (${mapping.command})`}
-                </span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() =>
-                    handleUpdateMapping(mapping.id, {
-                      enabled: !mapping.enabled,
-                    })
-                  }
-                  className={`px-3 py-1 rounded ${
-                    mapping.enabled
-                      ? "bg-green-500 hover:bg-green-600"
-                      : "bg-gray-500 hover:bg-gray-600"
-                  }`}
-                >
-                  {mapping.enabled ? "Enabled" : "Disabled"}
-                </button>
-                <button
-                  onClick={() => handleDeleteMapping(mapping.id)}
-                  className="px-3 py-1 bg-red-500 hover:bg-red-600 rounded"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    <Card className="bg-background/50 backdrop-blur-md border-border/50">
+      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+        <CardTitle className="flex items-center gap-2 text-xl">
+          <Keyboard className="size-5" />
+          Keyboard Shortcuts
+        </CardTitle>
+        <Button onClick={handleAddMapping} className="gap-2">
+          <Plus className="size-4" />
+          Add Shortcut
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {mappings.length === 0 ? (
+          <div className="py-8 text-center text-muted-foreground">
+            <p>No shortcuts configured yet.</p>
+            <p className="text-sm">
+              Click the Add Shortcut button to create your first shortcut.
+            </p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Shortcut</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead className="w-[100px]">Status</TableHead>
+                <TableHead className="w-[100px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {mappings.map((mapping) => (
+                <TableRow key={mapping.id}>
+                  <TableCell className="font-mono">
+                    {formatShortcut(mapping)}
+                  </TableCell>
+                  <TableCell>{mapping.command || "No action set"}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={mapping.enabled ? "default" : "secondary"}
+                      className="cursor-pointer hover:opacity-80"
+                      onClick={() =>
+                        handleUpdateMapping(mapping.id, {
+                          enabled: !mapping.enabled,
+                        })
+                      }
+                    >
+                      {mapping.enabled ? "Enabled" : "Disabled"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="hover:text-destructive"
+                      onClick={() => handleDeleteMapping(mapping.id)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
