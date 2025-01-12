@@ -65,21 +65,8 @@ public static class KeyboardMonitor {
     public const int KEYEVENTF_EXTENDEDKEY = 0x0001;
 
     public static bool IsKeyPressed(Keys key) {
-        // Map keys that might have different names across Windows versions
-        var mappedKey = key;
-        switch (key) {
-            case Keys.Alt:
-                // Check both LMenu and RMenu for Alt
-                return (GetAsyncKeyState(Keys.LMenu) & 0x8000) != 0 || (GetAsyncKeyState(Keys.RMenu) & 0x8000) != 0;
-            case Keys.ControlKey:
-                // Check both LControlKey and RControlKey
-                return (GetAsyncKeyState(Keys.LControlKey) & 0x8000) != 0 || (GetAsyncKeyState(Keys.RControlKey) & 0x8000) != 0;
-            case Keys.ShiftKey:
-                // Check both LShiftKey and RShiftKey
-                return (GetAsyncKeyState(Keys.LShiftKey) & 0x8000) != 0 || (GetAsyncKeyState(Keys.RShiftKey) & 0x8000) != 0;
-            default:
-                return (GetAsyncKeyState(key) & 0x8000) != 0;
-        }
+        // Check specific keys directly
+        return (GetAsyncKeyState(key) & 0x8000) != 0;
     }
 
     public static bool isHandlingSyntheticCapsLock = false;
@@ -104,7 +91,7 @@ public static class KeyboardMonitor {
 
     // Map Windows Forms Keys to their display names - only special cases
     private static Dictionary<Keys, string> keyDisplayNames = new Dictionary<Keys, string>() {
-        { Keys.Capital, "CapsLock" }
+        { Keys.CapsLock, "CapsLock" }
     };
 
     public static HashSet<Keys> GetPressedKeys() {
@@ -155,28 +142,18 @@ public static class KeyboardMonitor {
         CapsLockHandling = (CapsLockBehavior)Enum.Parse(typeof(CapsLockBehavior), capsLockBehavior, true);
     }
 
-    private static Dictionary<Keys, Keys> keyMappings = new Dictionary<Keys, Keys>() {
-        { Keys.Alt, Keys.LMenu },
-        { Keys.ControlKey, Keys.LControlKey },
-        { Keys.ShiftKey, Keys.LShiftKey }
-    };
-
-    private static Keys GetMappedKey(Keys key) {
-        return keyMappings.ContainsKey(key) ? keyMappings[key] : key;
-    }
-
     public static void SendHyperKeyDown() {
-        if (UseCtrl) SendKeyDown(GetMappedKey(Keys.ControlKey));
-        if (UseAlt) SendKeyDown(GetMappedKey(Keys.Alt));
-        if (UseShift) SendKeyDown(GetMappedKey(Keys.ShiftKey));
+        if (UseCtrl) SendKeyDown(Keys.LControlKey);
+        if (UseAlt) SendKeyDown(Keys.LMenu);
+        if (UseShift) SendKeyDown(Keys.LShiftKey);
         if (UseWin) SendKeyDown(Keys.LWin);
     }
 
     public static void SendHyperKeyUp() {
         if (UseWin) SendKeyUp(Keys.LWin);
-        if (UseShift) SendKeyUp(GetMappedKey(Keys.ShiftKey));
-        if (UseAlt) SendKeyUp(GetMappedKey(Keys.Alt));
-        if (UseCtrl) SendKeyUp(GetMappedKey(Keys.ControlKey));
+        if (UseShift) SendKeyUp(Keys.LShiftKey);
+        if (UseAlt) SendKeyUp(Keys.LMenu);
+        if (UseCtrl) SendKeyUp(Keys.LControlKey);
     }
 }
 
@@ -293,14 +270,14 @@ public class KeyboardHook {
 
     try {
         while ($true) {
-            $ctrl = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::ControlKey)
-            $alt = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::Alt)
-            $shift = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::ShiftKey)
+            $ctrl = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LControlKey) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RControlKey)
+            $alt = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LMenu) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RMenu)
+            $shift = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LShiftKey) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RShiftKey)
             $win = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::LWin) -or [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::RWin)
             $caps = [KeyboardMonitor]::IsKeyPressed([System.Windows.Forms.Keys]::CapsLock)
             
-            # Get all currently pressed keys
-            $pressedKeys = @([KeyboardMonitor]::GetPressedKeys() | ForEach-Object { $_.ToString() })
+            # Get all currently pressed keys with proper display names
+            $pressedKeys = @([KeyboardMonitor]::GetPressedKeys() | ForEach-Object { [KeyboardMonitor]::GetKeyDisplayName($_) })
 
             # Ensure clean JSON output on a single line
             $state = @{

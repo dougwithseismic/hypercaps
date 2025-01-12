@@ -16,6 +16,7 @@ import { useKeyboardStore } from "../store/keyboard-store";
 
 interface HyperKeyConfigProps {
   singleKeyMode?: boolean;
+  allowedKeys?: string[];
 }
 
 interface HyperKeyConfig {
@@ -39,17 +40,27 @@ interface BufferedKeys {
   };
 }
 
-// Key name mappings to match Windows.Forms.Keys enum names
-const KEY_NAME_MAPPINGS: Record<string, string> = {
-  Capital: "CapsLock",
-};
-
 // Helper to normalize key names - only handle special cases
 const normalizeKeyName = (key: string): string => {
-  return KEY_NAME_MAPPINGS[key] || key;
+  return key;
 };
 
-export function HyperKeyConfig({ singleKeyMode = false }: HyperKeyConfigProps) {
+const ALLOWED_TRIGGER_KEYS = [
+  "CapsLock",
+  "LControlKey",
+  "RControlKey",
+  "LMenu",
+  "RMenu",
+  "LShiftKey",
+  "RShiftKey",
+  "LWin",
+  "RWin",
+];
+
+export function HyperKeyConfig({
+  singleKeyMode = false,
+  allowedKeys = ALLOWED_TRIGGER_KEYS,
+}: HyperKeyConfigProps) {
   const {
     isEnabled,
     isLoading,
@@ -73,10 +84,12 @@ export function HyperKeyConfig({ singleKeyMode = false }: HyperKeyConfigProps) {
   useEffect(() => {
     if (!isCapturingTrigger) return;
 
+    const lastKey = currentKeys[currentKeys.length - 1];
+    if (!lastKey) return;
+
     if (singleKeyMode) {
-      // In single key mode, just take the last pressed key
-      const lastKey = currentKeys[currentKeys.length - 1];
-      if (lastKey) {
+      // In single key mode, only allow modifier keys
+      if (allowedKeys.includes(lastKey)) {
         setBufferedKeys({
           trigger: lastKey,
           modifiers: {
@@ -88,25 +101,46 @@ export function HyperKeyConfig({ singleKeyMode = false }: HyperKeyConfigProps) {
         });
       }
     } else {
-      // In combo mode, separate modifiers from the trigger key
-      const nonModifierKeys = currentKeys.filter(
-        (key) => !Object.values(KEY_NAME_MAPPINGS).includes(key)
-      );
-      const lastNonModifierKey = nonModifierKeys[nonModifierKeys.length - 1];
+      // In combo mode, allow one modifier key as trigger plus optional modifier combinations
+      if (allowedKeys.includes(lastKey)) {
+        const modifierStates = {
+          lctrl: currentKeys.includes("LControlKey"),
+          rctrl: currentKeys.includes("RControlKey"),
+          lalt: currentKeys.includes("LMenu"),
+          ralt: currentKeys.includes("RMenu"),
+          lshift: currentKeys.includes("LShiftKey"),
+          rshift: currentKeys.includes("RShiftKey"),
+          lwin: currentKeys.includes("LWin"),
+          rwin: currentKeys.includes("RWin"),
+        };
 
-      if (lastNonModifierKey) {
         setBufferedKeys({
-          trigger: lastNonModifierKey,
+          trigger: lastKey,
           modifiers: {
-            ctrl: modifiers.ctrlKey,
-            alt: modifiers.altKey,
-            shift: modifiers.shiftKey,
-            win: modifiers.metaKey,
+            ctrl: modifierStates.lctrl || modifierStates.rctrl,
+            alt: modifierStates.lalt || modifierStates.ralt,
+            shift: modifierStates.lshift || modifierStates.rshift,
+            win: modifierStates.lwin || modifierStates.rwin,
           },
         });
       }
     }
-  }, [currentKeys, modifiers, isCapturingTrigger, singleKeyMode]);
+  }, [currentKeys, isCapturingTrigger, singleKeyMode, allowedKeys]);
+
+  // Format the key combination string
+  const keyComboString = bufferedKeys.trigger
+    ? singleKeyMode
+      ? normalizeKeyName(bufferedKeys.trigger)
+      : [
+          bufferedKeys.modifiers.ctrl && "LControlKey",
+          bufferedKeys.modifiers.alt && "LMenu",
+          bufferedKeys.modifiers.shift && "LShiftKey",
+          bufferedKeys.modifiers.win && "LWin",
+          normalizeKeyName(bufferedKeys.trigger),
+        ]
+          .filter(Boolean)
+          .join(" + ")
+    : "";
 
   const handleTriggerCapture = async () => {
     if (!hyperKeyConfig || !bufferedKeys.trigger) return;
@@ -270,33 +304,42 @@ export function HyperKeyConfig({ singleKeyMode = false }: HyperKeyConfigProps) {
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-4 rounded-lg bg-muted">
-              <p className="text-sm font-medium">
-                {bufferedKeys.trigger
-                  ? `${
-                      [
-                        bufferedKeys.modifiers.ctrl && "Ctrl",
-                        bufferedKeys.modifiers.alt && "Alt",
-                        bufferedKeys.modifiers.shift && "Shift",
-                        bufferedKeys.modifiers.win && "Win",
-                      ]
-                        .filter(Boolean)
-                        .join(" + ") +
-                      (bufferedKeys.modifiers.ctrl ||
-                      bufferedKeys.modifiers.alt ||
-                      bufferedKeys.modifiers.shift ||
-                      bufferedKeys.modifiers.win
-                        ? " + "
-                        : "") +
-                      normalizeKeyName(bufferedKeys.trigger)
-                    }`
-                  : "Waiting for key press..."}
-              </p>
+              {bufferedKeys.trigger ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Selected Key:</p>
+                  <KeyDisplay
+                    currentKeys={[bufferedKeys.trigger]}
+                    hyperKeyConfig={hyperKeyConfig}
+                    modifiers={{
+                      ctrlKey: bufferedKeys.modifiers.ctrl,
+                      altKey: bufferedKeys.modifiers.alt,
+                      shiftKey: bufferedKeys.modifiers.shift,
+                      metaKey: bufferedKeys.modifiers.win,
+                      hyperKeyActive: false,
+                      capsLock: false,
+                    }}
+                    allowedKeys={allowedKeys}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Waiting for key press...
+                </p>
+              )}
             </div>
-            <KeyDisplay
-              currentKeys={currentKeys}
-              hyperKeyConfig={hyperKeyConfig}
-              modifiers={modifiers}
-            />
+            {currentKeys.length > 0 &&
+              !allowedKeys.includes(currentKeys[currentKeys.length - 1]) && (
+                <div className="p-4 border rounded-lg bg-destructive/10 border-destructive/20">
+                  <p className="text-sm font-medium text-destructive">
+                    {currentKeys[currentKeys.length - 1]} cannot be used as a
+                    trigger key
+                  </p>
+                  <p className="mt-1 text-xs text-destructive/80">
+                    Only modifier keys (Ctrl, Alt, Shift, Win, etc.) can be used
+                    as triggers
+                  </p>
+                </div>
+              )}
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={handleDialogClose}>
                 Cancel

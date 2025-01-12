@@ -15,11 +15,6 @@ const STANDARD_MODIFIER_KEYS = new Set([
   "LWin",
   "RWin",
   "CapsLock",
-  "Capital",
-  "Menu",
-  "ControlKey",
-  "ShiftKey",
-  "Win",
 ]);
 
 interface ModifierDisplayProps {
@@ -71,22 +66,22 @@ export function ModifierDisplay({
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
       <Badge variant={modifierStates.lctrl ? "default" : "secondary"}>
-        LCtrl
+        LControlKey
       </Badge>
       <Badge variant={modifierStates.rctrl ? "default" : "secondary"}>
-        RCtrl
+        RControlKey
       </Badge>
       <Badge variant={modifierStates.lalt ? "default" : "secondary"}>
-        LAlt
+        LMenu
       </Badge>
       <Badge variant={modifierStates.ralt ? "default" : "secondary"}>
-        RAlt
+        RMenu
       </Badge>
       <Badge variant={modifierStates.lshift ? "default" : "secondary"}>
-        LShift
+        LShiftKey
       </Badge>
       <Badge variant={modifierStates.rshift ? "default" : "secondary"}>
-        RShift
+        RShiftKey
       </Badge>
       <Badge variant={modifierStates.lwin ? "default" : "secondary"}>
         LWin
@@ -122,6 +117,11 @@ interface KeyDisplayProps {
     capsLock: boolean;
   };
   className?: string;
+  buffer?: {
+    keys: string[];
+    isComplete: boolean;
+  };
+  allowedKeys?: string[];
 }
 
 export function KeyDisplay({
@@ -129,13 +129,36 @@ export function KeyDisplay({
   hyperKeyConfig,
   modifiers,
   className,
+  buffer,
+  allowedKeys,
 }: KeyDisplayProps) {
+  // Get specific modifier states directly from currentKeys
+  const modifierStates = {
+    capsLock: currentKeys.includes("CapsLock"),
+    lctrl: currentKeys.includes("LControlKey"),
+    rctrl: currentKeys.includes("RControlKey"),
+    lalt: currentKeys.includes("LMenu"),
+    ralt: currentKeys.includes("RMenu"),
+    lshift: currentKeys.includes("LShiftKey"),
+    rshift: currentKeys.includes("RShiftKey"),
+    lwin: currentKeys.includes("LWin"),
+    rwin: currentKeys.includes("RWin"),
+  };
+
+  // Track which keys are being shown as modifiers
+  const activeModifierKeys = new Set<string>();
+
   // Get active modifier names
   const activeModifiers = [
-    modifiers.ctrlKey ? "Ctrl" : null,
-    modifiers.altKey ? "Alt" : null,
-    modifiers.shiftKey ? "Shift" : null,
-    modifiers.metaKey ? "Win" : null,
+    modifierStates.capsLock && "CapsLock",
+    modifierStates.lctrl && "LControlKey",
+    modifierStates.rctrl && "RControlKey",
+    modifierStates.lalt && "LMenu",
+    modifierStates.ralt && "RMenu",
+    modifierStates.lshift && "LShiftKey",
+    modifierStates.rshift && "RShiftKey",
+    modifierStates.lwin && "LWin",
+    modifierStates.rwin && "RWin",
     modifiers.hyperKeyActive && hyperKeyConfig
       ? `HyperKey (${hyperKeyConfig.trigger})`
       : modifiers.hyperKeyActive
@@ -143,13 +166,30 @@ export function KeyDisplay({
         : null,
   ].filter((mod): mod is string => Boolean(mod));
 
-  // Get non-modifier keys
-  const regularKeys = currentKeys.filter(
+  // Add active modifiers to our tracking set
+  activeModifiers.forEach((key) => {
+    if (key !== "HyperKey" && !key.startsWith("HyperKey (")) {
+      activeModifierKeys.add(key);
+    }
+  });
+
+  // Get non-modifier keys - use buffer if provided, otherwise use currentKeys
+  const keysToDisplay = buffer ? buffer.keys : currentKeys;
+  const regularKeys = keysToDisplay.filter(
     (key) =>
-      !STANDARD_MODIFIER_KEYS.has(key) &&
-      (!hyperKeyConfig || key !== hyperKeyConfig.trigger)
+      !activeModifierKeys.has(key) && // Don't show keys that are already shown as modifiers
+      !STANDARD_MODIFIER_KEYS.has(key) && // Don't show other standard modifier keys
+      (!hyperKeyConfig || key !== hyperKeyConfig.trigger) // Don't show the hyperkey trigger
   );
-  if (currentKeys.length === 0) {
+
+  // Get the last pressed key for invalid key message
+  const lastPressedKey = keysToDisplay[keysToDisplay.length - 1];
+  const showInvalidKeyMessage =
+    lastPressedKey &&
+    allowedKeys?.length &&
+    !allowedKeys.includes(lastPressedKey);
+
+  if (keysToDisplay.length === 0) {
     return (
       <div className={cn("flex flex-wrap gap-2", className)}>
         <span className="text-sm text-muted-foreground">No keys pressed</span>
@@ -158,32 +198,61 @@ export function KeyDisplay({
   }
 
   return (
-    <div className={cn("flex items-center gap-2 text-sm", className)}>
-      {activeModifiers.length > 0 && (
-        <>
-          <div className="flex flex-wrap gap-1">
-            {activeModifiers.map((mod) => (
-              <Badge key={mod} variant="default">
-                {mod}
-              </Badge>
-            ))}
-          </div>
-          {regularKeys.length > 0 && (
-            <span className="text-muted-foreground">+</span>
-          )}
-        </>
-      )}
-      <div className="flex flex-wrap gap-1">
-        {regularKeys.map((key) => (
-          <Badge
-            key={key}
-            variant="outline"
-            className="animate-in fade-in zoom-in"
-          >
-            {key}
-          </Badge>
-        ))}
+    <div className={cn("space-y-2", className)}>
+      <div className="flex items-center gap-2 text-sm">
+        {activeModifiers.length > 0 && (
+          <>
+            <div className="flex flex-wrap gap-1">
+              {activeModifiers.map((mod) => (
+                <Badge
+                  key={mod}
+                  variant={
+                    mod.startsWith("HyperKey")
+                      ? "default"
+                      : allowedKeys
+                        ? allowedKeys.includes(mod)
+                          ? "secondary"
+                          : "destructive"
+                        : "secondary"
+                  }
+                >
+                  {mod}
+                </Badge>
+              ))}
+            </div>
+            {regularKeys.length > 0 && (
+              <span className="text-muted-foreground">+</span>
+            )}
+          </>
+        )}
+        <div className="flex flex-wrap gap-1">
+          {regularKeys.map((key) => (
+            <Badge
+              key={key}
+              variant={
+                buffer?.isComplete
+                  ? "secondary"
+                  : allowedKeys
+                    ? allowedKeys.includes(key)
+                      ? "default"
+                      : "destructive"
+                    : "default"
+              }
+              className={cn(
+                "animate-in fade-in zoom-in",
+                buffer?.isComplete && "bg-primary/10"
+              )}
+            >
+              {key}
+            </Badge>
+          ))}
+        </div>
       </div>
+      {showInvalidKeyMessage && (
+        <p className="text-sm text-destructive">
+          {lastPressedKey} cannot be used as a trigger key
+        </p>
+      )}
     </div>
   );
 }
