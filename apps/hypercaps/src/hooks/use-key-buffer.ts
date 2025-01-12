@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { WindowsFormsKeyName } from "../components/key-state-visualizer";
 
 export interface UseKeyBufferOptions {
   completionDelay?: number;
@@ -8,10 +9,10 @@ export interface UseKeyBufferOptions {
 }
 
 export interface UseKeyBufferReturn {
-  buffer: string[];
+  buffer: WindowsFormsKeyName[];
   isComplete: boolean;
   isBuffering: boolean;
-  addKeys: (keys: string[]) => void;
+  addKeys: (keys: WindowsFormsKeyName[]) => void;
   resetBuffer: () => void;
 }
 

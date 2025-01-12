@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyDisplay } from "./key-state-visualizer";
+import { KeyDisplay, WindowsFormsKeyName } from "./key-state-visualizer";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -16,12 +16,12 @@ import { useKeyboardStore } from "../store/keyboard-store";
 
 interface HyperKeyConfigProps {
   singleKeyMode?: boolean;
-  allowedKeys?: string[];
+  allowedKeys?: WindowsFormsKeyName[];
 }
 
 interface HyperKeyConfig {
   enabled: boolean;
-  trigger: string;
+  trigger: WindowsFormsKeyName;
   modifiers: {
     ctrl?: boolean;
     alt?: boolean;
@@ -31,7 +31,7 @@ interface HyperKeyConfig {
 }
 
 interface BufferedKeys {
-  trigger: string | null;
+  trigger: WindowsFormsKeyName | null;
   modifiers: {
     ctrl: boolean;
     alt: boolean;
@@ -41,11 +41,11 @@ interface BufferedKeys {
 }
 
 // Helper to normalize key names - only handle special cases
-const normalizeKeyName = (key: string): string => {
+const normalizeKeyName = (key: WindowsFormsKeyName): WindowsFormsKeyName => {
   return key;
 };
 
-const ALLOWED_TRIGGER_KEYS = [
+const ALLOWED_TRIGGER_KEYS: WindowsFormsKeyName[] = [
   "CapsLock",
   "LControlKey",
   "RControlKey",
@@ -133,10 +133,10 @@ export function HyperKeyConfig({
     ? singleKeyMode
       ? normalizeKeyName(bufferedKeys.trigger)
       : [
-          bufferedKeys.modifiers.ctrl && "LControlKey",
-          bufferedKeys.modifiers.alt && "LMenu",
-          bufferedKeys.modifiers.shift && "LShiftKey",
-          bufferedKeys.modifiers.win && "LWin",
+          bufferedKeys.modifiers.ctrl && ("LControlKey" as const),
+          bufferedKeys.modifiers.alt && ("LMenu" as const),
+          bufferedKeys.modifiers.shift && ("LShiftKey" as const),
+          bufferedKeys.modifiers.win && ("LWin" as const),
           normalizeKeyName(bufferedKeys.trigger),
         ]
           .filter(Boolean)
@@ -146,7 +146,7 @@ export function HyperKeyConfig({
   const handleTriggerCapture = async () => {
     if (!hyperKeyConfig || !bufferedKeys.trigger) return;
 
-    const updatedConfig = {
+    const updatedConfig: HyperKeyConfig = {
       ...hyperKeyConfig,
       enabled: wasEnabled,
       trigger: bufferedKeys.trigger,
@@ -224,10 +224,11 @@ export function HyperKeyConfig({
 
     // Only disable if it was enabled
     if (hyperKeyConfig.enabled) {
-      await updateHyperKeyConfig({
+      const updatedConfig: HyperKeyConfig = {
         ...hyperKeyConfig,
         enabled: false,
-      });
+      };
+      await updateHyperKeyConfig(updatedConfig);
     }
     setIsCapturingTrigger(true);
   };
@@ -239,10 +240,11 @@ export function HyperKeyConfig({
 
     // Only re-enable if it was enabled before configuration
     if (wasEnabled) {
-      await updateHyperKeyConfig({
+      const updatedConfig: HyperKeyConfig = {
         ...hyperKeyConfig,
         enabled: true,
-      });
+      };
+      await updateHyperKeyConfig(updatedConfig);
     }
   };
 

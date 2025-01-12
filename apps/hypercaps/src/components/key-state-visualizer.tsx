@@ -4,8 +4,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { cn } from "../lib/utils";
 import { useKeyboardStore } from "../store/keyboard-store";
 
+// Define Windows.Forms.Keys names we use
+export type WindowsFormsKeyName =
+  | "LControlKey"
+  | "RControlKey"
+  | "LMenu"
+  | "RMenu"
+  | "LShiftKey"
+  | "RShiftKey"
+  | "LWin"
+  | "RWin"
+  | "CapsLock";
+
 // Helper to identify standard modifier keys
-const STANDARD_MODIFIER_KEYS = new Set([
+const STANDARD_MODIFIER_KEYS = new Set<WindowsFormsKeyName>([
   "LControlKey",
   "RControlKey",
   "LMenu",
@@ -26,10 +38,10 @@ interface ModifierDisplayProps {
     capsLock: boolean;
     hyperKeyActive: boolean;
   };
-  currentKeys: string[];
+  currentKeys: WindowsFormsKeyName[];
   hyperKeyConfig: {
     enabled: boolean;
-    trigger: string;
+    trigger: WindowsFormsKeyName;
     modifiers: {
       ctrl?: boolean;
       alt?: boolean;
@@ -63,32 +75,54 @@ export function ModifierDisplay({
     rwin: currentKeys.includes("RWin"),
   };
 
+  // Filter out the HyperKey trigger from being shown separately
+  const shouldShowModifier = (key: WindowsFormsKeyName) => {
+    if (!hyperKeyConfig?.enabled) return true;
+    return key !== hyperKeyConfig.trigger;
+  };
+
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      <Badge variant={modifierStates.lctrl ? "default" : "secondary"}>
-        LControlKey
-      </Badge>
-      <Badge variant={modifierStates.rctrl ? "default" : "secondary"}>
-        RControlKey
-      </Badge>
-      <Badge variant={modifierStates.lalt ? "default" : "secondary"}>
-        LMenu
-      </Badge>
-      <Badge variant={modifierStates.ralt ? "default" : "secondary"}>
-        RMenu
-      </Badge>
-      <Badge variant={modifierStates.lshift ? "default" : "secondary"}>
-        LShiftKey
-      </Badge>
-      <Badge variant={modifierStates.rshift ? "default" : "secondary"}>
-        RShiftKey
-      </Badge>
-      <Badge variant={modifierStates.lwin ? "default" : "secondary"}>
-        LWin
-      </Badge>
-      <Badge variant={modifierStates.rwin ? "default" : "secondary"}>
-        RWin
-      </Badge>
+      {shouldShowModifier("LControlKey") && (
+        <Badge variant={modifierStates.lctrl ? "default" : "secondary"}>
+          LControlKey
+        </Badge>
+      )}
+      {shouldShowModifier("RControlKey") && (
+        <Badge variant={modifierStates.rctrl ? "default" : "secondary"}>
+          RControlKey
+        </Badge>
+      )}
+      {shouldShowModifier("LMenu") && (
+        <Badge variant={modifierStates.lalt ? "default" : "secondary"}>
+          LMenu
+        </Badge>
+      )}
+      {shouldShowModifier("RMenu") && (
+        <Badge variant={modifierStates.ralt ? "default" : "secondary"}>
+          RMenu
+        </Badge>
+      )}
+      {shouldShowModifier("LShiftKey") && (
+        <Badge variant={modifierStates.lshift ? "default" : "secondary"}>
+          LShiftKey
+        </Badge>
+      )}
+      {shouldShowModifier("RShiftKey") && (
+        <Badge variant={modifierStates.rshift ? "default" : "secondary"}>
+          RShiftKey
+        </Badge>
+      )}
+      {shouldShowModifier("LWin") && (
+        <Badge variant={modifierStates.lwin ? "default" : "secondary"}>
+          LWin
+        </Badge>
+      )}
+      {shouldShowModifier("RWin") && (
+        <Badge variant={modifierStates.rwin ? "default" : "secondary"}>
+          RWin
+        </Badge>
+      )}
       <Badge variant={modifiers.hyperKeyActive ? "default" : "secondary"}>
         {hyperKeyLabel}
       </Badge>
@@ -97,10 +131,10 @@ export function ModifierDisplay({
 }
 
 interface KeyDisplayProps {
-  currentKeys: string[];
+  currentKeys: WindowsFormsKeyName[];
   hyperKeyConfig: {
     enabled: boolean;
-    trigger: string;
+    trigger: WindowsFormsKeyName;
     modifiers: {
       ctrl?: boolean;
       alt?: boolean;
@@ -118,10 +152,10 @@ interface KeyDisplayProps {
   };
   className?: string;
   buffer?: {
-    keys: string[];
+    keys: WindowsFormsKeyName[];
     isComplete: boolean;
   };
-  allowedKeys?: string[];
+  allowedKeys?: WindowsFormsKeyName[];
 }
 
 export function KeyDisplay({
@@ -146,30 +180,56 @@ export function KeyDisplay({
   };
 
   // Track which keys are being shown as modifiers
-  const activeModifierKeys = new Set<string>();
+  const activeModifierKeys = new Set<WindowsFormsKeyName>();
+
+  type ModifierLabel =
+    | WindowsFormsKeyName
+    | "HyperKey"
+    | `HyperKey (${WindowsFormsKeyName})`;
+
+  // Helper to check if a key should be shown
+  const shouldShowKey = (key: WindowsFormsKeyName) => {
+    if (!hyperKeyConfig?.enabled) return true;
+    return key !== hyperKeyConfig.trigger;
+  };
 
   // Get active modifier names
   const activeModifiers = [
-    modifierStates.capsLock && "CapsLock",
-    modifierStates.lctrl && "LControlKey",
-    modifierStates.rctrl && "RControlKey",
-    modifierStates.lalt && "LMenu",
-    modifierStates.ralt && "RMenu",
-    modifierStates.lshift && "LShiftKey",
-    modifierStates.rshift && "RShiftKey",
-    modifierStates.lwin && "LWin",
-    modifierStates.rwin && "RWin",
+    modifierStates.capsLock &&
+      shouldShowKey("CapsLock") &&
+      ("CapsLock" as const),
+    modifierStates.lctrl &&
+      shouldShowKey("LControlKey") &&
+      ("LControlKey" as const),
+    modifierStates.rctrl &&
+      shouldShowKey("RControlKey") &&
+      ("RControlKey" as const),
+    modifierStates.lalt && shouldShowKey("LMenu") && ("LMenu" as const),
+    modifierStates.ralt && shouldShowKey("RMenu") && ("RMenu" as const),
+    modifierStates.lshift &&
+      shouldShowKey("LShiftKey") &&
+      ("LShiftKey" as const),
+    modifierStates.rshift &&
+      shouldShowKey("RShiftKey") &&
+      ("RShiftKey" as const),
+    modifierStates.lwin && shouldShowKey("LWin") && ("LWin" as const),
+    modifierStates.rwin && shouldShowKey("RWin") && ("RWin" as const),
     modifiers.hyperKeyActive && hyperKeyConfig
-      ? `HyperKey (${hyperKeyConfig.trigger})`
+      ? (`HyperKey (${hyperKeyConfig.trigger})` as const)
       : modifiers.hyperKeyActive
-        ? "HyperKey"
+        ? ("HyperKey" as const)
         : null,
-  ].filter((mod): mod is string => Boolean(mod));
+  ].filter((mod): mod is ModifierLabel => Boolean(mod));
 
   // Add active modifiers to our tracking set
   activeModifiers.forEach((key) => {
-    if (key !== "HyperKey" && !key.startsWith("HyperKey (")) {
-      activeModifierKeys.add(key);
+    // Only add WindowsFormsKeyName keys to the set
+    if (
+      key !== "HyperKey" &&
+      !key.startsWith("HyperKey (") &&
+      STANDARD_MODIFIER_KEYS.has(key as WindowsFormsKeyName)
+    ) {
+      activeModifierKeys.add(key as WindowsFormsKeyName);
     }
   });
 
@@ -179,7 +239,7 @@ export function KeyDisplay({
     (key) =>
       !activeModifierKeys.has(key) && // Don't show keys that are already shown as modifiers
       !STANDARD_MODIFIER_KEYS.has(key) && // Don't show other standard modifier keys
-      (!hyperKeyConfig || key !== hyperKeyConfig.trigger) // Don't show the hyperkey trigger
+      (!hyperKeyConfig?.enabled || key !== hyperKeyConfig.trigger) // Don't show the hyperkey trigger if enabled
   );
 
   // Get the last pressed key for invalid key message
@@ -210,7 +270,9 @@ export function KeyDisplay({
                     mod.startsWith("HyperKey")
                       ? "default"
                       : allowedKeys
-                        ? allowedKeys.includes(mod)
+                        ? STANDARD_MODIFIER_KEYS.has(
+                            mod as WindowsFormsKeyName
+                          ) && allowedKeys.includes(mod as WindowsFormsKeyName)
                           ? "secondary"
                           : "destructive"
                         : "secondary"
@@ -249,9 +311,9 @@ export function KeyDisplay({
         </div>
       </div>
       {showInvalidKeyMessage && (
-        <p className="text-sm text-destructive">
-          {lastPressedKey} cannot be used as a trigger key
-        </p>
+        <div className="text-sm text-destructive">
+          This key cannot be used as a trigger
+        </div>
       )}
     </div>
   );

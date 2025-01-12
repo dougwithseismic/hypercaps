@@ -1,9 +1,10 @@
 import { create } from "zustand";
+import { WindowsFormsKeyName } from "../components/key-state-visualizer";
 
 interface KeyboardState {
   isEnabled: boolean;
   isLoading: boolean;
-  currentKeys: string[];
+  currentKeys: WindowsFormsKeyName[];
   modifiers: {
     ctrlKey: boolean;
     altKey: boolean;
@@ -14,7 +15,7 @@ interface KeyboardState {
   };
   hyperKeyConfig: {
     enabled: boolean;
-    trigger: string;
+    trigger: WindowsFormsKeyName;
     modifiers: {
       ctrl?: boolean;
       alt?: boolean;
@@ -66,7 +67,12 @@ export const useKeyboardStore = create<KeyboardStore>()((set) => ({
   loadHyperKeyConfig: async () => {
     try {
       const config = await window.api.getHyperKeyConfig();
-      set({ hyperKeyConfig: config });
+      set({
+        hyperKeyConfig: {
+          ...config,
+          trigger: config.trigger as WindowsFormsKeyName,
+        },
+      });
     } catch (err) {
       console.error("Failed to load HyperKey config:", err);
     }
@@ -85,28 +91,6 @@ export const useKeyboardStore = create<KeyboardStore>()((set) => ({
 
 // Setup IPC listeners
 if (typeof window !== "undefined") {
-  window.api.onKeyboardEvent((event) => {
-    useKeyboardStore.setState({
-      currentKeys: event.pressedKeys,
-      modifiers: {
-        ctrlKey: event.pressedKeys.some(
-          (key) => key === "LControlKey" || key === "RControlKey"
-        ),
-        altKey: event.pressedKeys.some(
-          (key) => key === "LMenu" || key === "RMenu"
-        ),
-        shiftKey: event.pressedKeys.some(
-          (key) => key === "LShiftKey" || key === "RShiftKey"
-        ),
-        metaKey: event.pressedKeys.some(
-          (key) => key === "LWin" || key === "RWin"
-        ),
-        capsLock: Boolean(event.capsLock),
-        hyperKeyActive: Boolean(event.hyperKeyActive),
-      },
-    });
-  });
-
   window.api.onKeyboardServiceState((enabled) => {
     useKeyboardStore.setState({
       isEnabled: Boolean(enabled),
