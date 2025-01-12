@@ -18,13 +18,8 @@ const _Store = class _Store {
       enableOnStartup: true,
       hyperKeyConfig: {
         enabled: false,
-        trigger: "capslock",
-        modifiers: {
-          ctrl: false,
-          alt: false,
-          shift: false,
-          win: false
-        }
+        trigger: "CapsLock",
+        modifiers: []
       }
     };
   }
@@ -117,13 +112,8 @@ const _Store = class _Store {
     if (!this.state.hyperKeyConfig) {
       this.state.hyperKeyConfig = {
         enabled: false,
-        trigger: "capslock",
-        modifiers: {
-          ctrl: false,
-          alt: false,
-          shift: false,
-          win: false
-        }
+        trigger: "CapsLock",
+        modifiers: []
       };
       await this.save();
     }
@@ -198,7 +188,7 @@ class KeyboardService {
     this.mainWindow = window;
   }
   async startListening() {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d;
     console.log("[KeyboardService] startListening() called");
     if (this.keyboardProcess) {
       console.log("[KeyboardService] Process already running, returning early");
@@ -236,21 +226,22 @@ class KeyboardService {
       console.log("[KeyboardService] Got hyperkey config:", hyperKeyConfig);
       const config = {
         ...hyperKeyConfig,
-        trigger: hyperKeyConfig.trigger.toLowerCase() === "capslock" ? "CapsLock" : hyperKeyConfig.trigger
+        trigger: hyperKeyConfig.trigger,
+        // Ensure modifiers is always an array
+        modifiers: Array.isArray(hyperKeyConfig.modifiers) ? hyperKeyConfig.modifiers : []
       };
+      console.log("[KeyboardService] Processed config:", config);
       const command = [
         // First set the config
         "$Config = @{",
         `enabled=$${config.enabled.toString().toLowerCase()};`,
         `trigger='${config.trigger}';`,
-        "modifiers=@{",
-        `ctrl=$${(_b = config.modifiers.ctrl) == null ? void 0 : _b.toString().toLowerCase()};`,
-        `alt=$${(_c = config.modifiers.alt) == null ? void 0 : _c.toString().toLowerCase()};`,
-        `shift=$${(_d = config.modifiers.shift) == null ? void 0 : _d.toString().toLowerCase()};`,
-        `win=$${(_e = config.modifiers.win) == null ? void 0 : _e.toString().toLowerCase()}`,
-        "}};",
+        // Always create a PowerShell array, even if empty
+        `modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(",") || "@()"});`,
+        `capsLockBehavior='${config.capsLockBehavior || "BlockToggle"}';`,
+        "};",
         // Log the config for debugging
-        "Write-Host 'Config:' $($Config | ConvertTo-Json);",
+        "Write-Host 'Config:' $($Config | ConvertTo-Json -Depth 10);",
         // Then run the script
         `& {`,
         `  Set-Location '${path.dirname(scriptPath)}';`,
@@ -282,7 +273,7 @@ class KeyboardService {
       }, 5e3);
       console.log("[KeyboardService] Creating startup promise");
       const startupPromise = new Promise((resolve, reject) => {
-        var _a2, _b2, _c2, _d2, _e2;
+        var _a2, _b2, _c2, _d2, _e;
         const cleanup = () => {
           var _a3, _b3;
           if (this.keyboardProcess) {
@@ -309,7 +300,7 @@ class KeyboardService {
         };
         (_b2 = (_a2 = this.keyboardProcess) == null ? void 0 : _a2.stdout) == null ? void 0 : _b2.once("data", onFirstData);
         (_d2 = (_c2 = this.keyboardProcess) == null ? void 0 : _c2.stderr) == null ? void 0 : _d2.once("data", onStartupError);
-        (_e2 = this.keyboardProcess) == null ? void 0 : _e2.once("close", (code) => {
+        (_e = this.keyboardProcess) == null ? void 0 : _e.once("close", (code) => {
           console.log(
             "[KeyboardService] Process closed during startup with code:",
             code
@@ -325,10 +316,10 @@ class KeyboardService {
       console.log("[KeyboardService] Awaiting startup promise");
       await startupPromise;
       console.log("[KeyboardService] Setting up operation listeners");
-      (_f = this.keyboardProcess.stdout) == null ? void 0 : _f.on("data", (data) => {
+      (_b = this.keyboardProcess.stdout) == null ? void 0 : _b.on("data", (data) => {
         this.handleKeyboardOutput(data);
       });
-      (_g = this.keyboardProcess.stderr) == null ? void 0 : _g.on("data", (data) => {
+      (_c = this.keyboardProcess.stderr) == null ? void 0 : _c.on("data", (data) => {
         console.error("[KeyboardService] Runtime error:", data.toString());
       });
       this.keyboardProcess.on("close", (code) => {
@@ -340,7 +331,7 @@ class KeyboardService {
       });
       console.log("[KeyboardService] Updating store and sending success state");
       await this.store.setIsEnabled(true);
-      (_h = this.mainWindow) == null ? void 0 : _h.webContents.send("keyboard-service-state", true);
+      (_d = this.mainWindow) == null ? void 0 : _d.webContents.send("keyboard-service-state", true);
     } catch (error) {
       console.error("[KeyboardService] Startup error:", error);
       this.handleStartupFailure(

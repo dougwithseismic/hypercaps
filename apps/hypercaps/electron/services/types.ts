@@ -1,24 +1,13 @@
 export interface HyperKeyConfig {
   enabled: boolean;
-  trigger: "capslock" | "alt" | "ctrl" | "shift" | "win";
-  modifiers: {
-    ctrl?: boolean;
-    alt?: boolean;
-    shift?: boolean;
-    win?: boolean;
-  };
+  trigger: string;
+  modifiers: string[];
+  capsLockBehavior?: "None" | "DoublePress" | "BlockToggle";
 }
 
 export interface KeyMapping {
   id: string;
-  sourceKey: string;
-  targetModifiers: {
-    ctrl?: boolean;
-    alt?: boolean;
-    shift?: boolean;
-    win?: boolean;
-  };
-  targetKey?: string;
+  triggers: string[];
   command?: string;
   enabled: boolean;
 }

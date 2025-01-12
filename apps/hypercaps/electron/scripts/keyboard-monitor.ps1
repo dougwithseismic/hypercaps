@@ -130,34 +130,32 @@ public static class KeyboardMonitor {
 
     public static bool IsHyperKeyEnabled = false;
     public static Keys HyperKeyTrigger = Keys.CapsLock;
-    public static bool UseCtrl = false;
-    public static bool UseAlt = false;
-    public static bool UseShift = false;
-    public static bool UseWin = false;
+    public static List<Keys> ModifierKeys = new List<Keys>();
     public static CapsLockBehavior CapsLockHandling = CapsLockBehavior.BlockToggle;
 
-    public static void ConfigureHyperKey(bool enabled, string trigger, bool useCtrl, bool useAlt, bool useShift, bool useWin, string capsLockBehavior = "BlockToggle") {
+    public static void ConfigureHyperKey(bool enabled, string trigger, string[] modifiers, string capsLockBehavior = "BlockToggle") {
         IsHyperKeyEnabled = enabled;
         HyperKeyTrigger = (Keys)Enum.Parse(typeof(Keys), trigger, true);
-        UseCtrl = useCtrl;
-        UseAlt = useAlt;
-        UseShift = useShift;
-        UseWin = useWin;
         CapsLockHandling = (CapsLockBehavior)Enum.Parse(typeof(CapsLockBehavior), capsLockBehavior, true);
+        
+        // Clear and populate modifier keys
+        ModifierKeys.Clear();
+        foreach (var modifier in modifiers) {
+            ModifierKeys.Add((Keys)Enum.Parse(typeof(Keys), modifier, true));
+        }
     }
 
     public static void SendHyperKeyDown() {
-        if (UseCtrl) SendKeyDown(Keys.LControlKey);
-        if (UseAlt) SendKeyDown(Keys.LMenu);
-        if (UseShift) SendKeyDown(Keys.LShiftKey);
-        if (UseWin) SendKeyDown(Keys.LWin);
+        foreach (var key in ModifierKeys) {
+            SendKeyDown(key);
+        }
     }
 
     public static void SendHyperKeyUp() {
-        if (UseWin) SendKeyUp(Keys.LWin);
-        if (UseShift) SendKeyUp(Keys.LShiftKey);
-        if (UseAlt) SendKeyUp(Keys.LMenu);
-        if (UseCtrl) SendKeyUp(Keys.LControlKey);
+        // Release in reverse order
+        for (int i = ModifierKeys.Count - 1; i >= 0; i--) {
+            SendKeyUp(ModifierKeys[i]);
+        }
     }
 
     public static void UpdateModifierState() {
@@ -271,21 +269,43 @@ public class KeyboardHook {
 
     # Configure the hyperkey based on config
     Write-Debug-Message "Configuring HyperKey with: enabled=$($Config.enabled), trigger=$($Config.trigger)"
-    Write-Debug-Message "Modifiers: ctrl=$($Config.modifiers.ctrl), alt=$($Config.modifiers.alt), shift=$($Config.modifiers.shift), win=$($Config.modifiers.win)"
-    Write-Debug-Message "CapsLock Behavior: $($Config.capsLockBehavior)"
+
+    # Ensure modifiers is an array, even if empty
+    if ($null -eq $Config.modifiers) {
+        Write-Debug-Message "Modifiers is null, initializing empty array"
+        $Config.modifiers = @()
+    } elseif ($Config.modifiers -isnot [array]) {
+        Write-Debug-Message "Modifiers is not an array, converting from: $($Config.modifiers.GetType())"
+        $Config.modifiers = @($Config.modifiers)
+    }
+
+    Write-Debug-Message "Raw modifiers value: $($Config.modifiers | ConvertTo-Json -Depth 10)"
 
     # Set default CapsLock behavior if not specified
     $capsLockBehavior = if ($Config.capsLockBehavior) { $Config.capsLockBehavior } else { "BlockToggle" }
 
-    [KeyboardMonitor]::ConfigureHyperKey(
-        [bool]$Config.enabled,  # Explicitly cast to bool
-        $Config.trigger,
-        [bool]$Config.modifiers.ctrl,
-        [bool]$Config.modifiers.alt,
-        [bool]$Config.modifiers.shift,
-        [bool]$Config.modifiers.win,
-        $capsLockBehavior
-    )
+    # Convert modifiers to string array and filter out empty/null values
+    $modifiersArray = @($Config.modifiers | Where-Object { $_ } | ForEach-Object { $_.ToString().Trim() })
+
+    Write-Debug-Message "Processed modifiers array: $($modifiersArray | ConvertTo-Json -Depth 10)"
+    Write-Debug-Message "Modifiers array type: $($modifiersArray.GetType())"
+    Write-Debug-Message "Modifiers array length: $($modifiersArray.Length)"
+
+    try {
+        Write-Debug-Message "Attempting to configure HyperKey..."
+        [KeyboardMonitor]::ConfigureHyperKey(
+            [bool]$Config.enabled,
+            [string]$Config.trigger,
+            [string[]]@($modifiersArray),
+            [string]$capsLockBehavior
+        )
+        Write-Debug-Message "HyperKey configured successfully"
+    } catch {
+        Write-Debug-Message "Error configuring HyperKey: $_"
+        Write-Debug-Message "Error type: $($_.Exception.GetType())"
+        Write-Debug-Message "Stack trace: $($_.ScriptStackTrace)"
+        throw
+    }
 
     Write-Debug-Message "HyperKey state after config: enabled=$([KeyboardMonitor]::IsHyperKeyEnabled), trigger=$([KeyboardMonitor]::HyperKeyTrigger)"
 

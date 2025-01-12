@@ -25,13 +25,8 @@ export class Store {
       enableOnStartup: true,
       hyperKeyConfig: {
         enabled: false,
-        trigger: "capslock",
-        modifiers: {
-          ctrl: false,
-          alt: false,
-          shift: false,
-          win: false,
-        },
+        trigger: "CapsLock",
+        modifiers: [],
       },
     };
   }
@@ -146,13 +141,8 @@ export class Store {
       // Ensure we have a default config if none exists
       this.state.hyperKeyConfig = {
         enabled: false,
-        trigger: "capslock",
-        modifiers: {
-          ctrl: false,
-          alt: false,
-          shift: false,
-          win: false,
-        },
+        trigger: "CapsLock",
+        modifiers: [],
       };
       await this.save();
     }

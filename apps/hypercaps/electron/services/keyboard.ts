@@ -2,21 +2,7 @@ import { BrowserWindow, dialog } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import { Store } from "./store";
-import { HyperKeyConfig } from "./types";
-
-interface KeyMapping {
-  id: string;
-  sourceKey: string;
-  targetModifiers: {
-    ctrl?: boolean;
-    alt?: boolean;
-    shift?: boolean;
-    win?: boolean;
-  };
-  targetKey?: string;
-  command?: string;
-  enabled: boolean;
-}
+import { HyperKeyConfig, KeyMapping } from "./types";
 
 export class KeyboardService {
   private mainWindow: BrowserWindow | null = null;
@@ -115,11 +101,14 @@ export class KeyboardService {
       // Convert trigger to proper case for Windows.Forms.Keys enum
       const config = {
         ...hyperKeyConfig,
-        trigger:
-          hyperKeyConfig.trigger.toLowerCase() === "capslock"
-            ? "CapsLock"
-            : hyperKeyConfig.trigger,
+        trigger: hyperKeyConfig.trigger,
+        // Ensure modifiers is always an array
+        modifiers: Array.isArray(hyperKeyConfig.modifiers)
+          ? hyperKeyConfig.modifiers
+          : [],
       };
+
+      console.log("[KeyboardService] Processed config:", config);
 
       // Create PowerShell command that sets config and runs script
       const command = [
@@ -127,14 +116,12 @@ export class KeyboardService {
         "$Config = @{",
         `enabled=$${config.enabled.toString().toLowerCase()};`,
         `trigger='${config.trigger}';`,
-        "modifiers=@{",
-        `ctrl=$${config.modifiers.ctrl?.toString().toLowerCase()};`,
-        `alt=$${config.modifiers.alt?.toString().toLowerCase()};`,
-        `shift=$${config.modifiers.shift?.toString().toLowerCase()};`,
-        `win=$${config.modifiers.win?.toString().toLowerCase()}`,
-        "}};",
+        // Always create a PowerShell array, even if empty
+        `modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(",") || "@()"});`,
+        `capsLockBehavior='${config.capsLockBehavior || "BlockToggle"}';`,
+        "};",
         // Log the config for debugging
-        "Write-Host 'Config:' $($Config | ConvertTo-Json);",
+        "Write-Host 'Config:' $($Config | ConvertTo-Json -Depth 10);",
         // Then run the script
         `& {`,
         `  Set-Location '${path.dirname(scriptPath)}';`,
