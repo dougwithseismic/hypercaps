@@ -11,6 +11,15 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Plus, Trash2, Keyboard } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "./ui/dialog";
+import { useKeyboard } from "../contexts/keyboard-context";
+import { ModifierDisplay, KeyDisplay } from "./key-state-visualizer";
 
 interface KeyMapping {
   id: string;
@@ -26,14 +35,116 @@ interface KeyMapping {
   enabled: boolean;
 }
 
+// Key name mappings to match Windows.Forms.Keys enum names
+const KEY_NAME_MAPPINGS: Record<string, string> = {
+  Capital: "CapsLock",
+  Menu: "Alt",
+  ControlKey: "Control",
+  ShiftKey: "Shift",
+  LMenu: "Alt",
+  RMenu: "Alt",
+  LControlKey: "Control",
+  RControlKey: "Control",
+  LShiftKey: "Shift",
+  RShiftKey: "Shift",
+  LWin: "Win",
+  RWin: "Win",
+};
+
+// Helper to normalize key names
+const normalizeKeyName = (key: string): string => {
+  return KEY_NAME_MAPPINGS[key] || key;
+};
+
+// Helper to identify standard modifier keys
+const STANDARD_MODIFIER_KEYS = new Set([
+  "Control",
+  "Alt",
+  "Shift",
+  "Win",
+  "Ctrl",
+  "LControl",
+  "RControl",
+  "LMenu",
+  "RMenu",
+  "LShift",
+  "RShift",
+  "LWin",
+  "RWin",
+  "CapsLock",
+  "Capital",
+  "ControlKey",
+  "ShiftKey",
+  "Menu",
+]);
+
 export function MappingList() {
   const [mappings, setMappings] = useState<KeyMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [editingMapping, setEditingMapping] = useState<KeyMapping | null>(null);
+  const { state: keyboardState } = useKeyboard();
+  const [hyperKeyConfig, setHyperKeyConfig] = useState<{ trigger: string }>();
 
+  // Load initial data
   useEffect(() => {
     loadMappings();
+    loadHyperKeyConfig();
   }, []);
+
+  const loadHyperKeyConfig = async () => {
+    try {
+      const config = await window.api.getHyperKeyConfig();
+      setHyperKeyConfig(config);
+    } catch (err) {
+      console.error("Failed to load HyperKey config:", err);
+    }
+  };
+
+  // Format the HyperKey label
+  const hyperKeyLabel = hyperKeyConfig
+    ? `HyperKey (${normalizeKeyName(hyperKeyConfig.trigger)})`
+    : "HyperKey";
+
+  // Effect to capture keyboard shortcuts
+  useEffect(() => {
+    if (!isCapturing || !editingMapping) return;
+
+    const { modifiers, currentKeys } = keyboardState;
+
+    // Only proceed if we have at least one non-modifier key pressed
+    const nonModifierKeys = currentKeys
+      .map(normalizeKeyName)
+      .filter((key) => !STANDARD_MODIFIER_KEYS.has(key));
+
+    if (nonModifierKeys.length === 0) return;
+
+    // Get the last non-modifier key pressed
+    const targetKey = nonModifierKeys[nonModifierKeys.length - 1];
+
+    // Check for any active modifiers including HyperKey
+    const hasModifiers =
+      modifiers.ctrlKey ||
+      modifiers.altKey ||
+      modifiers.shiftKey ||
+      modifiers.metaKey ||
+      modifiers.hyperKeyActive;
+
+    if (hasModifiers && targetKey) {
+      handleUpdateMapping(editingMapping.id, {
+        targetModifiers: {
+          ctrl: modifiers.ctrlKey,
+          alt: modifiers.altKey,
+          shift: modifiers.shiftKey,
+          win: modifiers.metaKey,
+        },
+        targetKey: normalizeKeyName(targetKey),
+      });
+      setIsCapturing(false);
+      setEditingMapping(null);
+    }
+  }, [keyboardState, isCapturing, editingMapping]);
 
   const loadMappings = async () => {
     try {
@@ -78,19 +189,33 @@ export function MappingList() {
         enabled: true,
       });
       setMappings([...mappings, newMapping]);
+      setEditingMapping(newMapping);
+      setIsCapturing(true);
     } catch (err) {
       console.error("Failed to add mapping:", err);
     }
   };
 
+  const startCapturing = (mapping: KeyMapping) => {
+    setEditingMapping(mapping);
+    setIsCapturing(true);
+  };
+
   const formatShortcut = (mapping: KeyMapping) => {
+    if (
+      !mapping.targetKey ||
+      !Object.values(mapping.targetModifiers).some(Boolean)
+    ) {
+      return "Click to set";
+    }
+
     const modifiers = Object.entries(mapping.targetModifiers)
       .filter(([_, value]) => value)
       .map(([key]) => key.toUpperCase())
       .join(" + ");
 
-    const key = mapping.targetKey ? mapping.targetKey.toUpperCase() : "";
-    return [modifiers, key].filter(Boolean).join(" + ") || "Click to set";
+    const key = mapping.targetKey.toUpperCase();
+    return [modifiers, key].filter(Boolean).join(" + ");
   };
 
   if (loading) {
@@ -102,71 +227,102 @@ export function MappingList() {
   }
 
   return (
-    <Card className="bg-background/50 backdrop-blur-md border-border/50">
-      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-        <CardTitle className="flex items-center gap-2 text-xl">
-          <Keyboard className="size-5" />
-          Keyboard Shortcuts
-        </CardTitle>
-        <Button onClick={handleAddMapping} className="gap-2">
-          <Plus className="size-4" />
-          Add Shortcut
-        </Button>
-      </CardHeader>
-      <CardContent>
-        {mappings.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            <p>No shortcuts configured yet.</p>
-            <p className="text-sm">
-              Click the Add Shortcut button to create your first shortcut.
-            </p>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Shortcut</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead className="w-[100px]">Status</TableHead>
-                <TableHead className="w-[100px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mappings.map((mapping) => (
-                <TableRow key={mapping.id}>
-                  <TableCell className="font-mono">
-                    {formatShortcut(mapping)}
-                  </TableCell>
-                  <TableCell>{mapping.command || "No action set"}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={mapping.enabled ? "default" : "secondary"}
-                      className="cursor-pointer hover:opacity-80"
-                      onClick={() =>
-                        handleUpdateMapping(mapping.id, {
-                          enabled: !mapping.enabled,
-                        })
-                      }
-                    >
-                      {mapping.enabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="hover:text-destructive"
-                      onClick={() => handleDeleteMapping(mapping.id)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </TableCell>
+    <>
+      <Card className="bg-background/50 backdrop-blur-md border-border/50">
+        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <Keyboard className="size-5" />
+            Keyboard Shortcuts
+          </CardTitle>
+          <Button onClick={handleAddMapping} className="gap-2">
+            <Plus className="size-4" />
+            Add Shortcut
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {mappings.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              <p>No shortcuts configured yet.</p>
+              <p className="text-sm">
+                Click the Add Shortcut button to create your first shortcut.
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Shortcut</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead className="w-[100px]">Status</TableHead>
+                  <TableHead className="w-[100px]"></TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+              </TableHeader>
+              <TableBody>
+                {mappings.map((mapping) => (
+                  <TableRow key={mapping.id}>
+                    <TableCell
+                      className="font-mono cursor-pointer hover:bg-accent/50 rounded"
+                      onClick={() => startCapturing(mapping)}
+                    >
+                      {formatShortcut(mapping)}
+                    </TableCell>
+                    <TableCell>{mapping.command || "No action set"}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={mapping.enabled ? "default" : "secondary"}
+                        className="cursor-pointer hover:opacity-80"
+                        onClick={() =>
+                          handleUpdateMapping(mapping.id, {
+                            enabled: !mapping.enabled,
+                          })
+                        }
+                      >
+                        {mapping.enabled ? "Enabled" : "Disabled"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="hover:text-destructive"
+                        onClick={() => handleDeleteMapping(mapping.id)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={isCapturing} onOpenChange={setIsCapturing}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Press Your Shortcut</DialogTitle>
+            <DialogDescription className="space-y-2">
+              <p>
+                Press a combination of modifier keys (Ctrl, Alt, Shift, Win, or{" "}
+                {hyperKeyLabel}) plus a regular key.
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <ModifierDisplay
+              modifiers={keyboardState.modifiers}
+              currentKeys={keyboardState.currentKeys}
+              hyperKeyConfig={hyperKeyConfig}
+            />
+            <KeyDisplay
+              currentKeys={keyboardState.currentKeys}
+              hyperKeyConfig={hyperKeyConfig}
+              modifiers={keyboardState.modifiers}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

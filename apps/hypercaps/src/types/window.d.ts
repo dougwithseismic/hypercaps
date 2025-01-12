@@ -4,8 +4,20 @@ interface KeyboardEvent {
   shiftKey: boolean;
   metaKey: boolean;
   capsLock: boolean;
+  hyperKeyActive: boolean;
   pressedKeys: string[];
   timestamp: number;
+}
+
+interface HyperKeyConfig {
+  enabled: boolean;
+  trigger: string;
+  modifiers: {
+    ctrl?: boolean;
+    alt?: boolean;
+    shift?: boolean;
+    win?: boolean;
+  };
 }
 
 interface KeyMapping {
@@ -36,6 +48,10 @@ interface Window {
       updates: Partial<KeyMapping>
     ) => Promise<KeyMapping>;
     deleteMapping: (id: string) => Promise<void>;
+    getHyperKeyConfig: () => Promise<HyperKeyConfig>;
+    onHyperKeyConfigChange: (
+      callback: (config: HyperKeyConfig) => void
+    ) => void;
 
     // Startup settings
     getStartupSettings: () => Promise<{

@@ -10,6 +10,7 @@ interface KeyboardState {
     shiftKey: boolean;
     metaKey: boolean;
     capsLock: boolean;
+    hyperKeyActive: boolean;
   };
 }
 
@@ -28,6 +29,7 @@ const initialState: KeyboardState = {
     shiftKey: false,
     metaKey: false,
     capsLock: false,
+    hyperKeyActive: false,
   },
 };
 
@@ -50,6 +52,7 @@ export function KeyboardProvider({ children }: { children: React.ReactNode }) {
           shiftKey: Boolean(event.shiftKey),
           metaKey: Boolean(event.metaKey),
           capsLock: Boolean(event.capsLock),
+          hyperKeyActive: Boolean(event.hyperKeyActive),
         },
       }));
     });
