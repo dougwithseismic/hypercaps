@@ -7,5 +7,5 @@
       "@electron/*": ["electron/*"]
     }
   },
-  "include": ["src", "electron"]
+  "include": ["./src", "./electron"]
 }

@@ -349,19 +349,11 @@ const createWindow = () => {
   mainWindow = new electron.BrowserWindow({
     width: 1200,
     height: 800,
-    transparent: true,
-    backgroundColor: "#00000000",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "../preload/preload.js")
     },
-    // Visual settings for glass effect
-    frame: false,
-    // Remove default window chrome
-    titleBarStyle: "hidden",
-    titleBarOverlay: false,
-    // Ensure proper window behavior
     resizable: true,
     minimizable: true,
     maximizable: false,
@@ -369,12 +361,11 @@ const createWindow = () => {
     // Round corners on Windows 11
     roundedCorners: true,
     backgroundMaterial: "acrylic",
-    darkTheme: true
+    darkTheme: true,
+    backgroundColor: "#00000000"
   });
-  mainWindow.setBackgroundColor("#00000000");
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }

@@ -2,7 +2,13 @@ import React from "react";
 import { KeyboardProvider, useKeyboard } from "./contexts/keyboard-context";
 import { MappingList } from "./components/mapping-list";
 import { Settings } from "./components/settings";
+import { Button } from "./components/ui/button";
+import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
+import { Badge } from "./components/ui/badge";
+import { Separator } from "./components/ui/separator";
+import { X, Minus } from "lucide-react";
 import "./app.css";
+
 // Declare the window API type
 declare global {
   interface Window {
@@ -18,17 +24,25 @@ function WindowControls() {
   const handleClose = () => window.electron?.close();
 
   return (
-    <div className="window-controls">
-      <button
-        className="window-control-button window-control-minimize"
+    <div className="flex gap-2 window-controls">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="w-6 h-6"
         onClick={handleMinimize}
         aria-label="Minimize"
-      />
-      <button
-        className="window-control-button window-control-close"
+      >
+        <Minus className="size-2" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="w-6 h-6 hover:bg-destructive"
         onClick={handleClose}
         aria-label="Close"
-      />
+      >
+        <X className="size-2" />
+      </Button>
     </div>
   );
 }
@@ -37,48 +51,44 @@ function KeyboardStatus() {
   const { state, toggleService } = useKeyboard();
 
   return (
-    <div className="p-4 bg-gray-800/50 backdrop-blur-md rounded-lg shadow-lg border border-white/10">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-white">Keyboard Status</h2>
-        <button
+    <Card className="bg-background/50 backdrop-blur-md border-border/50">
+      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+        <CardTitle className="text-xl">Keyboard Status</CardTitle>
+        <Button
           onClick={toggleService}
-          className={`px-4 py-2 rounded-md ${
-            state.isEnabled
-              ? "bg-green-500/80 hover:bg-green-600/80"
-              : "bg-red-500/80 hover:bg-red-600/80"
-          } text-white backdrop-blur-sm transition-colors`}
+          variant={state.isEnabled ? "default" : "destructive"}
+          className="backdrop-blur-sm"
         >
           {state.isEnabled ? "Enabled" : "Disabled"}
-        </button>
-      </div>
-
-      <div className="grid grid-cols-5 gap-4 mb-4">
-        {Object.entries(state.modifiers).map(([key, value]) => (
-          <div
-            key={key}
-            className={`p-2 rounded ${
-              value ? "bg-blue-500/80" : "bg-gray-700/50"
-            } backdrop-blur-sm text-white text-center`}
-          >
-            {key.replace(/[A-Z]/g, (letter) => ` ${letter}`)}
-          </div>
-        ))}
-      </div>
-
-      <div className="p-4 bg-gray-700/50 backdrop-blur-sm rounded-lg">
-        <h3 className="mb-2 text-lg font-semibold text-white">Pressed Keys</h3>
-        <div className="flex flex-wrap gap-2">
-          {state.currentKeys.map((key) => (
-            <span
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-5 gap-4 mb-4">
+          {Object.entries(state.modifiers).map(([key, value]) => (
+            <Badge
               key={key}
-              className="px-3 py-1 text-white bg-blue-500/80 backdrop-blur-sm rounded-md"
+              variant={value ? "default" : "secondary"}
+              className="justify-center"
             >
-              {key}
-            </span>
+              {key.replace(/[A-Z]/g, (letter) => ` ${letter}`)}
+            </Badge>
           ))}
         </div>
-      </div>
-    </div>
+
+        <Separator className="my-4" />
+
+        <div>
+          <h3 className="mb-2 text-lg font-semibold">Pressed Keys</h3>
+          <div className="flex flex-wrap gap-2">
+            {state.currentKeys.map((key) => (
+              <Badge key={key} variant="default">
+                {key}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -86,7 +96,7 @@ function App() {
   return (
     <KeyboardProvider>
       <div className="title-bar">
-        <span className="text-sm text-white/50">HyperCaps</span>
+        <span className="text-sm text-muted-foreground">HyperCaps</span>
         <WindowControls />
       </div>
       <div className="main-content">

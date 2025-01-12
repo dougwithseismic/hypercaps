@@ -35,19 +35,11 @@ const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    transparent: true,
-    backgroundColor: "#00000000",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "../preload/preload.js"),
     },
-    // Visual settings for glass effect
-    frame: false,
-    // Remove default window chrome
-    titleBarStyle: "hidden",
-    titleBarOverlay: false,
-    // Ensure proper window behavior
     resizable: true,
     minimizable: true,
     maximizable: false,
@@ -56,15 +48,13 @@ const createWindow = () => {
     roundedCorners: true,
     backgroundMaterial: "acrylic",
     darkTheme: true,
+    backgroundColor: "#00000000",
   });
-
-  // Set window background color after creation for transparency
-  mainWindow.setBackgroundColor("#00000000");
 
   // Load appropriate content based on environment
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
   } else {
     // In production, load the built index.html file
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
