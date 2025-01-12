@@ -39,10 +39,7 @@ export function KeyboardProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<KeyboardState>(initialState);
 
   useEffect(() => {
-    // Start listening when component mounts
-    window.api.startListening();
-
-    // Listen for keyboard events
+    // Only set up event listeners, don't start the service
     window.api.onKeyboardEvent((event) => {
       setState((prev) => ({
         ...prev,
@@ -75,7 +72,7 @@ export function KeyboardProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
-      window.api.stopListening();
+      // No need to stop listening here as the main process manages the lifecycle
     };
   }, []);
 

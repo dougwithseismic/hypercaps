@@ -2,6 +2,17 @@ import { app } from "electron";
 import path from "path";
 import fs from "fs/promises";
 
+interface HyperKeyConfig {
+  enabled: boolean;
+  trigger: "capslock" | "alt" | "ctrl" | "shift" | "win";
+  modifiers: {
+    ctrl?: boolean;
+    alt?: boolean;
+    shift?: boolean;
+    win?: boolean;
+  };
+}
+
 interface KeyMapping {
   id: string;
   sourceKey: string;
@@ -21,6 +32,7 @@ interface AppState {
   isEnabled: boolean;
   startupOnBoot: boolean;
   enableOnStartup: boolean;
+  hyperKeyConfig: HyperKeyConfig;
 }
 
 export class Store {
@@ -35,6 +47,16 @@ export class Store {
       isEnabled: true,
       startupOnBoot: false,
       enableOnStartup: true,
+      hyperKeyConfig: {
+        enabled: false,
+        trigger: "capslock",
+        modifiers: {
+          ctrl: false,
+          alt: false,
+          shift: false,
+          win: false,
+        },
+      },
     };
   }
 
@@ -139,6 +161,16 @@ export class Store {
 
   public async setEnableOnStartup(enabled: boolean): Promise<void> {
     this.state.enableOnStartup = enabled;
+    await this.save();
+  }
+
+  // HyperKey config methods
+  public async getHyperKeyConfig(): Promise<HyperKeyConfig> {
+    return this.state.hyperKeyConfig;
+  }
+
+  public async setHyperKeyConfig(config: HyperKeyConfig): Promise<void> {
+    this.state.hyperKeyConfig = config;
     await this.save();
   }
 }

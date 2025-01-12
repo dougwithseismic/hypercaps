@@ -15,7 +15,17 @@ const _Store = class _Store {
       mappings: [],
       isEnabled: true,
       startupOnBoot: false,
-      enableOnStartup: true
+      enableOnStartup: true,
+      hyperKeyConfig: {
+        enabled: false,
+        trigger: "capslock",
+        modifiers: {
+          ctrl: false,
+          alt: false,
+          shift: false,
+          win: false
+        }
+      }
     };
   }
   static getInstance() {
@@ -102,6 +112,14 @@ const _Store = class _Store {
     this.state.enableOnStartup = enabled;
     await this.save();
   }
+  // HyperKey config methods
+  async getHyperKeyConfig() {
+    return this.state.hyperKeyConfig;
+  }
+  async setHyperKeyConfig(config) {
+    this.state.hyperKeyConfig = config;
+    await this.save();
+  }
 };
 __publicField(_Store, "instance");
 let Store = _Store;
@@ -146,10 +164,20 @@ class KeyboardService {
   async startListening() {
     var _a, _b, _c, _d;
     console.log("[KeyboardService] startListening() called");
-    if (this.keyboardProcess || this.isStarting) {
-      console.log(
-        "[KeyboardService] Process already running or starting, returning early"
-      );
+    if (this.keyboardProcess) {
+      console.log("[KeyboardService] Process already running, returning early");
+      return;
+    }
+    if (this.isStarting) {
+      console.log("[KeyboardService] Process already starting, waiting...");
+      await new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (!this.isStarting) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 100);
+      });
       return;
     }
     this.isStarting = true;
@@ -161,58 +189,65 @@ class KeyboardService {
     console.log("[KeyboardService] Using script path:", scriptPath);
     console.log("[KeyboardService] Current environment:", process.env.NODE_ENV);
     try {
+      if (this.keyboardProcess) {
+        this.keyboardProcess.kill();
+        this.keyboardProcess = null;
+      }
       console.log("[KeyboardService] Spawning PowerShell process");
       this.keyboardProcess = child_process.spawn("powershell.exe", [
         "-ExecutionPolicy",
         "Bypass",
+        "-NoProfile",
+        // Added to speed up startup
+        "-NonInteractive",
+        // Added to prevent hanging
         "-File",
         scriptPath
       ]);
       console.log("[KeyboardService] Setting startup timeout");
       this.startupTimeout = setTimeout(() => {
         if (this.isStarting) {
-          console.warn(
-            "[KeyboardService] Initial startup timeout reached (10s)"
+          console.warn("[KeyboardService] Startup timeout reached (5s)");
+          this.handleStartupFailure(
+            "Keyboard monitor failed to start within timeout"
           );
-          setTimeout(() => {
-            if (this.isStarting) {
-              console.error(
-                "[KeyboardService] Extended startup timeout reached (15s total)"
-              );
-              this.handleStartupFailure(
-                "Keyboard monitor failed to start within extended timeout"
-              );
-            }
-          }, 5e3);
         }
-      }, 1e4);
+      }, 5e3);
       console.log("[KeyboardService] Creating startup promise");
       const startupPromise = new Promise((resolve, reject) => {
         var _a2, _b2, _c2, _d2, _e;
+        const cleanup = () => {
+          var _a3, _b3;
+          if (this.keyboardProcess) {
+            (_a3 = this.keyboardProcess.stdout) == null ? void 0 : _a3.removeAllListeners();
+            (_b3 = this.keyboardProcess.stderr) == null ? void 0 : _b3.removeAllListeners();
+            this.keyboardProcess.removeAllListeners();
+          }
+        };
         const onFirstData = (data) => {
           console.log(
             "[KeyboardService] Received first data:",
             data.toString().trim()
           );
+          cleanup();
           this.clearStartupState();
           this.handleKeyboardOutput(data);
           resolve();
         };
         const onStartupError = (error) => {
           console.error("[KeyboardService] Startup error:", error.toString());
+          cleanup();
           this.clearStartupState();
           reject(new Error(error.toString()));
         };
         (_b2 = (_a2 = this.keyboardProcess) == null ? void 0 : _a2.stdout) == null ? void 0 : _b2.once("data", onFirstData);
         (_d2 = (_c2 = this.keyboardProcess) == null ? void 0 : _c2.stderr) == null ? void 0 : _d2.once("data", onStartupError);
         (_e = this.keyboardProcess) == null ? void 0 : _e.once("close", (code) => {
-          var _a3, _b3, _c3, _d3;
           console.log(
             "[KeyboardService] Process closed during startup with code:",
             code
           );
-          (_b3 = (_a3 = this.keyboardProcess) == null ? void 0 : _a3.stdout) == null ? void 0 : _b3.removeListener("data", onFirstData);
-          (_d3 = (_c3 = this.keyboardProcess) == null ? void 0 : _c3.stderr) == null ? void 0 : _d3.removeListener("data", onStartupError);
+          cleanup();
           if (this.isStarting) {
             reject(
               new Error(`Process exited with code ${code} during startup`)
@@ -224,7 +259,6 @@ class KeyboardService {
       await startupPromise;
       console.log("[KeyboardService] Setting up operation listeners");
       (_b = this.keyboardProcess.stdout) == null ? void 0 : _b.on("data", (data) => {
-        console.log("[KeyboardService] Received data:", data.toString().trim());
         this.handleKeyboardOutput(data);
       });
       (_c = this.keyboardProcess.stderr) == null ? void 0 : _c.on("data", (data) => {
@@ -464,37 +498,26 @@ const createWindow = async () => {
     darkTheme: true,
     backgroundColor: "#00000000"
   });
-  try {
-    keyboardService = new KeyboardService();
-    keyboardService.setMainWindow(mainWindow);
-    await keyboardService.init();
-    electron.ipcMain.on("start-listening", () => {
-      keyboardService.startListening();
-    });
-    electron.ipcMain.on("stop-listening", () => {
-      keyboardService.stopListening();
-    });
-    electron.ipcMain.handle("get-mappings", () => {
-      return keyboardService.getMappings();
-    });
-    electron.ipcMain.handle("add-mapping", (event, mapping) => {
-      return keyboardService.addMapping(mapping);
-    });
-    electron.ipcMain.handle("update-mapping", (event, id, updates) => {
-      return keyboardService.updateMapping(id, updates);
-    });
-    electron.ipcMain.handle("delete-mapping", (event, id) => {
-      return keyboardService.deleteMapping(id);
-    });
-  } catch (error) {
-    electron.dialog.showErrorBox(
-      "Keyboard Service Error",
-      "Failed to initialize keyboard service. The application may not work as expected."
-    );
-  }
+  electron.ipcMain.on("start-listening", () => {
+    keyboardService == null ? void 0 : keyboardService.startListening();
+  });
+  electron.ipcMain.on("stop-listening", () => {
+    keyboardService == null ? void 0 : keyboardService.stopListening();
+  });
+  electron.ipcMain.handle("get-mappings", () => {
+    return keyboardService == null ? void 0 : keyboardService.getMappings();
+  });
+  electron.ipcMain.handle("add-mapping", (event, mapping) => {
+    return keyboardService == null ? void 0 : keyboardService.addMapping(mapping);
+  });
+  electron.ipcMain.handle("update-mapping", (event, id, updates) => {
+    return keyboardService == null ? void 0 : keyboardService.updateMapping(id, updates);
+  });
+  electron.ipcMain.handle("delete-mapping", (event, id) => {
+    return keyboardService == null ? void 0 : keyboardService.deleteMapping(id);
+  });
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
@@ -515,7 +538,12 @@ electron.ipcMain.on("close-window", () => {
 electron.app.whenReady().then(async () => {
   const store = Store.getInstance();
   await store.load();
+  keyboardService = new KeyboardService();
+  await keyboardService.init();
   await createWindow();
+  if (mainWindow) {
+    keyboardService.setMainWindow(mainWindow);
+  }
   if (mainWindow && keyboardService) {
     trayFeature = new TrayFeature(mainWindow, keyboardService);
     await trayFeature.initialize();

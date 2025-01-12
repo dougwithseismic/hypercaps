@@ -51,48 +51,35 @@ const createWindow = async () => {
     backgroundColor: "#00000000",
   });
 
-  // Initialize keyboard service
-  try {
-    keyboardService = new KeyboardService();
-    keyboardService.setMainWindow(mainWindow);
-    await keyboardService.init();
+  // Setup IPC handlers
+  ipcMain.on("start-listening", () => {
+    keyboardService?.startListening();
+  });
 
-    // Setup IPC handlers
-    ipcMain.on("start-listening", () => {
-      keyboardService.startListening();
-    });
+  ipcMain.on("stop-listening", () => {
+    keyboardService?.stopListening();
+  });
 
-    ipcMain.on("stop-listening", () => {
-      keyboardService.stopListening();
-    });
+  // Mapping handlers
+  ipcMain.handle("get-mappings", () => {
+    return keyboardService?.getMappings();
+  });
 
-    // Mapping handlers
-    ipcMain.handle("get-mappings", () => {
-      return keyboardService.getMappings();
-    });
+  ipcMain.handle("add-mapping", (event, mapping) => {
+    return keyboardService?.addMapping(mapping);
+  });
 
-    ipcMain.handle("add-mapping", (event, mapping) => {
-      return keyboardService.addMapping(mapping);
-    });
+  ipcMain.handle("update-mapping", (event, id, updates) => {
+    return keyboardService?.updateMapping(id, updates);
+  });
 
-    ipcMain.handle("update-mapping", (event, id, updates) => {
-      return keyboardService.updateMapping(id, updates);
-    });
-
-    ipcMain.handle("delete-mapping", (event, id) => {
-      return keyboardService.deleteMapping(id);
-    });
-  } catch (error) {
-    dialog.showErrorBox(
-      "Keyboard Service Error",
-      "Failed to initialize keyboard service. The application may not work as expected."
-    );
-  }
+  ipcMain.handle("delete-mapping", (event, id) => {
+    return keyboardService?.deleteMapping(id);
+  });
 
   // Load appropriate content based on environment
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
   } else {
     // In production, load the built index.html file
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
@@ -122,7 +109,15 @@ app.whenReady().then(async () => {
   const store = Store.getInstance();
   await store.load(); // Load state before creating window
 
+  // Initialize keyboard service first
+  keyboardService = new KeyboardService();
+  await keyboardService.init(); // This will auto-start if enabled in settings
+
+  // Then create window
   await createWindow();
+  if (mainWindow) {
+    keyboardService.setMainWindow(mainWindow);
+  }
 
   // Initialize tray feature after window is created
   if (mainWindow && keyboardService) {
