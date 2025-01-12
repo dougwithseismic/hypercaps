@@ -6,6 +6,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  globalShortcut,
 } from "electron";
 import path from "path";
 import { KeyboardService } from "./services/keyboard";
@@ -37,7 +38,7 @@ const createTray = async () => {
     .resize({ width: 16, height: 16 });
 
   tray = new Tray(icon);
-  tray.setToolTip("HyperCaps");
+  tray.setToolTip("HyperCaps - Keyboard Remapping Tool");
 
   // Get initial state from store
   const store = Store.getInstance();
@@ -45,15 +46,18 @@ const createTray = async () => {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "Show HyperCaps",
-      click: () => {
-        mainWindow?.show();
-      },
+      label: "HyperCaps",
+      enabled: false,
+      icon: nativeImage
+        .createFromPath(path.join(__dirname, "../src/assets/tray-icon.png"))
+        .resize({ width: 16, height: 16 }),
     },
+    { type: "separator" },
     {
-      label: "Enable",
+      label: "Enable Keyboard Remapping",
       type: "checkbox",
       checked: isEnabled,
+      accelerator: "CommandOrControl+Shift+E",
       click: (menuItem) => {
         if (menuItem.checked) {
           keyboardService?.startListening();
@@ -69,7 +73,29 @@ const createTray = async () => {
     },
     { type: "separator" },
     {
-      label: "Quit",
+      label: "Open Shortcut Manager",
+      accelerator: "CommandOrControl+Shift+S",
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.focus();
+      },
+    },
+    { type: "separator" },
+    {
+      label: "About HyperCaps",
+      click: () => {
+        dialog.showMessageBox({
+          type: "info",
+          title: "About HyperCaps",
+          message: "HyperCaps - Advanced Keyboard Remapping Tool",
+          detail: "Version 0.0.1\nCreated for Windows power users.",
+        });
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Quit HyperCaps",
+      accelerator: "CommandOrControl+Q",
       click: () => {
         isQuitting = true;
         app.quit();
@@ -79,9 +105,20 @@ const createTray = async () => {
 
   tray.setContextMenu(contextMenu);
 
+  // Register global shortcuts
+  const ret = globalShortcut.register("CommandOrControl+Shift+S", () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+
+  if (!ret) {
+    console.error("Failed to register global shortcut");
+  }
+
   // Double click shows the window
   tray.on("double-click", () => {
     mainWindow?.show();
+    mainWindow?.focus();
   });
 };
 
@@ -167,8 +204,16 @@ app.on("window-all-closed", () => {
     if (keyboardService) {
       keyboardService.dispose();
     }
+    // Unregister all shortcuts
+    globalShortcut.unregisterAll();
     app.quit();
   }
+});
+
+// Clean up before quit
+app.on("will-quit", () => {
+  // Unregister all shortcuts
+  globalShortcut.unregisterAll();
 });
 
 app.on("activate", () => {

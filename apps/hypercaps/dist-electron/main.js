@@ -182,20 +182,21 @@ let isQuitting = false;
 const createTray = async () => {
   const icon = electron.nativeImage.createFromPath(path.join(__dirname, "../src/assets/tray-icon.png")).resize({ width: 16, height: 16 });
   tray = new electron.Tray(icon);
-  tray.setToolTip("HyperCaps");
+  tray.setToolTip("HyperCaps - Keyboard Remapping Tool");
   const store = Store.getInstance();
   const isEnabled = await store.getIsEnabled();
   const contextMenu = electron.Menu.buildFromTemplate([
     {
-      label: "Show HyperCaps",
-      click: () => {
-        mainWindow == null ? void 0 : mainWindow.show();
-      }
+      label: "HyperCaps",
+      enabled: false,
+      icon: electron.nativeImage.createFromPath(path.join(__dirname, "../src/assets/tray-icon.png")).resize({ width: 16, height: 16 })
     },
+    { type: "separator" },
     {
-      label: "Enable",
+      label: "Enable Keyboard Remapping",
       type: "checkbox",
       checked: isEnabled,
+      accelerator: "CommandOrControl+Shift+E",
       click: (menuItem) => {
         if (menuItem.checked) {
           keyboardService == null ? void 0 : keyboardService.startListening();
@@ -210,7 +211,29 @@ const createTray = async () => {
     },
     { type: "separator" },
     {
-      label: "Quit",
+      label: "Open Shortcut Manager",
+      accelerator: "CommandOrControl+Shift+S",
+      click: () => {
+        mainWindow == null ? void 0 : mainWindow.show();
+        mainWindow == null ? void 0 : mainWindow.focus();
+      }
+    },
+    { type: "separator" },
+    {
+      label: "About HyperCaps",
+      click: () => {
+        electron.dialog.showMessageBox({
+          type: "info",
+          title: "About HyperCaps",
+          message: "HyperCaps - Advanced Keyboard Remapping Tool",
+          detail: "Version 0.0.1\nCreated for Windows power users."
+        });
+      }
+    },
+    { type: "separator" },
+    {
+      label: "Quit HyperCaps",
+      accelerator: "CommandOrControl+Q",
       click: () => {
         isQuitting = true;
         electron.app.quit();
@@ -218,8 +241,16 @@ const createTray = async () => {
     }
   ]);
   tray.setContextMenu(contextMenu);
+  const ret = electron.globalShortcut.register("CommandOrControl+Shift+S", () => {
+    mainWindow == null ? void 0 : mainWindow.show();
+    mainWindow == null ? void 0 : mainWindow.focus();
+  });
+  if (!ret) {
+    console.error("Failed to register global shortcut");
+  }
   tray.on("double-click", () => {
     mainWindow == null ? void 0 : mainWindow.show();
+    mainWindow == null ? void 0 : mainWindow.focus();
   });
 };
 const createWindow = () => {
@@ -284,8 +315,12 @@ electron.app.on("window-all-closed", () => {
     if (keyboardService) {
       keyboardService.dispose();
     }
+    electron.globalShortcut.unregisterAll();
     electron.app.quit();
   }
+});
+electron.app.on("will-quit", () => {
+  electron.globalShortcut.unregisterAll();
 });
 electron.app.on("activate", () => {
   if (electron.BrowserWindow.getAllWindows().length === 0) {
