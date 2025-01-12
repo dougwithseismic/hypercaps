@@ -11,6 +11,11 @@ contextBridge.exposeInMainWorld("api", {
   onKeyboardServiceState: (callback: (enabled: boolean) => void) => {
     ipcRenderer.on("keyboard-service-state", (_, enabled) => callback(enabled));
   },
+  onKeyboardServiceLoading: (callback: (loading: boolean) => void) => {
+    ipcRenderer.on("keyboard-service-loading", (_, loading) =>
+      callback(loading)
+    );
+  },
   getMappings: () => ipcRenderer.invoke("get-mappings"),
   addMapping: (mapping: any) => ipcRenderer.invoke("add-mapping", mapping),
   updateMapping: (id: string, updates: any) =>

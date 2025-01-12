@@ -28,6 +28,7 @@ interface Window {
     stopListening: () => void;
     onKeyboardEvent: (callback: (event: KeyboardEvent) => void) => void;
     onKeyboardServiceState: (callback: (enabled: boolean) => void) => void;
+    onKeyboardServiceLoading: (callback: (loading: boolean) => void) => void;
     getMappings: () => Promise<KeyMapping[]>;
     addMapping: (mapping: Omit<KeyMapping, "id">) => Promise<KeyMapping>;
     updateMapping: (

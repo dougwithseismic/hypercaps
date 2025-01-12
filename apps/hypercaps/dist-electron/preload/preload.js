@@ -9,6 +9,12 @@ electron.contextBridge.exposeInMainWorld("api", {
   onKeyboardServiceState: (callback) => {
     electron.ipcRenderer.on("keyboard-service-state", (_, enabled) => callback(enabled));
   },
+  onKeyboardServiceLoading: (callback) => {
+    electron.ipcRenderer.on(
+      "keyboard-service-loading",
+      (_, loading) => callback(loading)
+    );
+  },
   getMappings: () => electron.ipcRenderer.invoke("get-mappings"),
   addMapping: (mapping) => electron.ipcRenderer.invoke("add-mapping", mapping),
   updateMapping: (id, updates) => electron.ipcRenderer.invoke("update-mapping", id, updates),

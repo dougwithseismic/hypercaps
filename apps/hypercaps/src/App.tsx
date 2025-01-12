@@ -58,8 +58,18 @@ function KeyboardStatus() {
           onClick={toggleService}
           variant={state.isEnabled ? "default" : "destructive"}
           className="backdrop-blur-sm"
+          disabled={state.isLoading}
         >
-          {state.isEnabled ? "Enabled" : "Disabled"}
+          {state.isLoading ? (
+            <span className="flex items-center gap-2">
+              <span className="size-4 border-2 border-current border-r-transparent rounded-full animate-spin" />
+              Loading...
+            </span>
+          ) : state.isEnabled ? (
+            "Enabled"
+          ) : (
+            "Disabled"
+          )}
         </Button>
       </CardHeader>
       <CardContent>

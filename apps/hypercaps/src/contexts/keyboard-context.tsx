@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 
 interface KeyboardState {
   isEnabled: boolean;
+  isLoading: boolean;
   currentKeys: string[];
   modifiers: {
     ctrlKey: boolean;
@@ -14,11 +15,12 @@ interface KeyboardState {
 
 interface KeyboardContextType {
   state: KeyboardState;
-  toggleService: () => void;
+  toggleService: () => Promise<void>;
 }
 
 const initialState: KeyboardState = {
   isEnabled: true,
+  isLoading: false,
   currentKeys: [],
   modifiers: {
     ctrlKey: false,
@@ -60,6 +62,15 @@ export function KeyboardProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({
         ...prev,
         isEnabled: Boolean(enabled),
+        isLoading: false,
+      }));
+    });
+
+    // Listen for loading state changes
+    window.api.onKeyboardServiceLoading((loading) => {
+      setState((prev) => ({
+        ...prev,
+        isLoading: loading,
       }));
     });
 
@@ -68,11 +79,12 @@ export function KeyboardProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const toggleService = () => {
+  const toggleService = async () => {
+    setState((prev) => ({ ...prev, isLoading: true }));
     if (state.isEnabled) {
-      window.api.stopListening();
+      await window.api.stopListening();
     } else {
-      window.api.startListening();
+      await window.api.startListening();
     }
   };
 
