@@ -68,7 +68,12 @@ public static class KeyboardMonitor {
         return (GetAsyncKeyState(key) & 0x8000) != 0;
     }
 
+    public static bool isHandlingSyntheticCapsLock = false;
+
     public static void SendKeyDown(Keys key, bool extended = false) {
+        if (key == Keys.CapsLock) {
+            isHandlingSyntheticCapsLock = true;
+        }
         uint flags = (uint)(KEYEVENTF_KEYDOWN | (extended ? KEYEVENTF_EXTENDEDKEY : 0));
         keybd_event((byte)key, 0, flags, UIntPtr.Zero);
     }
@@ -76,6 +81,9 @@ public static class KeyboardMonitor {
     public static void SendKeyUp(Keys key, bool extended = false) {
         uint flags = (uint)(KEYEVENTF_KEYUP | (extended ? KEYEVENTF_EXTENDEDKEY : 0));
         keybd_event((byte)key, 0, flags, UIntPtr.Zero);
+        if (key == Keys.CapsLock) {
+            isHandlingSyntheticCapsLock = false;
+        }
     }
 
     private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
@@ -92,20 +100,28 @@ public static class KeyboardMonitor {
         pressedKeys.Remove(key);
     }
 
+    public enum CapsLockBehavior {
+        None,           // Don't do anything special with CapsLock
+        DoublePress,    // Current behavior - press CapsLock again to untoggle
+        BlockToggle     // Just block the CapsLock toggle completely
+    }
+
     public static bool IsHyperKeyEnabled = false;
     public static Keys HyperKeyTrigger = Keys.CapsLock;
     public static bool UseCtrl = false;
     public static bool UseAlt = false;
     public static bool UseShift = false;
     public static bool UseWin = false;
+    public static CapsLockBehavior CapsLockHandling = CapsLockBehavior.BlockToggle;
 
-    public static void ConfigureHyperKey(bool enabled, string trigger, bool useCtrl, bool useAlt, bool useShift, bool useWin) {
+    public static void ConfigureHyperKey(bool enabled, string trigger, bool useCtrl, bool useAlt, bool useShift, bool useWin, string capsLockBehavior = "BlockToggle") {
         IsHyperKeyEnabled = enabled;
         HyperKeyTrigger = (Keys)Enum.Parse(typeof(Keys), trigger, true);
         UseCtrl = useCtrl;
         UseAlt = useAlt;
         UseShift = useShift;
         UseWin = useWin;
+        CapsLockHandling = (CapsLockBehavior)Enum.Parse(typeof(CapsLockBehavior), capsLockBehavior, true);
     }
 
     public static void SendHyperKeyDown() {
@@ -113,6 +129,7 @@ public static class KeyboardMonitor {
         if (UseAlt) SendKeyDown(Keys.Alt);
         if (UseShift) SendKeyDown(Keys.ShiftKey);
         if (UseWin) SendKeyDown(Keys.LWin);
+        SendKeyDown(HyperKeyTrigger);
     }
 
     public static void SendHyperKeyUp() {
@@ -120,6 +137,7 @@ public static class KeyboardMonitor {
         if (UseShift) SendKeyUp(Keys.ShiftKey);
         if (UseAlt) SendKeyUp(Keys.Alt);
         if (UseCtrl) SendKeyUp(Keys.ControlKey);
+        SendKeyUp(HyperKeyTrigger);
     }
 }
 
@@ -168,18 +186,31 @@ public class KeyboardHook {
 
             // If this key is our HyperKey trigger
             if (KeyboardMonitor.IsHyperKeyEnabled && key == KeyboardMonitor.HyperKeyTrigger) {
-                // Early return for CapsLock to prevent Windows from toggling caps state
+                if (key == Keys.CapsLock && !KeyboardMonitor.isHandlingSyntheticCapsLock) {
+                    switch (KeyboardMonitor.CapsLockHandling) {
+                        case KeyboardMonitor.CapsLockBehavior.DoublePress:
+                            if (isKeyDown) {
+                                System.Threading.Thread.Sleep(1);
+                                KeyboardMonitor.SendKeyDown(Keys.CapsLock);
+                                KeyboardMonitor.SendKeyUp(Keys.CapsLock);
+                            }
+                            break;
+                        case KeyboardMonitor.CapsLockBehavior.BlockToggle:
+                            // Just block it, no additional keypress needed
+                            return (IntPtr)1;
+                        case KeyboardMonitor.CapsLockBehavior.None:
+                            // Let Windows handle it normally
+                            return KeyboardMonitor.CallNextHookEx(hookId, nCode, wParam, lParam);
+                    }
+                }
 
                 if (isKeyDown) {
                     KeyboardMonitor.SendHyperKeyDown();
-                }
-                else if (isKeyUp) {
+                } else if (isKeyUp) {
                     KeyboardMonitor.SendHyperKeyUp();
                 }
-                return (IntPtr)1;  // Block the original key
+                return (IntPtr)1;  // Block the original key signal
             }
-
-
         }
         return KeyboardMonitor.CallNextHookEx(hookId, nCode, wParam, lParam);
     }
@@ -189,6 +220,10 @@ public class KeyboardHook {
     # Configure the hyperkey based on config
     Write-Debug-Message "Configuring HyperKey with: enabled=$($Config.enabled), trigger=$($Config.trigger)"
     Write-Debug-Message "Modifiers: ctrl=$($Config.modifiers.ctrl), alt=$($Config.modifiers.alt), shift=$($Config.modifiers.shift), win=$($Config.modifiers.win)"
+    Write-Debug-Message "CapsLock Behavior: $($Config.capsLockBehavior)"
+
+    # Set default CapsLock behavior if not specified
+    $capsLockBehavior = if ($Config.capsLockBehavior) { $Config.capsLockBehavior } else { "BlockToggle" }
 
     [KeyboardMonitor]::ConfigureHyperKey(
         [bool]$Config.enabled,  # Explicitly cast to bool
@@ -196,7 +231,8 @@ public class KeyboardHook {
         [bool]$Config.modifiers.ctrl,
         [bool]$Config.modifiers.alt,
         [bool]$Config.modifiers.shift,
-        [bool]$Config.modifiers.win
+        [bool]$Config.modifiers.win,
+        $capsLockBehavior
     )
 
     Write-Debug-Message "HyperKey state after config: enabled=$([KeyboardMonitor]::IsHyperKeyEnabled), trigger=$([KeyboardMonitor]::HyperKeyTrigger)"
