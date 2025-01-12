@@ -2,6 +2,15 @@ import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import path from "path";
 import { KeyboardService } from "./services/keyboard";
 
+// Check platform - exit if not Windows
+if (process.platform !== "win32") {
+  dialog.showErrorBox(
+    "Unsupported Platform",
+    "HyperCaps is only supported on Windows. The application will now exit."
+  );
+  app.quit();
+}
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require("electron-squirrel-startup")) {
   app.quit();

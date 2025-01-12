@@ -3,6 +3,13 @@
   "private": true,
   "version": "0.0.1",
   "main": "dist-electron/main.js",
+  "os": [
+    "win32"
+  ],
+  "engines": {
+    "node": ">=18",
+    "os": "win32"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
@@ -44,6 +51,12 @@
     },
     "win": {
       "target": "nsis"
+    },
+    "mac": {
+      "target": null
+    },
+    "linux": {
+      "target": null
     }
   }
 }

@@ -4,20 +4,27 @@ You are a senior TypeScript programmer with experience in Turborepo, Express, No
 
 Generate code, corrections, and refactorings that comply with the basic principles and nomenclature.
 
+- Do not edit package.json to install packages. Use pnpm to add them to the correct place.
+
 ## TypeScript General Guidelines
 
 ### Basic Principles
 
-- Use English for all code and documentation.
-- Always declare the type of each variable and function (parameters and return value).
-  - Avoid using any.
-  - Create necessary types.
-  - We're working in a turborepo with PNPM.
-- Use JSDoc to document public classes and methods. Include examples.
-- Don't leave blank lines within a function.
-- One export per file.
-- Use Fat Arrow Functions and named object params
-- When styling with Tailwind, favor flex and gap instead of margin bumps and space-*
+- Use English for all code and documentation to maintain consistency and enable global collaboration.
+- Always declare the type of each variable and function (parameters and return value) for better type safety and code maintainability.
+  - Avoid using any as it defeats TypeScript's type checking benefits.
+  - Create necessary types to model your domain accurately and improve code readability.
+  - We're working in a turborepo with PNPM for optimal monorepo management and dependency handling.
+- Use JSDoc to document public classes and methods. Include examples to demonstrate proper usage and edge cases.
+- Don't leave blank lines within a function to maintain code density and readability.
+- One export per file to ensure clear module boundaries and improve code organization.
+- Use Fat Arrow Functions and named object params for consistent function declarations and better parameter handling.
+  - Fat arrow functions provide lexical this binding and shorter syntax.
+  - Named object params improve code readability and maintainability.
+- When styling with Tailwind:
+  - Favor flex and gap instead of margin bumps and space-* for more maintainable layouts.
+  - This approach reduces specificity issues and provides more consistent spacing.
+  - Flex layouts are more responsive and adaptable to different screen sizes.
 
 ### Nomenclature
 
@@ -80,27 +87,27 @@ Generate code, corrections, and refactorings that comply with the basic principl
 
 ### Test-Driven Development (TDD)
 
-- Follow the Red-Green-Refactor cycle for all new features.
-- Start with a todo.md file in the feature directory.
-  - Break down features into testable units.
-  - Prioritize test cases.
-  - Document dependencies and setup needed.
-- Write failing tests first (Red phase).
-  - One test at a time.
-  - Verify test failure message clarity.
-  - Commit failing tests.
-- Write minimal code to pass tests (Green phase).
-  - Focus on making tests pass.
-  - Avoid premature optimization.
-  - Commit passing implementation.
-- Improve code quality (Refactor phase).
-  - Extract reusable functions.
-  - Apply design patterns.
-  - Maintain passing tests.
-  - Commit refactored code.
-- Follow AAA pattern in tests (Arrange-Act-Assert).
-- Keep test cases focused and isolated.
-- Update documentation alongside code.
+- Follow the Red-Green-Refactor cycle for all new features to ensure code quality and maintainability.
+- Start with a todo.md file in the feature directory to plan development.
+  - Break down features into testable units for focused development.
+  - Prioritize test cases based on business value and dependencies.
+  - Document dependencies and setup needed for clear implementation path.
+- Write failing tests first (Red phase) to define expected behavior.
+  - One test at a time to maintain focus and simplicity.
+  - Verify test failure message clarity for better debugging.
+  - Commit failing tests to track development progress.
+- Write minimal code to pass tests (Green phase) to avoid over-engineering.
+  - Focus on making tests pass with the simplest solution.
+  - Avoid premature optimization to maintain development speed.
+  - Commit passing implementation to establish working checkpoints.
+- Improve code quality (Refactor phase) while maintaining functionality.
+  - Extract reusable functions to promote code reuse.
+  - Apply design patterns to improve code structure.
+  - Maintain passing tests to ensure refactoring safety.
+  - Commit refactored code to preserve improvements.
+- Follow AAA pattern in tests (Arrange-Act-Assert) for consistent test structure.
+- Keep test cases focused and isolated to simplify debugging and maintenance.
+- Update documentation alongside code to maintain project clarity.
 
 ### Exceptions
 
@@ -143,91 +150,6 @@ When asked to add a progress report, follow this template in `_project/progress/
 ### Technical Notes
 - {Any important technical decisions or architecture notes}
 ```
-
-Guidelines for Progress Reports:
-
-- Always start with a separator line (`---`) to distinguish between entries
-- Use ISO date format (YYYY-MM-DD)
-- Include author name on a new line after the heading
-- Link to relevant documentation or code changes
-- Keep summaries concise but informative
-- Include both technical and process learnings
-- Always include a Blockers section, use [None] if there aren't any
-- Prioritize next steps by importance
-- When appending to an existing file, add the new entry at the top
-- Maintain chronological order with newest entries first
-
-#### Documentation Updates
-
-When updating documentation:
-
-- Maintain consistent formatting
-- Update table of contents if needed
-- Add links to related documents
-- Version documentation if making major changes
-- Include rationale for significant changes
-
-#### Learning Capture
-
-When documenting learnings:
-
-- Separate into technical and process learnings
-- Include context for future reference
-- Link to relevant external resources
-- Tag with relevant categories
-- Note any pattern changes or improvements
-
-Add learnings to ./_project/learnings/[subject].md in the same format. Check
-
-#### Learning Template
-
-When documenting learnings in `_project/learnings/[subject].md`, follow this template:
-
-```markdown
----
-
-## {YYYY-MM-DD} - {Clear Title of Learning}
-
-### Category: {Main Category}, {Optional Additional Categories}
-
-### Learning
-
-{Brief description of the learning or technique}:
-
-```typescript
-{Example code or commands if applicable}
-```
-
-### Context
-
-- {List of important context points}
-- {Explain key components or flags}
-- {Detail important considerations}
-- {Include any prerequisites or dependencies}
-
-### Benefits
-
-- {List of benefits and advantages}
-- {Why this approach is valuable}
-- {What problems it solves}
-
-### Related Resources
-
-- [Resource Name](URL)
-- [Additional Resources](URL)
-
-```
-
-Guidelines for Learning Entries:
-- Start with separator line (`---`)
-- Use ISO date format (YYYY-MM-DD)
-- Categories should be concise and relevant (e.g., Database, DevOps, Frontend)
-- Include working code examples when applicable
-- Provide clear context for future reference
-- List concrete benefits
-- Link to official documentation or helpful resources
-- Add new entries at the top of the file
-- Maintain chronological order with newest entries first
 
 ### Pattern Documentation Guidelines
 
@@ -282,98 +204,215 @@ Guidelines for Pattern Documentation:
 - Provide a complete implementation example
 - Include important notes and gotchas
 - Link to official documentation when relevant
-- Include important notes and gotchas
-- Link to official documentation when relevant
 
 ### React Query Patterns
 
-- Return full query results from hooks
-- Use appropriate loading states
-- Handle errors using isError and error
-- Provide refetch capability
-- Use enabled prop for conditional fetching
+- Return full query results from hooks for complete access to React Query features.
+- Use appropriate loading states:
+  - `isLoading` for initial loads
+  - `isFetching` for background refreshes
+- Handle errors using `isError` and `error` properties
+- Provide refetch capability when needed
+- Consider using `enabled` prop for conditional fetching
 
 ### Monorepo Dependencies
 
-- Follow Package-Based approach:
-  - Install dependencies where used
-  - Keep only tools in root
-  - Allow independent speeds
-- Use version management tools
-- Regular dependency audits
-- CI version mismatch checks
+- Follow Package-Based approach (Turborepo recommended):
+  - Install dependencies where they're used
+  - Keep only repo management tools in root
+  - Allow teams to move at different speeds
+- Use tools for version management:
+  - syncpack for version synchronization
+  - manypkg for monorepo management
+  - sherif for dependency validation
+- Regular dependency audit and update cycles
+- Set up CI checks for major version mismatches
 
 ### Component Architecture
 
-- Controlled over uncontrolled components
-- Composition over inheritance
-- Single-purpose components
-- Custom hooks for logic
-- React Query for data fetching
-- TypeScript generics for reuse
-- Error boundaries
-- Judicious React.memo/useCallback
-- JSDoc props documentation
+- Prefer controlled components over uncontrolled when state needs to be shared
+- Use composition over inheritance for component reuse
+- Keep components focused and single-purpose
+- Extract reusable logic into custom hooks
+- Follow React Query patterns for data fetching components
+- Use TypeScript generics for reusable components
+- Implement proper error boundaries
+- Use React.memo() and useCallback() judiciously
+- Document component props with JSDoc
 
 ### Performance Patterns
 
-- Code-splitting with dynamic imports
-- React.lazy for components
-- Proper memoization
-- Proper list keys
-- Loading states and suspense
-- Image optimization
-- Caching strategies
-- Bundle size monitoring
+- Implement proper code-splitting using dynamic imports
+- Use React.lazy() for component-level code splitting
+- Implement proper memoization strategies
+- Use proper keys in lists to optimize reconciliation
+- Implement proper loading states and suspense boundaries
+- Use proper image optimization techniques
+- Implement proper caching strategies
+- Monitor and optimize bundle sizes
 
 ### Security Patterns
 
-- No client-side sensitive data
-- CSRF protection
-- Content Security Policy
-- Input sanitization
-- Auth and authorization
-- Rate limiting
-- Security monitoring
-- Regular audits
+- Never store sensitive data in client-side storage
+- Implement proper CSRF protection
+- Use proper Content Security Policy headers
+- Implement proper input sanitization
+- Use proper authentication and authorization
+- Implement proper rate limiting
+- Monitor for security vulnerabilities
+- Regular security audits
 
 ### Testing Patterns
 
-- Consistent Vitest coverage setup
-- TDD workflow:
-  - Red: failing tests
-  - Green: minimal passing
-  - Refactor: maintain coverage
-- Focused test cases
-- Proper mocking
-- E2E critical paths
+- Configure Vitest coverage consistently across monorepo:
+  - Use appropriate test environment per app (node/jsdom)
+  - Set up multiple report formats
+  - Define proper exclusion patterns
+  - Configure environment-specific settings
+- Follow Test-Driven Development (TDD):
+  - Write failing tests first
+  - Implement minimal passing code
+  - Refactor while maintaining test coverage
+- Write focused, isolated test cases
+- Use proper mocking strategies
+- Implement E2E tests for critical paths
 
 ### Monitoring and Analytics
 
-- Metrics collection:
-  - prom-client setup
-  - Custom metrics
-  - HTTP tracking
-- Monitoring config:
-  - Prometheus
-  - Grafana
-  - Data retention
-- Type-safe analytics:
-  - Event interfaces
-  - Type inference
-  - No assertions
-  - Event docs
+- Implement proper metrics collection:
+  - Use prom-client for Node.js/Next.js
+  - Create custom metrics for business logic
+  - Track HTTP requests via middleware
+- Configure monitoring stack:
+  - Set up Prometheus scraping
+  - Configure Grafana dashboards
+  - Use proper data retention policies
+- Implement type-safe analytics:
+  - Define strongly typed event interfaces
+  - Use proper type inference in hooks
+  - Avoid type assertions
+  - Document analytics events
 
 ### Documentation Patterns
 
-- Clear structure:
-  - Proper directories
-  - Consistent format
-  - Working examples
-  - Edge cases
-- Use templates:
-  - Progress
-  - Learning
-  - Patterns
-- Keep docs current
-- Link resources
+- Maintain clear documentation structure:
+  - Place patterns in appropriate directories
+  - Use consistent formatting
+  - Include working examples
+  - Document gotchas and edge cases
+- Follow documentation templates:
+  - Progress reports
+  - Learning captures
+  - Pattern documentation
+- Keep documentation up-to-date with code changes
+- Link to official resources and references
+
+### HyperCaps Mechanics
+
+#### Windows Key Monitoring Pattern
+
+Location: `apps/hypercaps/electron/scripts/keyboard-monitor.ps1`
+
+This pattern enables low-level keyboard monitoring in Windows:
+- Uses Windows API through P/Invoke in PowerShell
+- Implements a keyboard hook using `SetWindowsHookEx`
+- Maintains a `HashSet` of currently pressed keys
+- Outputs JSON-formatted state updates for IPC communication
+
+Key components:
+```csharp
+// Hook setup
+[DllImport("user32.dll")]
+SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+// Key state tracking
+private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
+```
+
+#### Electron IPC Pattern
+
+Location: `apps/hypercaps/electron/services/keyboard.ts`
+
+Pattern for bidirectional communication between main and renderer processes:
+
+- Uses PowerShell process spawning for native access
+- Implements clean process management and error handling
+- Provides type-safe IPC messaging
+
+Example usage:
+
+```typescript
+this.keyboardProcess = spawn("powershell.exe", [
+  "-ExecutionPolicy",
+  "Bypass",
+  "-File",
+  scriptPath,
+]);
+
+// IPC message handling
+this.mainWindow?.webContents.send("keyboard-event", {
+  ctrlKey: state.ctrl,
+  altKey: state.alt,
+  // ... other state
+});
+```
+
+#### Key Mapping Management Pattern
+
+Location: `apps/hypercaps/src/components/MappingList.tsx`
+
+Pattern for managing key mappings:
+
+- Uses immutable state management
+- Implements real-time UI updates
+- Provides type-safe mapping definitions
+
+Example structure:
+
+```typescript
+interface KeyMapping {
+  id: string;
+  sourceKey: string;
+  targetModifiers: {
+    ctrl?: boolean;
+    alt?: boolean;
+    shift?: boolean;
+    win?: boolean;
+  };
+  targetKey?: string;
+  command?: string;
+  enabled: boolean;
+}
+```
+
+#### Development Paths
+
+Important project paths:
+
+- PowerShell Script: `apps/hypercaps/electron/scripts/keyboard-monitor.ps1`
+- Keyboard Service: `apps/hypercaps/electron/services/keyboard.ts`
+- Main Process: `apps/hypercaps/electron/main.ts`
+- React Components: `apps/hypercaps/src/components/`
+- Build Output: `apps/hypercaps/dist/`
+
+#### Project-Specific Guidelines
+
+1. PowerShell Script Management:
+   - Keep script path resolution consistent between dev and prod
+   - Use `-ExecutionPolicy Bypass` for development
+   - Ensure clean JSON output for IPC
+
+2. Key Event Handling:
+   - Block events before forwarding when remapping
+   - Track key states in a thread-safe manner
+   - Use Windows API constants for key codes
+
+3. IPC Communication:
+   - Define strict types for all IPC messages
+   - Handle process cleanup on window close
+   - Log errors for debugging
+
+4. UI Components:
+   - Use Tailwind for consistent styling
+   - Implement real-time state updates
+   - Provide clear visual feedback for key states

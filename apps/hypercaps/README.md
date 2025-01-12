@@ -1,6 +1,8 @@
 # HyperCaps
 
-A powerful keyboard remapping tool for Windows that transforms your CapsLock key into a powerful modifier key combination. Built with Electron, React, and TypeScript.
+A powerful keyboard remapping tool designed exclusively for Windows that transforms your CapsLock key into a powerful modifier key combination. Built with Electron, React, and TypeScript.
+
+> **Note**: HyperCaps is a Windows-only application. It will not work on macOS or Linux due to its deep integration with the Windows API for keyboard handling.
 
 ## Features
 
@@ -9,12 +11,14 @@ A powerful keyboard remapping tool for Windows that transforms your CapsLock key
 - **Key Mapping Interface**: User-friendly interface to view and manage key mappings
 - **Windows Native Integration**: Uses Windows API through PowerShell for reliable key detection
 
-## Prerequisites
+## System Requirements
 
+- Windows 10 or Windows 11
+- PowerShell with execution policy that allows running scripts
 - Node.js (v18 or higher)
 - pnpm (v8 or higher)
-- Windows 10/11
-- PowerShell with execution policy that allows running scripts
+
+> **Important**: This application is not compatible with macOS or Linux. Attempting to install or run on these platforms will result in an error.
 
 ## Installation
 
