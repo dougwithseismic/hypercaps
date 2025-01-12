@@ -1,16 +1,8 @@
-import {
-  app,
-  BrowserWindow,
-  ipcMain,
-  dialog,
-  Tray,
-  Menu,
-  nativeImage,
-  globalShortcut,
-} from "electron";
+import { app, BrowserWindow, ipcMain, dialog, globalShortcut } from "electron";
 import path from "path";
 import { KeyboardService } from "./services/keyboard";
 import { Store } from "./services/store";
+import { TrayFeature } from "./features/tray";
 
 // Check platform - exit if not Windows
 if (process.platform !== "win32") {
@@ -27,100 +19,8 @@ if (require("electron-squirrel-startup")) {
 }
 
 let keyboardService: KeyboardService;
-let tray: Tray | null = null;
+let trayFeature: TrayFeature | null = null;
 let mainWindow: BrowserWindow | null = null;
-let isQuitting = false;
-
-const createTray = async () => {
-  // Create tray icon
-  const icon = nativeImage
-    .createFromPath(path.join(__dirname, "../src/assets/tray-icon.png"))
-    .resize({ width: 16, height: 16 });
-
-  tray = new Tray(icon);
-  tray.setToolTip("HyperCaps - Keyboard Remapping Tool");
-
-  // Get initial state from store
-  const store = Store.getInstance();
-  const isEnabled = await store.getIsEnabled();
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: "HyperCaps",
-      enabled: false,
-      icon: nativeImage
-        .createFromPath(path.join(__dirname, "../src/assets/tray-icon.png"))
-        .resize({ width: 16, height: 16 }),
-    },
-    { type: "separator" },
-    {
-      label: "Enable Keyboard Remapping",
-      type: "checkbox",
-      checked: isEnabled,
-      accelerator: "CommandOrControl+Shift+E",
-      click: (menuItem) => {
-        if (menuItem.checked) {
-          keyboardService?.startListening();
-        } else {
-          keyboardService?.stopListening();
-        }
-        // Notify renderer about state change
-        mainWindow?.webContents.send(
-          "keyboard-service-state",
-          menuItem.checked
-        );
-      },
-    },
-    { type: "separator" },
-    {
-      label: "Open Shortcut Manager",
-      accelerator: "CommandOrControl+Shift+S",
-      click: () => {
-        mainWindow?.show();
-        mainWindow?.focus();
-      },
-    },
-    { type: "separator" },
-    {
-      label: "About HyperCaps",
-      click: () => {
-        dialog.showMessageBox({
-          type: "info",
-          title: "About HyperCaps",
-          message: "HyperCaps - Advanced Keyboard Remapping Tool",
-          detail: "Version 0.0.1\nCreated for Windows power users.",
-        });
-      },
-    },
-    { type: "separator" },
-    {
-      label: "Quit HyperCaps",
-      accelerator: "CommandOrControl+Q",
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      },
-    },
-  ]);
-
-  tray.setContextMenu(contextMenu);
-
-  // Register global shortcuts
-  const ret = globalShortcut.register("CommandOrControl+Shift+S", () => {
-    mainWindow?.show();
-    mainWindow?.focus();
-  });
-
-  if (!ret) {
-    console.error("Failed to register global shortcut");
-  }
-
-  // Double click shows the window
-  tray.on("double-click", () => {
-    mainWindow?.show();
-    mainWindow?.focus();
-  });
-};
 
 const createWindow = () => {
   // Create the browser window.
@@ -136,7 +36,7 @@ const createWindow = () => {
 
   // Hide window instead of closing when user clicks X
   mainWindow.on("close", (event) => {
-    if (!isQuitting) {
+    if (!(mainWindow as any).isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
       return false;
@@ -193,25 +93,49 @@ const createWindow = () => {
 
 // This method will be called when Electron has finished initialization
 app.whenReady().then(async () => {
-  await Store.getInstance().load(); // Load state before creating window
+  const store = Store.getInstance();
+  await store.load(); // Load state before creating window
+
+  // Initialize startup state
+  const enableOnStartup = await store.getEnableOnStartup();
+  if (enableOnStartup) {
+    keyboardService?.startListening();
+  }
+
   createWindow();
-  createTray();
+
+  // Initialize tray feature
+  if (mainWindow && keyboardService) {
+    trayFeature = new TrayFeature(mainWindow, keyboardService);
+    await trayFeature.initialize();
+  }
+
+  // Setup startup settings IPC handlers
+  ipcMain.handle("get-startup-settings", async () => {
+    return {
+      startupOnBoot: await store.getStartupOnBoot(),
+      enableOnStartup: await store.getEnableOnStartup(),
+    };
+  });
+
+  ipcMain.handle("set-startup-on-boot", async (event, enabled: boolean) => {
+    await store.setStartupOnBoot(enabled);
+  });
+
+  ipcMain.handle("set-enable-on-startup", async (event, enabled: boolean) => {
+    await store.setEnableOnStartup(enabled);
+  });
 });
 
 // Add proper cleanup
 app.on("before-quit", () => {
-  isQuitting = true;
   if (keyboardService) {
     keyboardService.dispose();
   }
-  globalShortcut.unregisterAll();
-});
-
-app.on("will-quit", () => {
-  if (tray) {
-    tray.destroy();
-    tray = null;
+  if (trayFeature) {
+    trayFeature.dispose();
   }
+  globalShortcut.unregisterAll();
 });
 
 // Quit when all windows are closed, except on macOS

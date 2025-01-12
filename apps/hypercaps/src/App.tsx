@@ -1,6 +1,7 @@
 import React from "react";
 import { KeyboardProvider, useKeyboard } from "./contexts/KeyboardContext";
 import { MappingList } from "./components/MappingList";
+import { Settings } from "./components/Settings";
 
 function KeyboardStatus() {
   const { state, toggleService } = useKeyboard();
@@ -59,6 +60,7 @@ function App() {
         <div className="space-y-8">
           <KeyboardStatus />
           <MappingList />
+          <Settings />
         </div>
       </div>
     </KeyboardProvider>

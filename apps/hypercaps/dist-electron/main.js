@@ -13,7 +13,9 @@ const _Store = class _Store {
     this.filePath = path.join(electron.app.getPath("userData"), "state.json");
     this.state = {
       mappings: [],
-      isEnabled: true
+      isEnabled: true,
+      startupOnBoot: false,
+      enableOnStartup: true
     };
   }
   static getInstance() {
@@ -73,6 +75,31 @@ const _Store = class _Store {
   }
   async setIsEnabled(enabled) {
     this.state.isEnabled = enabled;
+    await this.save();
+  }
+  // Startup settings methods
+  async getStartupOnBoot() {
+    return this.state.startupOnBoot;
+  }
+  async setStartupOnBoot(enabled) {
+    this.state.startupOnBoot = enabled;
+    if (enabled) {
+      electron.app.setLoginItemSettings({
+        openAtLogin: true,
+        path: electron.app.getPath("exe")
+      });
+    } else {
+      electron.app.setLoginItemSettings({
+        openAtLogin: false
+      });
+    }
+    await this.save();
+  }
+  async getEnableOnStartup() {
+    return this.state.enableOnStartup;
+  }
+  async setEnableOnStartup(enabled) {
+    this.state.enableOnStartup = enabled;
     await this.save();
   }
 };
@@ -171,6 +198,135 @@ class KeyboardService {
     this.mainWindow = null;
   }
 }
+class TrayFeature {
+  constructor(mainWindow2, keyboardService2) {
+    __publicField(this, "tray", null);
+    __publicField(this, "mainWindow", null);
+    __publicField(this, "keyboardService", null);
+    this.mainWindow = mainWindow2;
+    this.keyboardService = keyboardService2;
+  }
+  async initialize() {
+    const icon = electron.nativeImage.createFromPath(path.join(__dirname, "../../src/assets/tray-icon.png")).resize({ width: 16, height: 16 });
+    this.tray = new electron.Tray(icon);
+    this.tray.setToolTip("HyperCaps - Keyboard Remapping Tool");
+    await this.setupTrayMenu();
+    this.registerGlobalShortcuts();
+    this.setupEventListeners();
+  }
+  async setupTrayMenu() {
+    if (!this.tray) return;
+    const store = Store.getInstance();
+    const isEnabled = await store.getIsEnabled();
+    const startupOnBoot = await store.getStartupOnBoot();
+    const enableOnStartup = await store.getEnableOnStartup();
+    const contextMenu = electron.Menu.buildFromTemplate([
+      {
+        label: "HyperCaps",
+        enabled: false,
+        icon: electron.nativeImage.createFromPath(
+          path.join(__dirname, "../../src/assets/tray-icon.png")
+        ).resize({ width: 16, height: 16 })
+      },
+      { type: "separator" },
+      {
+        label: "Enable HyperCaps",
+        type: "checkbox",
+        checked: isEnabled,
+        accelerator: "CommandOrControl+Shift+E",
+        click: (menuItem) => {
+          var _a, _b, _c;
+          if (menuItem.checked) {
+            (_a = this.keyboardService) == null ? void 0 : _a.startListening();
+          } else {
+            (_b = this.keyboardService) == null ? void 0 : _b.stopListening();
+          }
+          (_c = this.mainWindow) == null ? void 0 : _c.webContents.send(
+            "keyboard-service-state",
+            menuItem.checked
+          );
+        }
+      },
+      { type: "separator" },
+      {
+        label: "Start with Windows",
+        type: "checkbox",
+        checked: startupOnBoot,
+        click: async (menuItem) => {
+          await store.setStartupOnBoot(menuItem.checked);
+        }
+      },
+      {
+        label: "Enable on Startup",
+        type: "checkbox",
+        checked: enableOnStartup,
+        click: async (menuItem) => {
+          await store.setEnableOnStartup(menuItem.checked);
+        }
+      },
+      { type: "separator" },
+      {
+        label: "Open Shortcut Manager",
+        accelerator: "CommandOrControl+Shift+S",
+        click: () => {
+          this.showWindow();
+        }
+      },
+      { type: "separator" },
+      {
+        label: "About HyperCaps",
+        click: () => {
+          electron.dialog.showMessageBox({
+            type: "info",
+            title: "About HyperCaps",
+            message: "HyperCaps - Advanced Keyboard Remapping Tool",
+            detail: "Version 0.0.1\nCreated for Windows power users."
+          });
+        }
+      },
+      { type: "separator" },
+      {
+        label: "Quit HyperCaps",
+        accelerator: "CommandOrControl+Q",
+        click: () => {
+          this.quit();
+        }
+      }
+    ]);
+    this.tray.setContextMenu(contextMenu);
+  }
+  registerGlobalShortcuts() {
+    const ret = electron.globalShortcut.register("CommandOrControl+Shift+S", () => {
+      this.showWindow();
+    });
+    if (!ret) {
+      console.error("Failed to register global shortcut");
+    }
+  }
+  setupEventListeners() {
+    if (!this.tray) return;
+    this.tray.on("double-click", () => {
+      this.showWindow();
+    });
+  }
+  showWindow() {
+    var _a, _b;
+    (_a = this.mainWindow) == null ? void 0 : _a.show();
+    (_b = this.mainWindow) == null ? void 0 : _b.focus();
+  }
+  quit() {
+    if (this.mainWindow) {
+      this.mainWindow.isQuitting = true;
+    }
+    require("electron").app.quit();
+  }
+  dispose() {
+    if (this.tray) {
+      this.tray.destroy();
+      this.tray = null;
+    }
+  }
+}
 if (process.platform !== "win32") {
   electron.dialog.showErrorBox(
     "Unsupported Platform",
@@ -182,83 +338,8 @@ if (require("electron-squirrel-startup")) {
   electron.app.quit();
 }
 let keyboardService;
-let tray = null;
+let trayFeature = null;
 let mainWindow = null;
-let isQuitting = false;
-const createTray = async () => {
-  const icon = electron.nativeImage.createFromPath(path.join(__dirname, "../src/assets/tray-icon.png")).resize({ width: 16, height: 16 });
-  tray = new electron.Tray(icon);
-  tray.setToolTip("HyperCaps - Keyboard Remapping Tool");
-  const store = Store.getInstance();
-  const isEnabled = await store.getIsEnabled();
-  const contextMenu = electron.Menu.buildFromTemplate([
-    {
-      label: "HyperCaps",
-      enabled: false,
-      icon: electron.nativeImage.createFromPath(path.join(__dirname, "../src/assets/tray-icon.png")).resize({ width: 16, height: 16 })
-    },
-    { type: "separator" },
-    {
-      label: "Enable Keyboard Remapping",
-      type: "checkbox",
-      checked: isEnabled,
-      accelerator: "CommandOrControl+Shift+E",
-      click: (menuItem) => {
-        if (menuItem.checked) {
-          keyboardService == null ? void 0 : keyboardService.startListening();
-        } else {
-          keyboardService == null ? void 0 : keyboardService.stopListening();
-        }
-        mainWindow == null ? void 0 : mainWindow.webContents.send(
-          "keyboard-service-state",
-          menuItem.checked
-        );
-      }
-    },
-    { type: "separator" },
-    {
-      label: "Open Shortcut Manager",
-      accelerator: "CommandOrControl+Shift+S",
-      click: () => {
-        mainWindow == null ? void 0 : mainWindow.show();
-        mainWindow == null ? void 0 : mainWindow.focus();
-      }
-    },
-    { type: "separator" },
-    {
-      label: "About HyperCaps",
-      click: () => {
-        electron.dialog.showMessageBox({
-          type: "info",
-          title: "About HyperCaps",
-          message: "HyperCaps - Advanced Keyboard Remapping Tool",
-          detail: "Version 0.0.1\nCreated for Windows power users."
-        });
-      }
-    },
-    { type: "separator" },
-    {
-      label: "Quit HyperCaps",
-      accelerator: "CommandOrControl+Q",
-      click: () => {
-        isQuitting = true;
-        electron.app.quit();
-      }
-    }
-  ]);
-  tray.setContextMenu(contextMenu);
-  const ret = electron.globalShortcut.register("CommandOrControl+Shift+S", () => {
-    mainWindow == null ? void 0 : mainWindow.show();
-    mainWindow == null ? void 0 : mainWindow.focus();
-  });
-  if (!ret) {
-    console.error("Failed to register global shortcut");
-  }
-  tray.on("double-click", () => {
-    mainWindow == null ? void 0 : mainWindow.show();
-    mainWindow == null ? void 0 : mainWindow.focus();
-  });
-};
 const createWindow = () => {
   mainWindow = new electron.BrowserWindow({
     width: 1200,
@@ -270,7 +351,7 @@ const createWindow = () => {
     }
   });
   mainWindow.on("close", (event) => {
-    if (!isQuitting) {
+    if (!mainWindow.isQuitting) {
       event.preventDefault();
       mainWindow == null ? void 0 : mainWindow.hide();
       return false;
@@ -312,22 +393,38 @@ const createWindow = () => {
   }
 };
 electron.app.whenReady().then(async () => {
-  await Store.getInstance().load();
+  const store = Store.getInstance();
+  await store.load();
+  const enableOnStartup = await store.getEnableOnStartup();
+  if (enableOnStartup) {
+    keyboardService == null ? void 0 : keyboardService.startListening();
+  }
   createWindow();
-  createTray();
+  if (mainWindow && keyboardService) {
+    trayFeature = new TrayFeature(mainWindow, keyboardService);
+    await trayFeature.initialize();
+  }
+  electron.ipcMain.handle("get-startup-settings", async () => {
+    return {
+      startupOnBoot: await store.getStartupOnBoot(),
+      enableOnStartup: await store.getEnableOnStartup()
+    };
+  });
+  electron.ipcMain.handle("set-startup-on-boot", async (event, enabled) => {
+    await store.setStartupOnBoot(enabled);
+  });
+  electron.ipcMain.handle("set-enable-on-startup", async (event, enabled) => {
+    await store.setEnableOnStartup(enabled);
+  });
 });
 electron.app.on("before-quit", () => {
-  isQuitting = true;
   if (keyboardService) {
     keyboardService.dispose();
   }
-  electron.globalShortcut.unregisterAll();
-});
-electron.app.on("will-quit", () => {
-  if (tray) {
-    tray.destroy();
-    tray = null;
+  if (trayFeature) {
+    trayFeature.dispose();
   }
+  electron.globalShortcut.unregisterAll();
 });
 electron.app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

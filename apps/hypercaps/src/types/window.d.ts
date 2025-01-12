@@ -35,5 +35,13 @@ interface Window {
       updates: Partial<KeyMapping>
     ) => Promise<KeyMapping>;
     deleteMapping: (id: string) => Promise<void>;
+
+    // Startup settings
+    getStartupSettings: () => Promise<{
+      startupOnBoot: boolean;
+      enableOnStartup: boolean;
+    }>;
+    setStartupOnBoot: (enabled: boolean) => Promise<void>;
+    setEnableOnStartup: (enabled: boolean) => Promise<void>;
   };
 }

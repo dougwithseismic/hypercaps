@@ -12,5 +12,9 @@ electron.contextBridge.exposeInMainWorld("api", {
   getMappings: () => electron.ipcRenderer.invoke("get-mappings"),
   addMapping: (mapping) => electron.ipcRenderer.invoke("add-mapping", mapping),
   updateMapping: (id, updates) => electron.ipcRenderer.invoke("update-mapping", id, updates),
-  deleteMapping: (id) => electron.ipcRenderer.invoke("delete-mapping", id)
+  deleteMapping: (id) => electron.ipcRenderer.invoke("delete-mapping", id),
+  // Startup settings
+  getStartupSettings: () => electron.ipcRenderer.invoke("get-startup-settings"),
+  setStartupOnBoot: (enabled) => electron.ipcRenderer.invoke("set-startup-on-boot", enabled),
+  setEnableOnStartup: (enabled) => electron.ipcRenderer.invoke("set-enable-on-startup", enabled)
 });

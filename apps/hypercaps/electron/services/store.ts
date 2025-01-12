@@ -19,6 +19,8 @@ interface KeyMapping {
 interface AppState {
   mappings: KeyMapping[];
   isEnabled: boolean;
+  startupOnBoot: boolean;
+  enableOnStartup: boolean;
 }
 
 export class Store {
@@ -31,6 +33,8 @@ export class Store {
     this.state = {
       mappings: [],
       isEnabled: true,
+      startupOnBoot: false,
+      enableOnStartup: true,
     };
   }
 
@@ -106,6 +110,35 @@ export class Store {
 
   public async setIsEnabled(enabled: boolean): Promise<void> {
     this.state.isEnabled = enabled;
+    await this.save();
+  }
+
+  // Startup settings methods
+  public async getStartupOnBoot(): Promise<boolean> {
+    return this.state.startupOnBoot;
+  }
+
+  public async setStartupOnBoot(enabled: boolean): Promise<void> {
+    this.state.startupOnBoot = enabled;
+    if (enabled) {
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        path: app.getPath("exe"),
+      });
+    } else {
+      app.setLoginItemSettings({
+        openAtLogin: false,
+      });
+    }
+    await this.save();
+  }
+
+  public async getEnableOnStartup(): Promise<boolean> {
+    return this.state.enableOnStartup;
+  }
+
+  public async setEnableOnStartup(enabled: boolean): Promise<void> {
+    this.state.enableOnStartup = enabled;
     await this.save();
   }
 }

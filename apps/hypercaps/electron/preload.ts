@@ -16,4 +16,11 @@ contextBridge.exposeInMainWorld("api", {
   updateMapping: (id: string, updates: any) =>
     ipcRenderer.invoke("update-mapping", id, updates),
   deleteMapping: (id: string) => ipcRenderer.invoke("delete-mapping", id),
+
+  // Startup settings
+  getStartupSettings: () => ipcRenderer.invoke("get-startup-settings"),
+  setStartupOnBoot: (enabled: boolean) =>
+    ipcRenderer.invoke("set-startup-on-boot", enabled),
+  setEnableOnStartup: (enabled: boolean) =>
+    ipcRenderer.invoke("set-enable-on-startup", enabled),
 });
