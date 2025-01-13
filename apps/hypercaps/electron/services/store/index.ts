@@ -25,6 +25,7 @@ import { produce } from "immer";
 import { z } from "zod";
 import { AppState, AppStateSchema } from "./types/app-state";
 import { Feature, FeatureName } from "./types/feature-config";
+import { EventEmitter } from "events";
 
 // Get version from package.json
 const pkg = require(path.join(app.getAppPath(), "package.json"));
@@ -112,12 +113,13 @@ const DEFAULT_STATE: AppState = {
   ],
 };
 
-export class Store {
+export class Store extends EventEmitter {
   private static instance: Store;
   private state: AppState = DEFAULT_STATE;
   private statePath: string;
 
   private constructor() {
+    super();
     this.statePath =
       process.env.NODE_ENV === "development"
         ? path.join(app.getAppPath(), "state.json")
@@ -253,6 +255,8 @@ export class Store {
   public async update(updater: (draft: AppState) => void): Promise<void> {
     this.state = produce(this.state, updater);
     await this.save();
+    // Emit state change event
+    this.emit("stateChanged", this.state);
   }
 
   public async getFeature<T extends FeatureName>(
