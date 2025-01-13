@@ -125,7 +125,7 @@ app.whenReady().then(async () => {
 
   // Initialize keyboard service first
   keyboardService = new KeyboardService();
-  await keyboardService.init(); // This will auto-start if enabled in settings
+  await keyboardService.init();
 
   // Then create window
   await createWindow();
@@ -139,23 +139,47 @@ app.whenReady().then(async () => {
     await trayFeature.initialize();
   }
 
+  // Auto-start HyperKey if configured
+  const hyperKey = await store.getFeature("hyperKey");
+  if (hyperKey?.enableFeatureOnStartup) {
+    console.log(
+      "[Main] Auto-starting HyperKey feature (configured in settings)"
+    );
+    await store.update((draft) => {
+      const feature = draft.features.find((f) => f.name === "hyperKey");
+      if (feature) {
+        feature.isFeatureEnabled = true;
+      }
+    });
+    await keyboardService.startListening();
+  }
+
   // Startup settings
   ipcMain.handle("get-startup-settings", async () => {
-    const { enableOnStartup, startupOnBoot } = store.getState();
-    return { startupOnBoot, enableOnStartup };
+    const state = store.getState();
+    return {
+      startupOnBoot: state.settings?.startupOnBoot || false,
+      startMinimized: state.settings?.startMinimized || false,
+    };
   });
 
   ipcMain.handle("set-startup-on-boot", async (_, enabled: boolean) => {
-    await store.setStartupOnBoot(enabled);
+    await store.update((draft) => {
+      if (!draft.settings) draft.settings = {};
+      draft.settings.startupOnBoot = enabled;
+    });
   });
 
-  ipcMain.handle("set-enable-on-startup", async (_, enabled: boolean) => {
-    await store.setStartupOnBoot(enabled);
+  ipcMain.handle("set-start-minimized", async (_, enabled: boolean) => {
+    await store.update((draft) => {
+      if (!draft.settings) draft.settings = {};
+      draft.settings.startMinimized = enabled;
+    });
   });
 
   // Store state
   ipcMain.handle("get-full-state", async () => {
-    return keyboardService.getState();
+    return store.getState();
   });
 
   // Window controls

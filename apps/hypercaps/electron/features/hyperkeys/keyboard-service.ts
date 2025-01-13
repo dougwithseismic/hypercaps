@@ -1,8 +1,9 @@
 import { BrowserWindow, dialog, app } from "electron";
 import { spawn, ChildProcess } from "child_process";
+import { EventEmitter } from "events";
 import path from "path";
 import { Store } from "@electron/services/store";
-import { HyperKeyFeatureConfig } from "@electron/services/types";
+import { HyperKeyFeatureConfig } from "./types/hyperkey-feature";
 
 interface KeyboardState {
   pressedKeys: string[];
@@ -21,7 +22,7 @@ interface ServiceState {
   };
 }
 
-export class KeyboardService {
+export class KeyboardService extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
   private keyboardProcess: ChildProcess | null = null;
   private store: Store;
@@ -33,6 +34,7 @@ export class KeyboardService {
   };
 
   constructor() {
+    super();
     this.store = Store.getInstance();
   }
 
@@ -57,6 +59,7 @@ export class KeyboardService {
       ...this.state,
       isRunning: this.isRunning(),
     });
+    this.emit("state-change", this.state);
   }
 
   public getState(): ServiceState {
@@ -65,10 +68,12 @@ export class KeyboardService {
 
   public async init(): Promise<void> {
     await this.store.load();
-    const hyperKeyFeature = await this.store.getFeature("hyperKey");
-    console.log("[KeyboardService] : HyperKeyFeature init()", hyperKeyFeature);
 
-    if (!hyperKeyFeature) {
+    // Get HyperKey feature state
+    const hyperKey = await this.store.getFeature("hyperKey");
+    console.log("[KeyboardService] HyperKey feature state:", hyperKey);
+
+    if (!hyperKey) {
       this.setState({
         error: "HyperKey feature not found",
         lastError: {
@@ -79,11 +84,11 @@ export class KeyboardService {
       throw new Error("HyperKey feature not found");
     }
 
-    this.mainWindow?.webContents.send("hyperkey-state", hyperKeyFeature);
-
-    if (hyperKeyFeature.isFeatureEnabled) {
-      await this.startListening();
-    }
+    // Send initial state to renderer
+    this.mainWindow?.webContents.send("hyperkey-state", {
+      ...hyperKey.config,
+      enabled: hyperKey.isFeatureEnabled,
+    });
   }
 
   public setMainWindow(window: BrowserWindow): void {
@@ -104,7 +109,7 @@ export class KeyboardService {
     console.log("[KeyboardService] startListening() called");
 
     if (this.keyboardProcess) {
-      console.log("[KeyboardService] Process already running, returning early");
+      console.log("[KeyboardService] Process already running");
       return;
     }
 
@@ -132,19 +137,18 @@ export class KeyboardService {
 
     try {
       const scriptPath = this.getScriptPath();
-      const hyperKeyFeature = await this.store.getFeature("hyperKey");
+      const hyperKey = await this.store.getFeature("hyperKey");
 
-      if (!hyperKeyFeature) {
-        throw new Error("Failed to get hyperkey feature");
+      if (!hyperKey) {
+        throw new Error("HyperKey feature not found");
       }
 
       const config = {
-        isEnabled: hyperKeyFeature.isFeatureEnabled,
-        isHyperKeyEnabled: hyperKeyFeature.config.isHyperKeyEnabled,
-        trigger: hyperKeyFeature.config.trigger,
-        modifiers: hyperKeyFeature.config.modifiers || [],
-        capsLockBehavior:
-          hyperKeyFeature.config.capsLockBehavior || "BlockToggle",
+        isEnabled: hyperKey.isFeatureEnabled,
+        isHyperKeyEnabled: hyperKey.config.isHyperKeyEnabled,
+        trigger: hyperKey.config.trigger,
+        modifiers: hyperKey.config.modifiers || [],
+        capsLockBehavior: hyperKey.config.capsLockBehavior || "BlockToggle",
       };
 
       const command = [
@@ -208,12 +212,18 @@ export class KeyboardService {
 
       await this.setupProcessListeners();
 
+      // Update store on successful start
+      await this.store.update((draft) => {
+        const feature = draft.features.find((f) => f.name === "hyperKey");
+        if (feature) {
+          feature.isFeatureEnabled = true;
+        }
+      });
+
       this.setState({
         isListening: true,
         isLoading: false,
       });
-      console.log("[KeyboardService] State updated");
-      await this.notifyStateUpdate();
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error during startup";
@@ -380,7 +390,6 @@ export class KeyboardService {
       isLoading: false,
       error: undefined,
     });
-    await this.notifyStateUpdate();
   }
 
   private handleKeyboardOutput = (data: Buffer) => {

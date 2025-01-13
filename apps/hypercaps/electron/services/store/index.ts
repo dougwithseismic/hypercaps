@@ -1,22 +1,92 @@
 import { app } from "electron";
 import path from "path";
-import fs from "fs/promises";
+import fs from "fs";
 import { produce } from "immer";
-import { AppState } from "./types/app-state";
+import { z } from "zod";
+import { AppState, AppStateSchema } from "./types/app-state";
 import { Feature, FeatureName } from "./types/feature-config";
 
+// Get version from package.json
+const pkg = require(path.join(app.getAppPath(), "package.json"));
+const CURRENT_STATE_VERSION = pkg.version;
+
+// Version when each migration was introduced
+type MigrationFunction = (state: AppState) => AppState;
+interface Migration {
+  version: string;
+  schema: z.ZodType<any>;
+  migrate: MigrationFunction;
+}
+
+const MIGRATIONS: Migration[] = [
+  {
+    version: "0.1.0",
+    schema: AppStateSchema.extend({
+      features: z.array(
+        z.object({
+          name: z.enum(["hyperKey", "shortcutManager"]),
+          isFeatureEnabled: z.boolean(),
+          // enableFeatureOnStartup might not exist yet
+          config: z.any(),
+        })
+      ),
+    }),
+    migrate: (state: AppState) => {
+      console.log("[Store] Migrating state to version 0.1.0");
+      return produce(state, (draft) => {
+        // Migrate features to include enableFeatureOnStartup
+        draft.features?.forEach((feature) => {
+          if (!("enableFeatureOnStartup" in feature)) {
+            feature.enableFeatureOnStartup = feature.isFeatureEnabled || false;
+          }
+        });
+
+        // Ensure settings object exists
+        if (!draft.settings) {
+          draft.settings = {
+            startupOnBoot: false,
+            startMinimized: false,
+          };
+        }
+      });
+    },
+  },
+  // Add future migrations here
+  // {
+  //   version: "0.2.0",
+  //   schema: AppStateSchema.extend({ /* expected schema before migration */ }),
+  //   migrate: (state) => { /* migration logic */ }
+  // }
+];
+
+interface VersionedState {
+  version: string;
+  state: AppState;
+}
+
 const DEFAULT_STATE: AppState = {
-  startupOnBoot: false,
-  enableOnStartup: true,
+  settings: {
+    startupOnBoot: false,
+    startMinimized: false,
+  },
   features: [
     {
       name: "hyperKey",
-      isFeatureEnabled: true,
+      isFeatureEnabled: false,
+      enableFeatureOnStartup: true,
       config: {
-        enableOnStartup: true,
         isHyperKeyEnabled: true,
         trigger: "CapsLock",
-        modifiers: ["LShiftKey"],
+        modifiers: [],
+        capsLockBehavior: "BlockToggle",
+      },
+    },
+    {
+      name: "shortcutManager",
+      isFeatureEnabled: false,
+      enableFeatureOnStartup: false,
+      config: {
+        enabled: false,
       },
     },
   ],
@@ -24,12 +94,14 @@ const DEFAULT_STATE: AppState = {
 
 export class Store {
   private static instance: Store;
-  private state: AppState;
-  private filePath: string;
+  private state: AppState = DEFAULT_STATE;
+  private statePath: string;
 
   private constructor() {
-    this.filePath = path.join(app.getPath("userData"), "state.json");
-    this.state = DEFAULT_STATE;
+    this.statePath =
+      process.env.NODE_ENV === "development"
+        ? path.join(app.getAppPath(), "state.json")
+        : path.join(app.getPath("userData"), "state.json");
   }
 
   public static getInstance(): Store {
@@ -39,50 +111,134 @@ export class Store {
     return Store.instance;
   }
 
+  public getState(): AppState {
+    return this.state;
+  }
+
+  private compareVersions(a: string, b: string): number {
+    const partsA = a.split(".").map(Number);
+    const partsB = b.split(".").map(Number);
+
+    for (let i = 0; i < 3; i++) {
+      const partA = partsA[i] || 0;
+      const partB = partsB[i] || 0;
+      if (partA !== partB) return partA - partB;
+    }
+    return 0;
+  }
+
+  private validateState(state: unknown, schema: z.ZodType<any>): AppState {
+    try {
+      return schema.parse(state);
+    } catch (error) {
+      console.error("[Store] State validation failed:", error);
+      if (error instanceof z.ZodError) {
+        console.error(
+          "[Store] Validation errors:",
+          JSON.stringify(error.errors, null, 2)
+        );
+      }
+      console.warn("[Store] Falling back to default state");
+      return DEFAULT_STATE;
+    }
+  }
+
+  private migrateState(versionedState: Partial<VersionedState>): AppState {
+    const version = versionedState.version || "0.0.0";
+    let state = versionedState.state || DEFAULT_STATE;
+
+    // Sort migrations by version
+    const sortedMigrations = [...MIGRATIONS].sort((a, b) =>
+      this.compareVersions(a.version, b.version)
+    );
+
+    // Apply each migration if needed
+    for (const migration of sortedMigrations) {
+      if (this.compareVersions(version, migration.version) < 0) {
+        console.log(
+          `[Store] Validating state before migration ${migration.version}`
+        );
+
+        // Validate state before migration
+        state = this.validateState(state, migration.schema);
+
+        console.log(
+          `[Store] Running migration for version ${migration.version}`
+        );
+        state = migration.migrate(state);
+
+        console.log(
+          `[Store] Validating state after migration ${migration.version}`
+        );
+        // Validate state after migration with the next migration's schema (or current app schema)
+        const nextMigration = sortedMigrations.find(
+          (m) => this.compareVersions(migration.version, m.version) < 0
+        );
+        state = this.validateState(
+          state,
+          nextMigration?.schema || AppStateSchema
+        );
+      }
+    }
+
+    // Final validation with current app schema
+    return this.validateState(state, AppStateSchema);
+  }
+
   public async load(): Promise<void> {
     try {
-      const data = await fs.readFile(this.filePath, "utf-8");
-      this.state = JSON.parse(data);
+      if (fs.existsSync(this.statePath)) {
+        const data = await fs.promises.readFile(this.statePath, "utf-8");
+        const versionedState = JSON.parse(data) as Partial<VersionedState>;
+
+        // Migrate state if needed
+        this.state = this.migrateState(versionedState);
+
+        // Save migrated state if version was old
+        if (
+          !versionedState.version ||
+          this.compareVersions(versionedState.version, CURRENT_STATE_VERSION) <
+            0
+        ) {
+          await this.save();
+        }
+      } else {
+        this.state = DEFAULT_STATE;
+        await this.save();
+      }
     } catch (error) {
-      // If file doesn't exist or is invalid, use default state
+      console.error("Failed to load state:", error);
+      this.state = DEFAULT_STATE;
       await this.save();
     }
   }
 
   private async save(): Promise<void> {
     try {
-      await fs.writeFile(this.filePath, JSON.stringify(this.state, null, 2));
+      const versionedState: VersionedState = {
+        version: CURRENT_STATE_VERSION,
+        state: this.state,
+      };
+
+      await fs.promises.writeFile(
+        this.statePath,
+        JSON.stringify(versionedState, null, 2),
+        "utf-8"
+      );
     } catch (error) {
       console.error("Failed to save state:", error);
     }
   }
 
-  // Generic state update method using Immer
-  public async update(recipe: (draft: AppState) => void): Promise<void> {
-    this.state = produce(this.state, recipe);
+  public async update(updater: (draft: AppState) => void): Promise<void> {
+    this.state = produce(this.state, updater);
     await this.save();
-  }
-
-  // Convenience methods
-  public getState(): AppState {
-    return this.state;
   }
 
   public async getFeature<T extends FeatureName>(
     name: T
   ): Promise<Feature<T> | undefined> {
-    return this.state.features.find((f) => f.name === name) as Feature<T>;
-  }
-
-  // Startup settings with electron integration
-  public async setStartupOnBoot(enabled: boolean): Promise<void> {
-    await this.update((draft) => {
-      draft.startupOnBoot = enabled;
-    });
-
-    app.setLoginItemSettings({
-      openAtLogin: enabled,
-      path: enabled ? app.getPath("exe") : undefined,
-    });
+    const feature = this.state.features?.find((f) => f.name === name);
+    return feature as Feature<T> | undefined;
   }
 }

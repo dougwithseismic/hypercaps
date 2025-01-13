@@ -1,36 +1,39 @@
-import { AppState } from "../../electron/services/store";
+import { AppState } from "@electron/services/store/types/app-state";
+import { HyperKeyFeatureConfig } from "@electron/features/hyperkeys/types/hyperkey-feature";
+
+interface StartupSettings {
+  startupOnBoot: boolean;
+  startMinimized: boolean;
+}
 
 declare global {
   interface Window {
     api: {
-      // Existing API methods
+      // Window controls
+      minimizeWindow: () => void;
+      closeWindow: () => void;
+
+      // Keyboard service
       startListening: () => void;
       stopListening: () => void;
-      onKeyboardEvent: (callback: (event: any) => void) => void;
-      onKeyboardServiceState: (callback: (enabled: boolean) => void) => void;
-      onKeyboardServiceLoading: (callback: (loading: boolean) => void) => void;
-      getMappings: () => Promise<any[]>;
-      addMapping: (mapping: any) => Promise<any>;
-      updateMapping: (id: string, updates: any) => Promise<any>;
-      deleteMapping: (id: string) => Promise<void>;
-      getHyperKeyConfig: () => Promise<any>;
-      setHyperKeyConfig: (config: any) => Promise<void>;
-      restartWithConfig: (config: any) => Promise<void>;
-      onHyperKeyState: (callback: (config: any) => void) => void;
-      getStartupSettings: () => Promise<{
-        startupOnBoot: boolean;
-        enableOnStartup: boolean;
-      }>;
-      setStartupOnBoot: (enabled: boolean) => Promise<void>;
-      setEnableOnStartup: (enabled: boolean) => Promise<void>;
+      isListening: () => Promise<boolean>;
 
-      // Store state methods
+      // HyperKey feature
+      getHyperKeyConfig: () => Promise<HyperKeyFeatureConfig>;
+      setHyperKeyConfig: (config: HyperKeyFeatureConfig) => Promise<void>;
+
+      // App settings
+      getStartupSettings: () => Promise<StartupSettings>;
+      setStartupOnBoot: (enabled: boolean) => Promise<void>;
+      setStartMinimized: (enabled: boolean) => Promise<void>;
+
+      // Store state
       getFullState: () => Promise<AppState>;
-      onStoreStateUpdate: (callback: (state: AppState) => void) => void;
-    };
-    electron: {
-      minimize: () => void;
-      close: () => void;
+
+      // Event listeners
+      onKeyboardEvent: (callback: (event: any) => void) => void;
+      onKeyboardServiceState: (callback: (event: any) => void) => void;
+      onHyperKeyState: (callback: (event: any) => void) => void;
     };
   }
 }

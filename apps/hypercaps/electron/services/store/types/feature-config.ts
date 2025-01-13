@@ -1,30 +1,36 @@
 import { z } from "zod";
 import { HyperKeyFeatureConfigSchema } from "../../../features/hyperkeys/types/hyperkey-feature";
 
-export const TestFeatureConfigSchema = z.object({
-  testSetting: z.string(),
-});
-export type TestFeatureConfig = z.infer<typeof TestFeatureConfigSchema>;
+// Available features in HyperCaps
+export const FeatureNameSchema = z.enum([
+  "hyperKey", // Trigger key functionality
+  "shortcutManager", // Coming soon
+]);
+export type FeatureName = z.infer<typeof FeatureNameSchema>;
 
+// Feature-specific configurations
 export const FeatureConfigSchema = z.object({
   hyperKey: HyperKeyFeatureConfigSchema,
-  test: TestFeatureConfigSchema,
+  shortcutManager: z
+    .object({
+      // Will be expanded when implementing shortcut manager
+      enabled: z.boolean(),
+    })
+    .optional(),
 });
 export type FeatureConfig = z.infer<typeof FeatureConfigSchema>;
 
-export const FeatureNameSchema = z.enum(["hyperKey", "test"]);
-export type FeatureName = z.infer<typeof FeatureNameSchema>;
-
+// Generic feature structure
 export const FeatureSchema = z.object({
   name: FeatureNameSchema,
-  enableOnStartup: z.boolean(),
   isFeatureEnabled: z.boolean(),
-  config: z.any(), // This will be properly typed through the generic
+  enableFeatureOnStartup: z.boolean(),
+  config: z.any(), // Typed through generic
 });
 
 export type Feature<T extends FeatureName> = {
   name: T;
-  enableOnStartup: boolean;
   isFeatureEnabled: boolean;
+  enableFeatureOnStartup: boolean;
   config: FeatureConfig[T];
 };
