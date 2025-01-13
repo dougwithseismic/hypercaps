@@ -19,8 +19,8 @@ export class TrayFeature {
     this.store = Store.getInstance();
   }
 
-  private getStateIndicator() {
-    const state = this.keyboardService?.getState();
+  private async getStateIndicator() {
+    const state = await this.keyboardService?.getState();
     if (!state) return { tooltip: "HyperCaps ⭘" };
 
     if (state.error) return { tooltip: `HyperCaps ⚠️ Error: ${state.error}` };
@@ -30,9 +30,9 @@ export class TrayFeature {
     return { tooltip: "HyperCaps ✅ Running" };
   }
 
-  private updateTrayState() {
+  private async updateTrayState() {
     if (!this.tray) return;
-    const { tooltip } = this.getStateIndicator();
+    const { tooltip } = await this.getStateIndicator();
     this.tray.setToolTip(tooltip);
   }
 
@@ -59,16 +59,16 @@ export class TrayFeature {
     await this.updateContextMenu();
 
     // Listen for keyboard service state changes
-    this.keyboardService.on("state-change", () => {
-      this.updateTrayState();
-      this.updateContextMenu();
+    this.keyboardService.on("state-change", async () => {
+      await this.updateTrayState();
+      await this.updateContextMenu();
     });
   }
 
   private async updateContextMenu() {
     if (!this.tray) return;
 
-    const state = this.keyboardService?.getState();
+    const state = await this.keyboardService?.getState();
     const { settings } = this.store.getState();
     const hyperKey = await this.store.getFeature("hyperKey");
 
@@ -84,6 +84,7 @@ export class TrayFeature {
         checked: hyperKey?.config.isHyperKeyEnabled || false,
         accelerator: "CommandOrControl+Shift+H",
         click: async (menuItem) => {
+          // Update store
           await this.store.update((draft) => {
             const feature = draft.features.find((f) => f.name === "hyperKey");
             if (feature) {
@@ -91,13 +92,12 @@ export class TrayFeature {
             }
           });
 
-          if (state?.isListening) {
-            const updatedHyperKey = await this.store.getFeature("hyperKey");
-            if (updatedHyperKey) {
-              await this.keyboardService?.restartWithConfig(
-                updatedHyperKey.config
-              );
-            }
+          // Get updated config and restart service
+          const updatedHyperKey = await this.store.getFeature("hyperKey");
+          if (updatedHyperKey) {
+            await this.keyboardService?.restartWithConfig(
+              updatedHyperKey.config
+            );
           }
         },
       },
@@ -119,6 +119,7 @@ export class TrayFeature {
         type: "checkbox",
         checked: hyperKey?.config.capsLockBehavior === "BlockToggle",
         click: async (menuItem) => {
+          // Update store
           await this.store.update((draft) => {
             const feature = draft.features.find((f) => f.name === "hyperKey");
             if (feature) {
@@ -127,9 +128,13 @@ export class TrayFeature {
                 : "AllowToggle";
             }
           });
-          // Restart service to apply changes
-          if (state?.isListening) {
-            await this.keyboardService?.restartWithConfig(hyperKey!.config);
+
+          // Get updated config and restart service
+          const updatedHyperKey = await this.store.getFeature("hyperKey");
+          if (updatedHyperKey) {
+            await this.keyboardService?.restartWithConfig(
+              updatedHyperKey.config
+            );
           }
         },
       },

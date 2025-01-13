@@ -155,13 +155,8 @@ export class IPCService {
     }
 
     try {
-      // Enqueue command with service priority
-      const result = await this.queue.enqueue(
-        "ipc:execute",
-        async () => handler(command.params || ({} as TParams)),
-        service.config.priority || 2
-      );
-
+      // Execute handler directly instead of using queue
+      const result = await handler(command.params || ({} as TParams));
       return createResult(result) as IPCResult<TResult>;
     } catch (error) {
       return createError(
