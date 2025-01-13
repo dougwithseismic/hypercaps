@@ -389,8 +389,8 @@ interface KeyMapping {
 
 Important project paths:
 
-- PowerShell Script: `apps/hypercaps/electron/scripts/keyboard-monitor.ps1`
-- Keyboard Service: `apps/hypercaps/electron/services/keyboard.ts`
+- PowerShell Script: `apps/hypercaps/electron/features/hyperkeys/scripts/keyboard-monitor.ps1`
+- Keyboard Service: `apps/hypercaps/electron/features/hyperkeys/services/keyboard.ts`
 - Main Process: `apps/hypercaps/electron/main.ts`
 - React Components: `apps/hypercaps/src/components/`
 - Build Output: `apps/hypercaps/dist/`

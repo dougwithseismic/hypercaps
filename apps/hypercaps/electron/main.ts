@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, globalShortcut } from "electron";
 import path from "path";
-import { KeyboardService } from "./services/keyboard";
+import { KeyboardService } from "./features/hyperkeys/keyboard-service";
 import { Store } from "./services/store";
 import { TrayFeature } from "./features/tray";
 
@@ -28,7 +28,7 @@ let keyboardService: KeyboardService;
 let trayFeature: TrayFeature | null = null;
 let mainWindow: BrowserWindow | null = null;
 
-const createWindow = () => {
+const createWindow = async () => {
   console.log("Environment:", process.env.NODE_ENV);
 
   // Create the browser window.
@@ -51,10 +51,49 @@ const createWindow = () => {
     backgroundColor: "#00000000",
   });
 
+  // Setup IPC handlers
+  ipcMain.on("start-listening", () => {
+    keyboardService?.startListening();
+  });
+
+  ipcMain.on("stop-listening", () => {
+    keyboardService?.stopListening();
+  });
+
+  // Add handler for getting keyboard service state
+  ipcMain.handle("get-keyboard-service-state", () => {
+    return keyboardService?.isRunning() || false;
+  });
+  // HyperKey config handlers
+  ipcMain.handle("get-hyperkey-config", async () => {
+    try {
+      const store = Store.getInstance();
+      const feature = await store.getFeature("hyperKey");
+      if (!feature) {
+        throw new Error("HyperKey feature not found");
+      }
+      return feature.config;
+    } catch (err) {
+      console.error("Failed to get HyperKey config:", err);
+      throw err; // Re-throw to let renderer handle error
+    }
+  });
+
+  ipcMain.handle("set-hyperkey-config", async (event, config) => {
+    const store = Store.getInstance();
+    await store.update((draft) => {
+      const hyperkeyFeature = draft.features.find((f) => f.name == "hyperKey");
+      if (hyperkeyFeature) {
+        hyperkeyFeature.config = config;
+      }
+    });
+
+    await keyboardService?.restartWithConfig(config);
+  });
+
   // Load appropriate content based on environment
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
-    // mainWindow.webContents.openDevTools();
   } else {
     // In production, load the built index.html file
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
@@ -68,44 +107,6 @@ const createWindow = () => {
       return false;
     }
   });
-
-  // Initialize keyboard service
-  try {
-    keyboardService = new KeyboardService();
-    keyboardService.setMainWindow(mainWindow);
-    keyboardService.init(); // Initialize and load state
-
-    // Setup IPC handlers
-    ipcMain.on("start-listening", () => {
-      keyboardService.startListening();
-    });
-
-    ipcMain.on("stop-listening", () => {
-      keyboardService.stopListening();
-    });
-
-    // Mapping handlers
-    ipcMain.handle("get-mappings", () => {
-      return keyboardService.getMappings();
-    });
-
-    ipcMain.handle("add-mapping", (event, mapping) => {
-      return keyboardService.addMapping(mapping);
-    });
-
-    ipcMain.handle("update-mapping", (event, id, updates) => {
-      return keyboardService.updateMapping(id, updates);
-    });
-
-    ipcMain.handle("delete-mapping", (event, id) => {
-      return keyboardService.deleteMapping(id);
-    });
-  } catch (error) {
-    dialog.showErrorBox(
-      "Keyboard Service Error",
-      "Failed to initialize keyboard service. The application may not work as expected."
-    );
-  }
 };
 
 // Add window control handlers
@@ -122,34 +123,68 @@ app.whenReady().then(async () => {
   const store = Store.getInstance();
   await store.load(); // Load state before creating window
 
-  // Initialize startup state
-  const enableOnStartup = await store.getEnableOnStartup();
-  if (enableOnStartup) {
-    keyboardService?.startListening();
+  // Initialize keyboard service first
+  keyboardService = new KeyboardService();
+  await keyboardService.init();
+
+  // Then create window
+  await createWindow();
+  if (mainWindow) {
+    keyboardService.setMainWindow(mainWindow);
   }
 
-  createWindow();
-
-  // Initialize tray feature
+  // Initialize tray feature after window is created
   if (mainWindow && keyboardService) {
     trayFeature = new TrayFeature(mainWindow, keyboardService);
     await trayFeature.initialize();
   }
 
-  // Setup startup settings IPC handlers
+  // Auto-start HyperKey if configured
+  const hyperKey = await store.getFeature("hyperKey");
+  if (hyperKey?.enableFeatureOnStartup) {
+    console.log(
+      "[Main] Auto-starting HyperKey feature (configured in settings)"
+    );
+    await store.update((draft) => {
+      const feature = draft.features.find((f) => f.name === "hyperKey");
+      if (feature) {
+        feature.isFeatureEnabled = true;
+      }
+    });
+    await keyboardService.startListening();
+  }
+
+  // Startup settings
   ipcMain.handle("get-startup-settings", async () => {
+    const state = store.getState();
     return {
-      startupOnBoot: await store.getStartupOnBoot(),
-      enableOnStartup: await store.getEnableOnStartup(),
+      startupOnBoot: state.settings?.startupOnBoot || false,
+      startMinimized: state.settings?.startMinimized || false,
     };
   });
 
-  ipcMain.handle("set-startup-on-boot", async (event, enabled: boolean) => {
-    await store.setStartupOnBoot(enabled);
+  ipcMain.handle("set-startup-on-boot", async (_, enabled: boolean) => {
+    await store.update((draft) => {
+      if (!draft.settings) draft.settings = {};
+      draft.settings.startupOnBoot = enabled;
+    });
   });
 
-  ipcMain.handle("set-enable-on-startup", async (event, enabled: boolean) => {
-    await store.setEnableOnStartup(enabled);
+  ipcMain.handle("set-start-minimized", async (_, enabled: boolean) => {
+    await store.update((draft) => {
+      if (!draft.settings) draft.settings = {};
+      draft.settings.startMinimized = enabled;
+    });
+  });
+
+  // Store state
+  ipcMain.handle("get-full-state", async () => {
+    return store.getState();
+  });
+
+  // Window controls
+  ipcMain.on("minimize-window", () => {
+    mainWindow?.minimize();
   });
 });
 

@@ -1,25 +1,53 @@
 "use strict";
 const electron = require("electron");
 electron.contextBridge.exposeInMainWorld("api", {
-  startListening: () => electron.ipcRenderer.send("start-listening"),
-  stopListening: () => electron.ipcRenderer.send("stop-listening"),
+  // Window controls
+  minimizeWindow: () => {
+    electron.ipcRenderer.send("minimize-window");
+  },
+  closeWindow: () => {
+    electron.ipcRenderer.send("close-window");
+  },
+  // Keyboard service
+  startListening: () => {
+    electron.ipcRenderer.send("start-listening");
+  },
+  stopListening: () => {
+    electron.ipcRenderer.send("stop-listening");
+  },
+  isListening: async () => {
+    return electron.ipcRenderer.invoke("get-keyboard-service-state");
+  },
+  // HyperKey feature
+  getHyperKeyConfig: async () => {
+    return electron.ipcRenderer.invoke("get-hyperkey-config");
+  },
+  setHyperKeyConfig: async (config) => {
+    return electron.ipcRenderer.invoke("set-hyperkey-config", config);
+  },
+  // App settings
+  getStartupSettings: async () => {
+    return electron.ipcRenderer.invoke("get-startup-settings");
+  },
+  setStartupOnBoot: async (enabled) => {
+    return electron.ipcRenderer.invoke("set-startup-on-boot", enabled);
+  },
+  setStartMinimized: async (enabled) => {
+    return electron.ipcRenderer.invoke("set-start-minimized", enabled);
+  },
+  // Store state
+  getFullState: async () => {
+    return electron.ipcRenderer.invoke("get-full-state");
+  },
+  // Event listeners
   onKeyboardEvent: (callback) => {
     electron.ipcRenderer.on("keyboard-event", (_, data) => callback(data));
   },
   onKeyboardServiceState: (callback) => {
-    electron.ipcRenderer.on("keyboard-service-state", (_, enabled) => callback(enabled));
+    electron.ipcRenderer.on("keyboard-service-state", (_, data) => callback(data));
   },
-  getMappings: () => electron.ipcRenderer.invoke("get-mappings"),
-  addMapping: (mapping) => electron.ipcRenderer.invoke("add-mapping", mapping),
-  updateMapping: (id, updates) => electron.ipcRenderer.invoke("update-mapping", id, updates),
-  deleteMapping: (id) => electron.ipcRenderer.invoke("delete-mapping", id),
-  // Startup settings
-  getStartupSettings: () => electron.ipcRenderer.invoke("get-startup-settings"),
-  setStartupOnBoot: (enabled) => electron.ipcRenderer.invoke("set-startup-on-boot", enabled),
-  setEnableOnStartup: (enabled) => electron.ipcRenderer.invoke("set-enable-on-startup", enabled)
-});
-electron.contextBridge.exposeInMainWorld("electron", {
-  minimize: () => electron.ipcRenderer.send("minimize-window"),
-  close: () => electron.ipcRenderer.send("close-window")
+  onHyperKeyState: (callback) => {
+    electron.ipcRenderer.on("hyperkey-state", (_, data) => callback(data));
+  }
 });
 //# sourceMappingURL=preload.js.map

@@ -1,0 +1,30 @@
+{
+  "version": "0.0.1",
+  "state": {
+    "settings": {
+      "startupOnBoot": false,
+      "startMinimized": false
+    },
+    "features": [
+      {
+        "name": "hyperKey",
+        "isFeatureEnabled": true,
+        "enableFeatureOnStartup": true,
+        "config": {
+          "isHyperKeyEnabled": true,
+          "trigger": "CapsLock",
+          "modifiers": [],
+          "capsLockBehavior": "BlockToggle"
+        }
+      },
+      {
+        "name": "shortcutManager",
+        "isFeatureEnabled": false,
+        "enableFeatureOnStartup": false,
+        "config": {
+          "enabled": false
+        }
+      }
+    ]
+  }
+}

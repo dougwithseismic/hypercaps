@@ -15,7 +15,8 @@
     "declaration": true,
     "declarationMap": true,
     "paths": {
-      "*": ["node_modules/*"]
+      "*": ["node_modules/*"],
+      "@electron/*": ["../electron/*"]
     }
   },
   "include": ["**/*"]
