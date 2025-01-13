@@ -89,6 +89,11 @@ export class KeyboardService extends EventEmitter {
       ...hyperKey.config,
       enabled: hyperKey.isFeatureEnabled,
     });
+
+    // Auto-start if feature is enabled
+    if (hyperKey.isFeatureEnabled) {
+      await this.startListening();
+    }
   }
 
   public setMainWindow(window: BrowserWindow): void {
@@ -110,6 +115,12 @@ export class KeyboardService extends EventEmitter {
 
     if (this.keyboardProcess) {
       console.log("[KeyboardService] Process already running");
+      return;
+    }
+
+    const hyperKey = await this.store.getFeature("hyperKey");
+    if (!hyperKey?.isFeatureEnabled) {
+      console.log("[KeyboardService] Feature is disabled, not starting");
       return;
     }
 
@@ -377,7 +388,10 @@ export class KeyboardService extends EventEmitter {
   }
 
   public async stopListening(): Promise<void> {
+    console.log("[KeyboardService] stopListening() called");
+
     if (this.keyboardProcess) {
+      console.log("[KeyboardService] Cleaning up process");
       this.keyboardProcess.stdout?.removeAllListeners();
       this.keyboardProcess.stderr?.removeAllListeners();
       this.keyboardProcess.removeAllListeners();
@@ -390,6 +404,8 @@ export class KeyboardService extends EventEmitter {
       isLoading: false,
       error: undefined,
     });
+
+    console.log("[KeyboardService] Service stopped");
   }
 
   private handleKeyboardOutput = (data: Buffer) => {

@@ -72,7 +72,7 @@ const DEFAULT_STATE: AppState = {
   features: [
     {
       name: "hyperKey",
-      isFeatureEnabled: false,
+      isFeatureEnabled: true,
       enableFeatureOnStartup: true,
       config: {
         isHyperKeyEnabled: true,

@@ -137,16 +137,38 @@ public static class KeyboardMonitor {
     public static CapsLockBehavior CapsLockHandling = CapsLockBehavior.BlockToggle;
 
     public static void ConfigureHyperKey(bool isEnabled, bool isHyperKeyEnabled, string trigger, string[] modifiers, string capsLockBehavior = "BlockToggle") {
+        if (IsDebugEnabled) {
+            Console.WriteLine(string.Format("[DEBUG] Configuring HyperKey - Previous State: IsEnabled={0}, IsHyperKeyEnabled={1}", 
+                IsEnabled, IsHyperKeyEnabled));
+        }
+
         IsEnabled = isEnabled;
         IsHyperKeyEnabled = isHyperKeyEnabled;
         HyperKeyTrigger = (Keys)Enum.Parse(typeof(Keys), trigger, true);
         CapsLockHandling = (CapsLockBehavior)Enum.Parse(typeof(CapsLockBehavior), capsLockBehavior, true);
         
-        // Clear and populate modifier keys
         ModifierKeys.Clear();
         foreach (var modifier in modifiers) {
             ModifierKeys.Add((Keys)Enum.Parse(typeof(Keys), modifier, true));
         }
+
+        if (IsDebugEnabled) {
+            Console.WriteLine(string.Format("[DEBUG] HyperKey Configured - New State: IsEnabled={0}, IsHyperKeyEnabled={1}, Trigger={2}, Modifiers={3}",
+                IsEnabled, IsHyperKeyEnabled, HyperKeyTrigger, string.Join(",", ModifierKeys)));
+        }
+    }
+
+    private static void UpdateState() {
+        if (!IsEnabled) {
+            pressedKeys.Clear();
+            lastSentState = "";
+            if (IsDebugEnabled) {
+                Console.WriteLine("[DEBUG] Service disabled, cleared state");
+            }
+            return;
+        }
+
+        UpdateModifierState();
     }
 
     public static void SendHyperKeyDown() {

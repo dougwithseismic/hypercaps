@@ -4804,7 +4804,7 @@ const DEFAULT_STATE = {
   features: [
     {
       name: "hyperKey",
-      isFeatureEnabled: false,
+      isFeatureEnabled: true,
       enableFeatureOnStartup: true,
       config: {
         isHyperKeyEnabled: true,
@@ -5023,6 +5023,9 @@ class KeyboardService extends events.EventEmitter {
       ...hyperKey.config,
       enabled: hyperKey.isFeatureEnabled
     });
+    if (hyperKey.isFeatureEnabled) {
+      await this.startListening();
+    }
   }
   setMainWindow(window) {
     this.mainWindow = window;
@@ -5041,6 +5044,11 @@ class KeyboardService extends events.EventEmitter {
     console.log("[KeyboardService] startListening() called");
     if (this.keyboardProcess) {
       console.log("[KeyboardService] Process already running");
+      return;
+    }
+    const hyperKey = await this.store.getFeature("hyperKey");
+    if (!(hyperKey == null ? void 0 : hyperKey.isFeatureEnabled)) {
+      console.log("[KeyboardService] Feature is disabled, not starting");
       return;
     }
     if (this.state.isStarting) {
@@ -5065,16 +5073,16 @@ class KeyboardService extends events.EventEmitter {
     });
     try {
       const scriptPath = this.getScriptPath();
-      const hyperKey = await this.store.getFeature("hyperKey");
-      if (!hyperKey) {
+      const hyperKey2 = await this.store.getFeature("hyperKey");
+      if (!hyperKey2) {
         throw new Error("HyperKey feature not found");
       }
       const config = {
-        isEnabled: hyperKey.isFeatureEnabled,
-        isHyperKeyEnabled: hyperKey.config.isHyperKeyEnabled,
-        trigger: hyperKey.config.trigger,
-        modifiers: hyperKey.config.modifiers || [],
-        capsLockBehavior: hyperKey.config.capsLockBehavior || "BlockToggle"
+        isEnabled: hyperKey2.isFeatureEnabled,
+        isHyperKeyEnabled: hyperKey2.config.isHyperKeyEnabled,
+        trigger: hyperKey2.config.trigger,
+        modifiers: hyperKey2.config.modifiers || [],
+        capsLockBehavior: hyperKey2.config.capsLockBehavior || "BlockToggle"
       };
       const command = [
         // Enable debug output and set error preferences
@@ -5268,7 +5276,9 @@ class KeyboardService extends events.EventEmitter {
   }
   async stopListening() {
     var _a, _b;
+    console.log("[KeyboardService] stopListening() called");
     if (this.keyboardProcess) {
+      console.log("[KeyboardService] Cleaning up process");
       (_a = this.keyboardProcess.stdout) == null ? void 0 : _a.removeAllListeners();
       (_b = this.keyboardProcess.stderr) == null ? void 0 : _b.removeAllListeners();
       this.keyboardProcess.removeAllListeners();
@@ -5280,6 +5290,7 @@ class KeyboardService extends events.EventEmitter {
       isLoading: false,
       error: void 0
     });
+    console.log("[KeyboardService] Service stopped");
   }
   async restartWithConfig(config) {
     await this.store.update((draft) => {
