@@ -4824,8 +4824,9 @@ const DEFAULT_STATE = {
     }
   ]
 };
-const _Store = class _Store {
+const _Store = class _Store extends events.EventEmitter {
   constructor() {
+    super();
     __publicField(this, "state", DEFAULT_STATE);
     __publicField(this, "statePath");
     this.statePath = process.env.NODE_ENV === "development" ? path.join(electron.app.getAppPath(), "state.json") : path.join(electron.app.getPath("userData"), "state.json");
@@ -4931,6 +4932,7 @@ const _Store = class _Store {
   async update(updater) {
     this.state = produce(this.state, updater);
     await this.save();
+    this.emit("stateChanged", this.state);
   }
   async getFeature(name) {
     var _a;
@@ -5214,11 +5216,7 @@ const _IPCService = class _IPCService {
       );
     }
     try {
-      const result = await this.queue.enqueue(
-        "ipc:execute",
-        async () => handler(command.params || {}),
-        service.config.priority || 2
-      );
+      const result = await handler(command.params || {});
       return createResult(result);
     } catch (error) {
       return createError(
@@ -5243,7 +5241,8 @@ class KeyboardService extends events.EventEmitter {
     __publicField(this, "state", {
       isListening: false,
       isLoading: false,
-      isStarting: false
+      isStarting: false,
+      isHyperKeyEnabled: false
     });
     __publicField(this, "handleKeyboardOutput", (data) => {
       try {
@@ -5377,8 +5376,12 @@ class KeyboardService extends events.EventEmitter {
     );
     return process.env.NODE_ENV === "development" ? path.join(electron.app.getAppPath(), scriptSubPath) : path.join(process.resourcesPath, scriptSubPath);
   }
-  getState() {
-    return { ...this.state };
+  async getState() {
+    const hyperKey = await this.store.getFeature("hyperKey");
+    return {
+      ...this.state,
+      isHyperKeyEnabled: (hyperKey == null ? void 0 : hyperKey.config.isHyperKeyEnabled) ?? false
+    };
   }
   async init() {
     var _a;
@@ -5442,7 +5445,6 @@ class KeyboardService extends events.EventEmitter {
     this.setState({
       isLoading: true,
       isStarting: true,
-      lastStartAttempt: Date.now(),
       error: void 0,
       lastError: void 0,
       isListening: false
@@ -5669,11 +5671,17 @@ class KeyboardService extends events.EventEmitter {
     console.log("[KeyboardService] Service stopped");
   }
   async restartWithConfig(config) {
+    var _a;
     await this.store.update((draft) => {
       const feature = draft.features.find((f) => f.name === "hyperKey");
       if (feature) {
         feature.config = config;
       }
+    });
+    (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("ipc:event", {
+      service: "hyperKey",
+      event: "configChanged",
+      data: config
     });
     await this.stopListening();
     await this.startListening();
@@ -5694,9 +5702,9 @@ class TrayFeature {
     this.keyboardService = keyboardService2;
     this.store = Store.getInstance();
   }
-  getStateIndicator() {
+  async getStateIndicator() {
     var _a;
-    const state = (_a = this.keyboardService) == null ? void 0 : _a.getState();
+    const state = await ((_a = this.keyboardService) == null ? void 0 : _a.getState());
     if (!state) return { tooltip: "HyperCaps ⭘" };
     if (state.error) return { tooltip: `HyperCaps ⚠️ Error: ${state.error}` };
     if (state.isLoading) return { tooltip: "HyperCaps ⏳ Loading..." };
@@ -5704,9 +5712,9 @@ class TrayFeature {
     if (!state.isListening) return { tooltip: "HyperCaps ❌ Stopped" };
     return { tooltip: "HyperCaps ✅ Running" };
   }
-  updateTrayState() {
+  async updateTrayState() {
     if (!this.tray) return;
-    const { tooltip } = this.getStateIndicator();
+    const { tooltip } = await this.getStateIndicator();
     this.tray.setToolTip(tooltip);
   }
   async initialize() {
@@ -5725,15 +5733,15 @@ class TrayFeature {
       this.mainWindow.focus();
     });
     await this.updateContextMenu();
-    this.keyboardService.on("state-change", () => {
-      this.updateTrayState();
-      this.updateContextMenu();
+    this.keyboardService.on("state-change", async () => {
+      await this.updateTrayState();
+      await this.updateContextMenu();
     });
   }
   async updateContextMenu() {
     var _a;
     if (!this.tray) return;
-    const state = (_a = this.keyboardService) == null ? void 0 : _a.getState();
+    await ((_a = this.keyboardService) == null ? void 0 : _a.getState());
     const { settings } = this.store.getState();
     const hyperKey = await this.store.getFeature("hyperKey");
     const contextMenu = electron.Menu.buildFromTemplate([
@@ -5755,13 +5763,11 @@ class TrayFeature {
               feature.config.isHyperKeyEnabled = menuItem.checked;
             }
           });
-          if (state == null ? void 0 : state.isListening) {
-            const updatedHyperKey = await this.store.getFeature("hyperKey");
-            if (updatedHyperKey) {
-              await ((_a2 = this.keyboardService) == null ? void 0 : _a2.restartWithConfig(
-                updatedHyperKey.config
-              ));
-            }
+          const updatedHyperKey = await this.store.getFeature("hyperKey");
+          if (updatedHyperKey) {
+            await ((_a2 = this.keyboardService) == null ? void 0 : _a2.restartWithConfig(
+              updatedHyperKey.config
+            ));
           }
         }
       },
@@ -5790,8 +5796,11 @@ class TrayFeature {
               feature.config.capsLockBehavior = menuItem.checked ? "BlockToggle" : "AllowToggle";
             }
           });
-          if (state == null ? void 0 : state.isListening) {
-            await ((_a2 = this.keyboardService) == null ? void 0 : _a2.restartWithConfig(hyperKey.config));
+          const updatedHyperKey = await this.store.getFeature("hyperKey");
+          if (updatedHyperKey) {
+            await ((_a2 = this.keyboardService) == null ? void 0 : _a2.restartWithConfig(
+              updatedHyperKey.config
+            ));
           }
         }
       },
@@ -5868,6 +5877,22 @@ if (require("electron-squirrel-startup")) {
 let keyboardService;
 let trayFeature = null;
 let mainWindow = null;
+const initializeServices = async (window) => {
+  console.log("[Main] Initializing services");
+  const store = Store.getInstance();
+  await store.load();
+  if (!keyboardService) {
+    console.log("[Main] Creating new keyboard service");
+    keyboardService = new KeyboardService();
+    await keyboardService.init();
+  }
+  keyboardService.setMainWindow(window);
+  if (!trayFeature) {
+    console.log("[Main] Creating new tray feature");
+    trayFeature = new TrayFeature(window, keyboardService);
+    await trayFeature.initialize();
+  }
+};
 const createWindow = async () => {
   console.log("Environment:", process.env.NODE_ENV);
   mainWindow = new electron.BrowserWindow({
@@ -5898,33 +5923,44 @@ const createWindow = async () => {
     return (keyboardService == null ? void 0 : keyboardService.isRunning()) || false;
   });
   electron.ipcMain.handle("get-hyperkey-config", async () => {
-    try {
-      const store = Store.getInstance();
-      const feature = await store.getFeature("hyperKey");
-      if (!feature) {
-        throw new Error("HyperKey feature not found");
-      }
-      return feature.config;
-    } catch (err) {
-      console.error("Failed to get HyperKey config:", err);
-      throw err;
-    }
+    const store = Store.getInstance();
+    const hyperKey = await store.getFeature("hyperKey");
+    return hyperKey == null ? void 0 : hyperKey.config;
   });
   electron.ipcMain.handle("set-hyperkey-config", async (event, config) => {
     const store = Store.getInstance();
     await store.update((draft) => {
-      const hyperkeyFeature = draft.features.find((f) => f.name == "hyperKey");
+      const hyperkeyFeature = draft.features.find((f) => f.name === "hyperKey");
       if (hyperkeyFeature) {
         hyperkeyFeature.config = config;
       }
+    });
+    mainWindow == null ? void 0 : mainWindow.webContents.send("ipc:event", {
+      service: "hyperKey",
+      event: "configChanged",
+      data: config
     });
     await (keyboardService == null ? void 0 : keyboardService.restartWithConfig(config));
   });
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
   } else {
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+    const indexPath = path.join(electron.app.getAppPath(), "dist", "index.html");
+    mainWindow.loadFile(indexPath);
+    mainWindow.webContents.on(
+      "did-fail-load",
+      (event, errorCode, errorDescription) => {
+        console.log("Failed to load:", errorCode, errorDescription);
+        mainWindow == null ? void 0 : mainWindow.loadFile(indexPath);
+      }
+    );
   }
+  mainWindow.webContents.on("did-finish-load", async () => {
+    console.log("[Main] Window finished loading, initializing services");
+    if (mainWindow) {
+      await initializeServices(mainWindow);
+    }
+  });
   mainWindow.on("close", (event) => {
     if (!mainWindow.isQuitting) {
       event.preventDefault();
@@ -5940,33 +5976,13 @@ electron.ipcMain.on("close-window", () => {
   mainWindow == null ? void 0 : mainWindow.hide();
 });
 electron.app.whenReady().then(async () => {
-  const store = Store.getInstance();
-  await store.load();
-  keyboardService = new KeyboardService();
-  await keyboardService.init();
   await createWindow();
   if (mainWindow) {
-    keyboardService.setMainWindow(mainWindow);
-  }
-  if (mainWindow && keyboardService) {
-    trayFeature = new TrayFeature(mainWindow, keyboardService);
-    await trayFeature.initialize();
-  }
-  const hyperKey = await store.getFeature("hyperKey");
-  if (hyperKey == null ? void 0 : hyperKey.enableFeatureOnStartup) {
-    console.log(
-      "[Main] Auto-starting HyperKey feature (configured in settings)"
-    );
-    await store.update((draft) => {
-      const feature = draft.features.find((f) => f.name === "hyperKey");
-      if (feature) {
-        feature.isFeatureEnabled = true;
-      }
-    });
-    await keyboardService.startListening();
+    await initializeServices(mainWindow);
   }
   electron.ipcMain.handle("get-startup-settings", async () => {
     var _a, _b;
+    const store = Store.getInstance();
     const state = store.getState();
     return {
       startupOnBoot: ((_a = state.settings) == null ? void 0 : _a.startupOnBoot) || false,
@@ -5974,18 +5990,21 @@ electron.app.whenReady().then(async () => {
     };
   });
   electron.ipcMain.handle("set-startup-on-boot", async (_, enabled) => {
+    const store = Store.getInstance();
     await store.update((draft) => {
       if (!draft.settings) draft.settings = {};
       draft.settings.startupOnBoot = enabled;
     });
   });
   electron.ipcMain.handle("set-start-minimized", async (_, enabled) => {
+    const store = Store.getInstance();
     await store.update((draft) => {
       if (!draft.settings) draft.settings = {};
       draft.settings.startMinimized = enabled;
     });
   });
   electron.ipcMain.handle("get-full-state", async () => {
+    const store = Store.getInstance();
     return store.getState();
   });
   electron.ipcMain.on("minimize-window", () => {
@@ -6010,5 +6029,12 @@ electron.app.on("activate", () => {
   if (electron.BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+Store.getInstance().on("stateChanged", (state) => {
+  mainWindow == null ? void 0 : mainWindow.webContents.send("ipc:event", {
+    service: "store",
+    event: "stateChanged",
+    data: state
+  });
 });
 //# sourceMappingURL=main.js.map

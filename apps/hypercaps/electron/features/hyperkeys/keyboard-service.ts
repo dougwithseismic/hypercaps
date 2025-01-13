@@ -34,8 +34,8 @@ interface ServiceState {
   isListening: boolean;
   isLoading: boolean;
   isStarting: boolean;
+  isHyperKeyEnabled: boolean;
   error?: string;
-  lastStartAttempt?: number;
   lastError?: {
     message: string;
     timestamp: number;
@@ -52,6 +52,7 @@ export class KeyboardService extends EventEmitter {
     isListening: false,
     isLoading: false,
     isStarting: false,
+    isHyperKeyEnabled: false,
   };
 
   constructor() {
@@ -168,8 +169,12 @@ export class KeyboardService extends EventEmitter {
       : path.join(process.resourcesPath, scriptSubPath);
   }
 
-  public getState(): ServiceState {
-    return { ...this.state };
+  public async getState(): Promise<ServiceState> {
+    const hyperKey = await this.store.getFeature("hyperKey");
+    return {
+      ...this.state,
+      isHyperKeyEnabled: hyperKey?.config.isHyperKeyEnabled ?? false,
+    };
   }
 
   public async init(): Promise<void> {
@@ -246,7 +251,6 @@ export class KeyboardService extends EventEmitter {
     this.setState({
       isLoading: true,
       isStarting: true,
-      lastStartAttempt: Date.now(),
       error: undefined,
       lastError: undefined,
       isListening: false,
@@ -560,6 +564,13 @@ export class KeyboardService extends EventEmitter {
       if (feature) {
         feature.config = config;
       }
+    });
+
+    // Emit config change event
+    this.mainWindow?.webContents.send("ipc:event", {
+      service: "hyperKey",
+      event: "configChanged",
+      data: config,
     });
 
     await this.stopListening();

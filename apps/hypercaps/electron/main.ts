@@ -3,6 +3,7 @@ import path from "path";
 import { KeyboardService } from "./features/hyperkeys/keyboard-service";
 import { Store } from "./services/store";
 import { TrayFeature } from "./features/tray";
+import { AppState } from "./services/store/types/app-state";
 
 // Immediate environment logging
 console.log("=== Environment Debug ===");
@@ -27,6 +28,29 @@ if (require("electron-squirrel-startup")) {
 let keyboardService: KeyboardService;
 let trayFeature: TrayFeature | null = null;
 let mainWindow: BrowserWindow | null = null;
+
+const initializeServices = async (window: BrowserWindow) => {
+  console.log("[Main] Initializing services");
+  const store = Store.getInstance();
+  await store.load();
+
+  // Initialize keyboard service if not already initialized
+  if (!keyboardService) {
+    console.log("[Main] Creating new keyboard service");
+    keyboardService = new KeyboardService();
+    await keyboardService.init();
+  }
+
+  // Set the window and re-register handlers
+  keyboardService.setMainWindow(window);
+
+  // Initialize tray feature if needed
+  if (!trayFeature) {
+    console.log("[Main] Creating new tray feature");
+    trayFeature = new TrayFeature(window, keyboardService);
+    await trayFeature.initialize();
+  }
+};
 
 const createWindow = async () => {
   console.log("Environment:", process.env.NODE_ENV);
@@ -64,28 +88,28 @@ const createWindow = async () => {
   ipcMain.handle("get-keyboard-service-state", () => {
     return keyboardService?.isRunning() || false;
   });
+
   // HyperKey config handlers
   ipcMain.handle("get-hyperkey-config", async () => {
-    try {
-      const store = Store.getInstance();
-      const feature = await store.getFeature("hyperKey");
-      if (!feature) {
-        throw new Error("HyperKey feature not found");
-      }
-      return feature.config;
-    } catch (err) {
-      console.error("Failed to get HyperKey config:", err);
-      throw err; // Re-throw to let renderer handle error
-    }
+    const store = Store.getInstance();
+    const hyperKey = await store.getFeature("hyperKey");
+    return hyperKey?.config;
   });
 
   ipcMain.handle("set-hyperkey-config", async (event, config) => {
     const store = Store.getInstance();
     await store.update((draft) => {
-      const hyperkeyFeature = draft.features.find((f) => f.name == "hyperKey");
+      const hyperkeyFeature = draft.features.find((f) => f.name === "hyperKey");
       if (hyperkeyFeature) {
         hyperkeyFeature.config = config;
       }
+    });
+
+    // Emit config change event
+    mainWindow?.webContents.send("ipc:event", {
+      service: "hyperKey",
+      event: "configChanged",
+      data: config,
     });
 
     await keyboardService?.restartWithConfig(config);
@@ -96,8 +120,26 @@ const createWindow = async () => {
     mainWindow.loadURL("http://localhost:5173");
   } else {
     // In production, load the built index.html file
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+    const indexPath = path.join(app.getAppPath(), "dist", "index.html");
+    mainWindow.loadFile(indexPath);
+
+    // Handle page refresh in production
+    mainWindow.webContents.on(
+      "did-fail-load",
+      (event, errorCode, errorDescription) => {
+        console.log("Failed to load:", errorCode, errorDescription);
+        mainWindow?.loadFile(indexPath);
+      }
+    );
   }
+
+  // Handle window reload
+  mainWindow.webContents.on("did-finish-load", async () => {
+    console.log("[Main] Window finished loading, initializing services");
+    if (mainWindow) {
+      await initializeServices(mainWindow);
+    }
+  });
 
   // Hide window instead of closing when user clicks X
   mainWindow.on("close", (event) => {
@@ -120,42 +162,16 @@ ipcMain.on("close-window", () => {
 
 // This method will be called when Electron has finished initialization
 app.whenReady().then(async () => {
-  const store = Store.getInstance();
-  await store.load(); // Load state before creating window
-
-  // Initialize keyboard service first
-  keyboardService = new KeyboardService();
-  await keyboardService.init();
-
-  // Then create window
+  // Create window first
   await createWindow();
   if (mainWindow) {
-    keyboardService.setMainWindow(mainWindow);
-  }
-
-  // Initialize tray feature after window is created
-  if (mainWindow && keyboardService) {
-    trayFeature = new TrayFeature(mainWindow, keyboardService);
-    await trayFeature.initialize();
-  }
-
-  // Auto-start HyperKey if configured
-  const hyperKey = await store.getFeature("hyperKey");
-  if (hyperKey?.enableFeatureOnStartup) {
-    console.log(
-      "[Main] Auto-starting HyperKey feature (configured in settings)"
-    );
-    await store.update((draft) => {
-      const feature = draft.features.find((f) => f.name === "hyperKey");
-      if (feature) {
-        feature.isFeatureEnabled = true;
-      }
-    });
-    await keyboardService.startListening();
+    // Initialize services after window is created
+    await initializeServices(mainWindow);
   }
 
   // Startup settings
   ipcMain.handle("get-startup-settings", async () => {
+    const store = Store.getInstance();
     const state = store.getState();
     return {
       startupOnBoot: state.settings?.startupOnBoot || false,
@@ -164,6 +180,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle("set-startup-on-boot", async (_, enabled: boolean) => {
+    const store = Store.getInstance();
     await store.update((draft) => {
       if (!draft.settings) draft.settings = {};
       draft.settings.startupOnBoot = enabled;
@@ -171,6 +188,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle("set-start-minimized", async (_, enabled: boolean) => {
+    const store = Store.getInstance();
     await store.update((draft) => {
       if (!draft.settings) draft.settings = {};
       draft.settings.startMinimized = enabled;
@@ -179,6 +197,7 @@ app.whenReady().then(async () => {
 
   // Store state
   ipcMain.handle("get-full-state", async () => {
+    const store = Store.getInstance();
     return store.getState();
   });
 
@@ -212,4 +231,13 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+// Listen for store changes and emit events
+Store.getInstance().on("stateChanged", (state: AppState) => {
+  mainWindow?.webContents.send("ipc:event", {
+    service: "store",
+    event: "stateChanged",
+    data: state,
+  });
 });

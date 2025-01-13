@@ -1,109 +1,54 @@
-import { useEffect, useState } from "react";
-import { ipc, createCommand } from "../lib/ipc/client";
+import { useEffect } from "react";
+import { useHypercapsStore } from "../store/use-hypercaps-store";
 
-interface KeyboardState {
-  isListening: boolean;
-  isLoading: boolean;
-  isStarting: boolean;
-  isRunning: boolean;
-  error?: string;
-  lastError?: {
-    message: string;
-    timestamp: number;
-  };
-}
-
-interface KeyState {
-  pressedKeys: string[];
-  timestamp: number;
-}
+const MODIFIER_KEYS = [
+  "LShiftKey",
+  "RShiftKey",
+  "LControlKey",
+  "RControlKey",
+  "LMenu",
+  "RMenu",
+  "LWin",
+  "RWin",
+  "Capital",
+  "NumLock",
+  "Scroll",
+  "CapsLock",
+];
 
 export function useHypercapsKeys() {
-  const [keyState, setKeyState] = useState<KeyState>({
-    pressedKeys: [],
-    timestamp: Date.now(),
-  });
+  const { keyState, keyboardState, hyperKeyConfig, fullState, initialize } =
+    useHypercapsStore();
 
-  const [state, setState] = useState<KeyboardState>({
-    isListening: false,
-    isLoading: false,
-    isStarting: false,
-    isRunning: false,
-  });
-
-  // Subscribe to state changes
+  // Initialize store on mount
   useEffect(() => {
-    console.log("[useHypercapsKeys] Setting up state change listener");
-    const unsubscribe = ipc.on<Partial<KeyboardState>>(
-      "keyboard",
-      "stateChanged",
-      (event) => {
-        console.log("[useHypercapsKeys] State changed:", event.data);
-        setState((prev) => ({
-          ...prev,
-          ...event.data,
-        }));
+    initialize();
+  }, [initialize]);
+
+  // Split pressed keys into modifiers and normal keys
+  const splitKeys = (keys: string[]) => {
+    const modifiers: string[] = [];
+    const normalKeys: string[] = [];
+    keys.forEach((key) => {
+      if (MODIFIER_KEYS.includes(key)) {
+        modifiers.push(key);
+      } else {
+        normalKeys.push(key);
       }
-    );
-    return () => {
-      console.log("[useHypercapsKeys] Cleaning up state change listener");
-      unsubscribe();
-    };
-  }, []);
-
-  // Subscribe to keyboard events
-  useEffect(() => {
-    console.log("[useHypercapsKeys] Setting up keyboard event listener");
-    const unsubscribe = ipc.on<KeyState>("keyboard", "keyPressed", (event) => {
-      console.log("[useHypercapsKeys] Key pressed:", event.data);
-      setKeyState(event.data);
     });
-    return () => {
-      console.log("[useHypercapsKeys] Cleaning up keyboard event listener");
-      unsubscribe();
-    };
-  }, []);
-
-  // Start keyboard service
-  useEffect(() => {
-    let isSubscribed = true;
-    console.log("[useHypercapsKeys] Starting keyboard service");
-
-    const command = createCommand("keyboard", "start");
-    ipc
-      .run(command)
-      .then(() => {
-        if (isSubscribed) {
-          console.log("[useHypercapsKeys] Keyboard service started");
-        }
-      })
-      .catch((error: Error) => {
-        if (isSubscribed) {
-          console.error(
-            "[useHypercapsKeys] Failed to start keyboard service:",
-            error
-          );
-        }
-      });
-
-    return () => {
-      isSubscribed = false;
-      console.log("[useHypercapsKeys] Stopping keyboard service");
-      const stopCommand = createCommand("keyboard", "stop");
-      ipc.run(stopCommand).catch((error: Error) => {
-        console.error(
-          "[useHypercapsKeys] Failed to stop keyboard service:",
-          error
-        );
-      });
-    };
-  }, []);
+    return { keys: normalKeys, modifiers };
+  };
 
   return {
     pressedKeys: keyState.pressedKeys,
+    splitKeys: splitKeys(keyState.pressedKeys),
+    modifierKeys: splitKeys(keyState.pressedKeys).modifiers,
+    normalKeys: splitKeys(keyState.pressedKeys).keys,
     timestamp: keyState.timestamp,
-    isRunning: state.isRunning,
-    isLoading: state.isLoading,
-    error: state.error,
+    isLoading: keyboardState.isLoading,
+    isListening: keyboardState.isListening,
+    error: keyboardState.error,
+    hyperKeyConfig,
+    fullState,
   };
 }

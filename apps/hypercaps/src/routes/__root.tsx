@@ -17,4 +17,14 @@ function RootComponent() {
 
 export const Route = createRootRoute({
   component: () => <RootComponent />,
+  beforeLoad: () => {
+    console.log("Root route loading");
+  },
+  onError: ({ error }) => {
+    console.error("Root route error:", error);
+  },
+  validateSearch: (search) => {
+    // Ensure search params are valid, if any
+    return search;
+  },
 });
