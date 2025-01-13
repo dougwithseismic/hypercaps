@@ -3,6 +3,9 @@ import { useHypercapsKeys } from "../hooks/use-hypercaps-keys";
 
 export const Route = createFileRoute("/")({
   component: Index,
+  beforeLoad: () => {
+    console.log("Index route loading");
+  },
 });
 
 function Index() {

@@ -96,7 +96,17 @@ const createWindow = async () => {
     mainWindow.loadURL("http://localhost:5173");
   } else {
     // In production, load the built index.html file
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+    const indexPath = path.join(app.getAppPath(), "dist", "index.html");
+    mainWindow.loadFile(indexPath);
+
+    // Handle page refresh in production
+    mainWindow.webContents.on(
+      "did-fail-load",
+      (event, errorCode, errorDescription) => {
+        console.log("Failed to load:", errorCode, errorDescription);
+        mainWindow?.loadFile(indexPath);
+      }
+    );
   }
 
   // Hide window instead of closing when user clicks X

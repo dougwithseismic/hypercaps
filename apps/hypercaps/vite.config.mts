@@ -7,13 +7,17 @@ import { TanStackRouterVite } from "@tanstack/router-vite-plugin";
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => {
-  const tsConfigPathsPlugin = await tsconfigPaths();
-
   return {
     plugins: [
       react(),
-      tsConfigPathsPlugin,
-      TanStackRouterVite(),
+      tsconfigPaths({
+        projects: [resolve(__dirname, "tsconfig.json")],
+      }),
+      TanStackRouterVite({
+        generatedRouteTree: "./src/routeTree.gen.ts",
+        routesDirectory: "./src/routes",
+        routeFileIgnorePattern: ".*\\.(css|test).*",
+      }),
       electron([
         {
           entry: "electron/main.ts",
@@ -59,8 +63,11 @@ export default defineConfig(async () => {
         "@electron": resolve(__dirname, "electron"),
       },
     },
+    base: "",
     build: {
       sourcemap: true,
+      outDir: "dist",
+      assetsDir: "assets",
       rollupOptions: {
         input: {
           index: resolve(__dirname, "index.html"),

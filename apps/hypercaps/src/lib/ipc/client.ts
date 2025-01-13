@@ -1,12 +1,11 @@
-import type {
-  IPCCommand,
-  IPCResult,
-  IPCEvent,
-  IPCEventHandler,
-} from "@electron/services/ipc/types";
+import type { IPCCommand, IPCEventHandler } from "@electron/services/ipc/types";
 
 declare global {
   interface Window {
+    electron: {
+      minimize: () => void;
+      close: () => void;
+    };
     api: {
       ipc: {
         run: <TParams = unknown, TResult = unknown>(
