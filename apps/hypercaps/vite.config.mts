@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import electron from "vite-plugin-electron";
 import { resolve } from "path";
 import tsconfigPaths from "vite-tsconfig-paths";
+import { TanStackRouterVite } from "@tanstack/router-vite-plugin";
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => {
@@ -12,6 +13,7 @@ export default defineConfig(async () => {
     plugins: [
       react(),
       tsConfigPathsPlugin,
+      TanStackRouterVite(),
       electron([
         {
           entry: "electron/main.ts",
@@ -22,6 +24,12 @@ export default defineConfig(async () => {
             build: {
               sourcemap: true,
               outDir: "dist-electron/main",
+            },
+            resolve: {
+              alias: {
+                "@": resolve(__dirname, "src"),
+                "@electron": resolve(__dirname, "electron"),
+              },
             },
           },
         },
@@ -35,14 +43,20 @@ export default defineConfig(async () => {
               sourcemap: true,
               outDir: "dist-electron/preload",
             },
+            resolve: {
+              alias: {
+                "@": resolve(__dirname, "src"),
+                "@electron": resolve(__dirname, "electron"),
+              },
+            },
           },
         },
       ]),
     ],
     resolve: {
       alias: {
-        "@": resolve(__dirname, "./src"),
-        "@electron": resolve(__dirname, "./electron"),
+        "@": resolve(__dirname, "src"),
+        "@electron": resolve(__dirname, "electron"),
       },
     },
     build: {

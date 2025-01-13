@@ -311,7 +311,7 @@ Guidelines for Pattern Documentation:
 
 #### Windows Key Monitoring Pattern
 
-Location: `apps/hypercaps/electron/scripts/keyboard-monitor.ps1`
+Location: `apps/hypercaps/electron/features/hyperkeys/scripts/keyboard-monitor.ps1`
 
 This pattern enables low-level keyboard monitoring in Windows:
 - Uses Windows API through P/Invoke in PowerShell
