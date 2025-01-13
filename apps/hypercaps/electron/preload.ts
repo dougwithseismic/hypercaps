@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { AppState } from "./services/store/types/app-state";
 import { HyperKeyFeatureConfig } from "./features/hyperkeys/types/hyperkey-feature";
+import type { IPCCommand } from "./services/ipc/types";
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -13,15 +14,41 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.send("close-window");
   },
 
-  // Keyboard service
-  startListening: () => {
-    ipcRenderer.send("start-listening");
-  },
-  stopListening: () => {
-    ipcRenderer.send("stop-listening");
-  },
-  isListening: async () => {
-    return ipcRenderer.invoke("get-keyboard-service-state");
+  // Custom IPC Bridge
+  ipc: {
+    // Command handling
+    run: async <TParams = unknown, TResult = unknown>(
+      command: IPCCommand<TParams>
+    ): Promise<TResult> => {
+      console.log("[Preload] Running command:", command);
+      const result = await ipcRenderer.invoke("ipc:command", command);
+      console.log("[Preload] Command result:", result);
+      return result as TResult;
+    },
+
+    // Event handling
+    on: <TData = unknown>(
+      service: string,
+      event: string,
+      callback: (data: TData) => void
+    ) => {
+      console.log("[Preload] Setting up event listener:", service, event);
+      const handler = (
+        _: unknown,
+        ipcEvent: { service: string; event: string; data: TData }
+      ) => {
+        console.log("[Preload] Received event:", ipcEvent);
+        if (ipcEvent.service === service && ipcEvent.event === event) {
+          console.log("[Preload] Event matched, calling callback");
+          callback(ipcEvent.data);
+        }
+      };
+      ipcRenderer.on("ipc:event", handler);
+      return () => {
+        console.log("[Preload] Removing event listener:", service, event);
+        ipcRenderer.removeListener("ipc:event", handler);
+      };
+    },
   },
 
   // HyperKey feature
@@ -46,16 +73,5 @@ contextBridge.exposeInMainWorld("api", {
   // Store state
   getFullState: async () => {
     return ipcRenderer.invoke("get-full-state") as Promise<AppState>;
-  },
-
-  // Event listeners
-  onKeyboardEvent: (callback: (event: any) => void) => {
-    ipcRenderer.on("keyboard-event", (_, data) => callback(data));
-  },
-  onKeyboardServiceState: (callback: (event: any) => void) => {
-    ipcRenderer.on("keyboard-service-state", (_, data) => callback(data));
-  },
-  onHyperKeyState: (callback: (event: any) => void) => {
-    ipcRenderer.on("hyperkey-state", (_, data) => callback(data));
   },
 });

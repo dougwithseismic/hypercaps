@@ -8,15 +8,31 @@ electron.contextBridge.exposeInMainWorld("api", {
   closeWindow: () => {
     electron.ipcRenderer.send("close-window");
   },
-  // Keyboard service
-  startListening: () => {
-    electron.ipcRenderer.send("start-listening");
-  },
-  stopListening: () => {
-    electron.ipcRenderer.send("stop-listening");
-  },
-  isListening: async () => {
-    return electron.ipcRenderer.invoke("get-keyboard-service-state");
+  // Custom IPC Bridge
+  ipc: {
+    // Command handling
+    run: async (command) => {
+      console.log("[Preload] Running command:", command);
+      const result = await electron.ipcRenderer.invoke("ipc:command", command);
+      console.log("[Preload] Command result:", result);
+      return result;
+    },
+    // Event handling
+    on: (service, event, callback) => {
+      console.log("[Preload] Setting up event listener:", service, event);
+      const handler = (_, ipcEvent) => {
+        console.log("[Preload] Received event:", ipcEvent);
+        if (ipcEvent.service === service && ipcEvent.event === event) {
+          console.log("[Preload] Event matched, calling callback");
+          callback(ipcEvent.data);
+        }
+      };
+      electron.ipcRenderer.on("ipc:event", handler);
+      return () => {
+        console.log("[Preload] Removing event listener:", service, event);
+        electron.ipcRenderer.removeListener("ipc:event", handler);
+      };
+    }
   },
   // HyperKey feature
   getHyperKeyConfig: async () => {
@@ -38,16 +54,6 @@ electron.contextBridge.exposeInMainWorld("api", {
   // Store state
   getFullState: async () => {
     return electron.ipcRenderer.invoke("get-full-state");
-  },
-  // Event listeners
-  onKeyboardEvent: (callback) => {
-    electron.ipcRenderer.on("keyboard-event", (_, data) => callback(data));
-  },
-  onKeyboardServiceState: (callback) => {
-    electron.ipcRenderer.on("keyboard-service-state", (_, data) => callback(data));
-  },
-  onHyperKeyState: (callback) => {
-    electron.ipcRenderer.on("hyperkey-state", (_, data) => callback(data));
   }
 });
 //# sourceMappingURL=preload.js.map
