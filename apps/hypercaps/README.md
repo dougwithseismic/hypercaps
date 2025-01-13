@@ -10,6 +10,8 @@ A powerful keyboard remapping tool designed exclusively for Windows that transfo
 - **Real-time Key Monitoring**: Displays all currently pressed keys and modifier states
 - **Key Mapping Interface**: User-friendly interface to view and manage key mappings
 - **Windows Native Integration**: Uses Windows API through PowerShell for reliable key detection
+- **Type-Safe IPC**: Full TypeScript support across process boundaries
+- **Reliable Event Ordering**: Message queue system for consistent event handling
 
 ## System Requirements
 
@@ -18,60 +20,250 @@ A powerful keyboard remapping tool designed exclusively for Windows that transfo
 - Node.js (v18 or higher)
 - pnpm (v8 or higher)
 
-> **Important**: This application is not compatible with macOS or Linux. Attempting to install or run on these platforms will result in an error.
+## Architecture
 
-## Installation
+The application is built on three core services:
 
-1. Clone the repository:
+### 1. Message Queue Service
+
+- Handles real-time event processing
+- Ensures ordered event delivery
+- Manages transient state
+- Provides priority-based message handling
+
+### 2. IPC Service
+
+- Bridges main and renderer processes
+- Type-safe command and event system
+- Uses contextBridge for security
+- Reliable event delivery through MessageQueue
+
+### 3. Store Service
+
+- Manages persistent configuration
+- Handles feature flags and settings
+- Version-controlled state migrations
+- Type-safe state management
+
+## Project Structure
+
+```
+apps/hypercaps/
+├── electron/                    # Electron main process code
+│   ├── features/               # Feature-specific implementations
+│   │   └── hyperkeys/         # Keyboard handling feature
+│   │       ├── scripts/       # PowerShell scripts
+│   │       ├── services/      # Feature services
+│   │       └── types/         # Type definitions
+│   └── services/              # Core services
+│       ├── ipc/              # IPC system
+│       ├── queue/            # Message queue
+│       └── store/            # Persistent storage
+├── src/                       # React application source
+│   ├── components/           # React components
+│   ├── hooks/               # Custom React hooks
+│   └── lib/                # Shared utilities
+└── dist-electron/            # Compiled Electron code
+```
+
+## Development
+
+1. Clone and install:
 
 ```bash
 git clone [your-repo-url]
 cd hypercaps
-```
-
-2. Install dependencies:
-
-```bash
 pnpm install
 ```
 
-3. Start the development server:
+2. Start development:
 
 ```bash
 pnpm dev
 ```
 
-## Development
-
-The project is structured as follows:
-
-```
-apps/hypercaps/
-├── electron/               # Electron main process code
-│   ├── scripts/           # PowerShell scripts for keyboard monitoring
-│   └── services/          # Core services (keyboard handling, etc.)
-├── src/                   # React application source
-│   ├── components/        # React components
-│   └── assets/           # Static assets
-└── dist-electron/         # Compiled Electron code
-```
-
-### Key Components
-
-- `keyboard-monitor.ps1`: PowerShell script that monitors keyboard events using Windows API
-- `keyboard.ts`: Electron service that manages keyboard events and mappings
-- `MappingList.tsx`: React component for displaying and managing key mappings
-- `MappingEditor.tsx`: React component for editing individual key mappings
-
-## Building
-
-To build the application:
+3. Build for production:
 
 ```bash
 pnpm build
 ```
 
-This will create a distributable in the `dist` directory.
+## IPC Communication
+
+The application uses a custom IPC system for type-safe communication:
+
+```typescript
+// In React component
+const { pressedKeys } = useHypercapsKeys();
+
+// Commands
+await ipc.run(createCommand("keyboard", "start"));
+
+// Events
+ipc.on("keyboard", "keyPressed", (event) => {
+  console.log("Keys pressed:", event.data.pressedKeys);
+});
+```
+
+## Security Model
+
+HyperCaps follows Electron's security best practices:
+
+### Context Isolation
+
+- Strict context isolation between main and renderer processes
+- All IPC goes through the contextBridge
+- No direct access to Node.js or Electron APIs from renderer
+
+### IPC Security
+
+```typescript
+// Preload script exposes safe APIs
+contextBridge.exposeInMainWorld("api", {
+  ipc: {
+    run: async <T>(command) => ipcRenderer.invoke("ipc:command", command),
+    on: <T>(service, event, callback) => {
+      // Safe event handling
+    }
+  }
+});
+```
+
+### Windows API Access
+
+- PowerShell scripts run with minimal privileges
+- Keyboard monitoring uses safe Windows API calls
+- No direct DLL imports or unsafe native code
+
+## Debugging
+
+### Main Process
+
+Debug logs are available through several channels:
+
+```typescript
+// Keyboard Service logs
+[KeyboardService] Parsed keyboard state: {...}
+[KeyboardService] Enqueueing keyboard event: {...}
+
+// IPC Service logs
+[IPCService] Emitting event: {...}
+[IPCService] Processing queued event: {...}
+
+// Message Queue logs
+[MessageQueue] Processing message: {...}
+[MessageQueue] Handler completed: {...}
+```
+
+### Renderer Process
+
+React DevTools and Console provide debugging information:
+
+```typescript
+[IPCClient] Setting up event listener: keyboard:keyPressed
+[IPCClient] Received event data: { pressedKeys: [...] }
+[useHypercapsKeys] Key pressed: {...}
+```
+
+### PowerShell Script
+
+Debug output from the keyboard monitor:
+
+```powershell
+[DEBUG] Starting keyboard monitor...
+[DEBUG] Config: { isEnabled: true, ... }
+[DEBUG] Key Event - Key: LControlKey, IsDown: True
+```
+
+## Advanced Usage
+
+### Custom Key Mappings
+
+```typescript
+// Define a custom mapping
+const mapping: KeyMapping = {
+  trigger: "CapsLock",
+  modifiers: ["Control", "Shift", "Win"],
+  action: "hyperkey"
+};
+
+// Apply the mapping
+await ipc.run(createCommand("keyboard", "setMapping", mapping));
+```
+
+### Event Priority System
+
+Messages are processed based on priority:
+
+1. Keyboard Events (Priority 1)
+2. Command Execution (Priority 2)
+3. State Updates (Priority 3)
+
+```typescript
+// High priority event
+queue.enqueue("keyboardEvent", data, 1);
+
+// Normal priority command
+queue.enqueue("setState", updates, 2);
+```
+
+### State Management
+
+The Store service provides versioned state management:
+
+```typescript
+// Update state with automatic versioning
+await store.update((draft) => {
+  draft.features.hyperKey.config = newConfig;
+});
+
+// State migrations
+const migrations = [{
+  version: "0.2.0",
+  migrate: (state) => {
+    // Migration logic
+  }
+}];
+```
+
+## Error Handling
+
+The application implements comprehensive error handling:
+
+### IPC Errors
+
+```typescript
+try {
+  await ipc.run(command);
+} catch (error) {
+  if (error.code === "SERVICE_NOT_FOUND") {
+    // Handle service not found
+  } else if (error.code === "HANDLER_NOT_FOUND") {
+    // Handle missing handler
+  }
+}
+```
+
+### Queue Errors
+
+```typescript
+queue.on("message:failed", (message) => {
+  if (message.type === "setState") {
+    // Handle state update failure
+  }
+});
+```
+
+### PowerShell Errors
+
+```powershell
+try {
+  Start-KeyboardMonitor -Config $Config
+} catch {
+  Write-Error "Failed to start keyboard monitor: $_"
+  exit 1
+}
+```
 
 ## Contributing
 
