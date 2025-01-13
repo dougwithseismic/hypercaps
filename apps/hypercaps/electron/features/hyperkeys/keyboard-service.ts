@@ -1,8 +1,26 @@
+/**
+ * Keyboard Service
+ *
+ * Coordinates between real-time keyboard events and persistent configuration.
+ * Uses both MessageQueue (for real-time events) and Store (for configuration).
+ *
+ * Architecture:
+ * - MessageQueue: Handles real-time keyboard events and state updates
+ * - Store: Manages feature configuration and persistent settings
+ *
+ * Data Flow:
+ * 1. PowerShell script sends keyboard events
+ * 2. Events are queued via MessageQueue for ordered processing
+ * 3. Configuration changes are persisted via Store
+ * 4. State updates are propagated to renderer via MessageQueue
+ */
+
 import { BrowserWindow, dialog, app } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import path from "path";
 import { Store } from "@electron/services/store";
+import { MessageQueue } from "@electron/services/queue";
 import { HyperKeyFeatureConfig } from "./types/hyperkey-feature";
 
 interface KeyboardState {
@@ -26,6 +44,7 @@ export class KeyboardService extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
   private keyboardProcess: ChildProcess | null = null;
   private store: Store;
+  private queue: MessageQueue;
   private startupTimeout: NodeJS.Timeout | null = null;
   private state: ServiceState = {
     isListening: false,
@@ -36,6 +55,38 @@ export class KeyboardService extends EventEmitter {
   constructor() {
     super();
     this.store = Store.getInstance();
+    this.queue = MessageQueue.getInstance();
+    this.setupQueueHandlers();
+  }
+
+  private setupQueueHandlers(): void {
+    this.queue.registerHandler("setState", async (message) => {
+      const updates = message.payload as Partial<ServiceState>;
+      this.state = { ...this.state, ...updates };
+      this.mainWindow?.webContents.send("keyboard-service-state", {
+        ...this.state,
+        isRunning: this.isRunning(),
+      });
+      this.emit("state-change", this.state);
+    });
+
+    this.queue.registerHandler("keyboardEvent", async (message) => {
+      this.mainWindow?.webContents.send("keyboard-event", message.payload);
+    });
+
+    this.queue.on("message:failed", (message) => {
+      console.error(`[KeyboardService] Message failed:`, message);
+      if (message.type === "setState") {
+        dialog.showErrorBox(
+          "Keyboard Service Error",
+          `Failed to update service state: ${message.error?.message}`
+        );
+      }
+    });
+  }
+
+  private setState(updates: Partial<ServiceState>): void {
+    this.queue.enqueue("setState", updates, 1);
   }
 
   private getScriptPath(): string {
@@ -51,15 +102,6 @@ export class KeyboardService extends EventEmitter {
     return process.env.NODE_ENV === "development"
       ? path.join(app.getAppPath(), scriptSubPath)
       : path.join(process.resourcesPath, scriptSubPath);
-  }
-
-  private setState(updates: Partial<ServiceState>): void {
-    this.state = { ...this.state, ...updates };
-    this.mainWindow?.webContents.send("keyboard-service-state", {
-      ...this.state,
-      isRunning: this.isRunning(),
-    });
-    this.emit("state-change", this.state);
   }
 
   public getState(): ServiceState {
@@ -429,8 +471,8 @@ export class KeyboardService extends EventEmitter {
             timestamp: Date.now(),
           };
 
-          // Emit keyboard state to renderer
-          this.mainWindow?.webContents.send("keyboard-event", keyboardState);
+          // Queue keyboard events instead of sending directly
+          this.queue.enqueue("keyboardEvent", keyboardState);
         } catch (parseError) {
           if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
             console.error("Error parsing keyboard state:", parseError);

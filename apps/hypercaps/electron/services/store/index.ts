@@ -1,3 +1,23 @@
+/**
+ * Store Service
+ *
+ * Handles persistent configuration and feature settings.
+ * This service is separate from the MessageQueue, which handles real-time events.
+ *
+ * Key responsibilities:
+ * 1. Persistent configuration storage
+ * 2. Feature settings management
+ * 3. State migration between versions
+ * 4. Startup preferences
+ *
+ * This store ensures:
+ * - Configuration persists between app restarts
+ * - Settings are properly migrated during updates
+ * - Feature states are consistently maintained
+ *
+ * @note This is NOT for real-time state - use MessageQueue service for that
+ */
+
 import { app } from "electron";
 import path from "path";
 import fs from "fs";

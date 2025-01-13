@@ -7,6 +7,7 @@ const path = require("path");
 const child_process = require("child_process");
 const events = require("events");
 const fs = require("fs");
+const crypto = require("crypto");
 var NOTHING = Symbol.for("immer-nothing");
 var DRAFTABLE = Symbol.for("immer-draftable");
 var DRAFT_STATE = Symbol.for("immer-state");
@@ -4939,12 +4940,149 @@ const _Store = class _Store {
 };
 __publicField(_Store, "instance");
 let Store = _Store;
+const DEFAULT_OPTIONS = {
+  maxConcurrent: 1,
+  maxRetries: 3,
+  retryDelay: 1e3,
+  timeout: 3e4
+};
+function generateId() {
+  return crypto.randomBytes(16).toString("hex");
+}
+const _MessageQueue = class _MessageQueue extends events.EventEmitter {
+  constructor(options = {}) {
+    super();
+    __publicField(this, "messages", []);
+    __publicField(this, "processing", /* @__PURE__ */ new Set());
+    __publicField(this, "handlers", /* @__PURE__ */ new Map());
+    __publicField(this, "options");
+    __publicField(this, "timeouts", /* @__PURE__ */ new Map());
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+  }
+  static getInstance(options) {
+    if (!_MessageQueue.instance) {
+      _MessageQueue.instance = new _MessageQueue(options);
+    }
+    return _MessageQueue.instance;
+  }
+  registerHandler(type, handler) {
+    this.handlers.set(type, handler);
+  }
+  async enqueue(type, payload, priority = 0) {
+    const message = {
+      id: generateId(),
+      type,
+      payload,
+      timestamp: Date.now(),
+      priority,
+      retries: 0,
+      maxRetries: this.options.maxRetries,
+      status: "pending"
+    };
+    this.messages.push(message);
+    this.messages.sort((a, b) => b.priority - a.priority);
+    this.emit("message:added", message);
+    this.processQueue();
+    return message.id;
+  }
+  async processQueue() {
+    if (this.processing.size >= this.options.maxConcurrent) {
+      return;
+    }
+    const pendingMessages = this.messages.filter(
+      (m) => m.status === "pending" && !this.processing.has(m.id)
+    );
+    if (pendingMessages.length === 0) {
+      if (this.processing.size === 0) {
+        this.emit("queue:empty");
+      }
+      return;
+    }
+    const message = pendingMessages[0];
+    const handler = this.handlers.get(message.type);
+    if (!handler) {
+      message.status = "failed";
+      message.error = new Error(
+        `No handler registered for message type: ${message.type}`
+      );
+      this.emit("message:failed", message);
+      return;
+    }
+    this.processing.add(message.id);
+    message.status = "processing";
+    this.emit("message:started", message);
+    const timeout = setTimeout(() => {
+      this.handleTimeout(message);
+    }, this.options.timeout);
+    this.timeouts.set(message.id, timeout);
+    try {
+      await handler(message);
+      this.handleSuccess(message);
+    } catch (error) {
+      this.handleError(message, error);
+    }
+  }
+  handleSuccess(message) {
+    this.clearTimeout(message.id);
+    this.processing.delete(message.id);
+    message.status = "completed";
+    this.emit("message:completed", message);
+    this.messages = this.messages.filter((m) => m.id !== message.id);
+    this.processQueue();
+  }
+  handleError(message, error) {
+    this.clearTimeout(message.id);
+    this.processing.delete(message.id);
+    message.error = error;
+    if (message.retries < message.maxRetries) {
+      message.retries++;
+      message.status = "pending";
+      this.emit("message:retrying", message);
+      setTimeout(() => this.processQueue(), this.options.retryDelay);
+    } else {
+      message.status = "failed";
+      this.emit("message:failed", message);
+      this.messages = this.messages.filter((m) => m.id !== message.id);
+      this.processQueue();
+    }
+  }
+  handleTimeout(message) {
+    this.processing.delete(message.id);
+    message.error = new Error(
+      `Message processing timed out after ${this.options.timeout}ms`
+    );
+    this.handleError(message, message.error);
+  }
+  clearTimeout(messageId) {
+    const timeout = this.timeouts.get(messageId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.timeouts.delete(messageId);
+    }
+  }
+  getQueueStatus() {
+    return {
+      pending: this.messages.filter((m) => m.status === "pending").length,
+      processing: this.processing.size,
+      total: this.messages.length
+    };
+  }
+  clearQueue() {
+    this.messages = [];
+    this.processing.clear();
+    this.timeouts.forEach((timeout) => clearTimeout(timeout));
+    this.timeouts.clear();
+  }
+};
+__publicField(_MessageQueue, "instance");
+let MessageQueue = _MessageQueue;
 class KeyboardService extends events.EventEmitter {
   constructor() {
     super();
     __publicField(this, "mainWindow", null);
     __publicField(this, "keyboardProcess", null);
     __publicField(this, "store");
+    __publicField(this, "queue");
     __publicField(this, "startupTimeout", null);
     __publicField(this, "state", {
       isListening: false,
@@ -4952,7 +5090,6 @@ class KeyboardService extends events.EventEmitter {
       isStarting: false
     });
     __publicField(this, "handleKeyboardOutput", (data) => {
-      var _a;
       try {
         const lines = data.toString().split("\n");
         for (const line of lines) {
@@ -4968,7 +5105,7 @@ class KeyboardService extends events.EventEmitter {
               pressedKeys: Array.isArray(state.pressedKeys) ? state.pressedKeys : [],
               timestamp: Date.now()
             };
-            (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-event", keyboardState);
+            this.queue.enqueue("keyboardEvent", keyboardState);
           } catch (parseError) {
             if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
               console.error("Error parsing keyboard state:", parseError);
@@ -4980,6 +5117,37 @@ class KeyboardService extends events.EventEmitter {
       }
     });
     this.store = Store.getInstance();
+    this.queue = MessageQueue.getInstance();
+    this.setupQueueHandlers();
+  }
+  setupQueueHandlers() {
+    this.queue.registerHandler("setState", async (message) => {
+      var _a;
+      const updates = message.payload;
+      this.state = { ...this.state, ...updates };
+      (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", {
+        ...this.state,
+        isRunning: this.isRunning()
+      });
+      this.emit("state-change", this.state);
+    });
+    this.queue.registerHandler("keyboardEvent", async (message) => {
+      var _a;
+      (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-event", message.payload);
+    });
+    this.queue.on("message:failed", (message) => {
+      var _a;
+      console.error(`[KeyboardService] Message failed:`, message);
+      if (message.type === "setState") {
+        electron.dialog.showErrorBox(
+          "Keyboard Service Error",
+          `Failed to update service state: ${(_a = message.error) == null ? void 0 : _a.message}`
+        );
+      }
+    });
+  }
+  setState(updates) {
+    this.queue.enqueue("setState", updates, 1);
   }
   getScriptPath() {
     const scriptName = "keyboard-monitor.ps1";
@@ -4991,15 +5159,6 @@ class KeyboardService extends events.EventEmitter {
       scriptName
     );
     return process.env.NODE_ENV === "development" ? path.join(electron.app.getAppPath(), scriptSubPath) : path.join(process.resourcesPath, scriptSubPath);
-  }
-  setState(updates) {
-    var _a;
-    this.state = { ...this.state, ...updates };
-    (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", {
-      ...this.state,
-      isRunning: this.isRunning()
-    });
-    this.emit("state-change", this.state);
   }
   getState() {
     return { ...this.state };
