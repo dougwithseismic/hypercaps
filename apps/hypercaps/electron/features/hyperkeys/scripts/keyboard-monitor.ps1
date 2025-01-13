@@ -32,6 +32,8 @@ public static class KeyboardMonitor {
     public const int WM_SYSKEYDOWN = 0x0104;
     public const int WM_SYSKEYUP = 0x0105;
 
+    public static bool IsDebugEnabled = true;
+
     [StructLayout(LayoutKind.Sequential)]
     public struct KBDLLHOOKSTRUCT {
         public uint vkCode;
@@ -216,8 +218,10 @@ public class KeyboardHook {
             bool isKeyUp = wParam == (IntPtr)KeyboardMonitor.WM_KEYUP || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYUP;
 
             // Debug logging for key events
-            Console.WriteLine(string.Format("[DEBUG] Key Event - Key: {0}, IsDown: {1}, IsUp: {2}, IsEnabled: {3}, IsHyperKeyEnabled: {4}, IsTrigger: {5}",
-                key, isKeyDown, isKeyUp, KeyboardMonitor.IsEnabled, KeyboardMonitor.IsHyperKeyEnabled, key == KeyboardMonitor.HyperKeyTrigger));
+            if (KeyboardMonitor.IsDebugEnabled) {
+                Console.WriteLine(string.Format("[DEBUG] Key Event - Key: {0}, IsDown: {1}, IsUp: {2}, IsEnabled: {3}, IsHyperKeyEnabled: {4}, IsTrigger: {5}",
+                    key, isKeyDown, isKeyUp, KeyboardMonitor.IsEnabled, KeyboardMonitor.IsHyperKeyEnabled, key == KeyboardMonitor.HyperKeyTrigger));
+            }
 
             // Track key states and update output
             if (isKeyDown) {
@@ -231,48 +235,66 @@ public class KeyboardHook {
 
             // If this key is our HyperKey trigger and both flags are enabled
             if (KeyboardMonitor.IsEnabled && KeyboardMonitor.IsHyperKeyEnabled && key == KeyboardMonitor.HyperKeyTrigger) {
-                Console.WriteLine(string.Format("[DEBUG] HyperKey Trigger Detected - Key: {0}, IsCapsLock: {1}, IsHandlingSynthetic: {2}, Behavior: {3}",
-                    key, key == Keys.CapsLock, KeyboardMonitor.isHandlingSyntheticCapsLock, KeyboardMonitor.CapsLockHandling));
+                if (KeyboardMonitor.IsDebugEnabled) {
+                    Console.WriteLine(string.Format("[DEBUG] HyperKey Trigger Detected - Key: {0}, IsCapsLock: {1}, IsHandlingSynthetic: {2}, Behavior: {3}",
+                        key, key == Keys.CapsLock, KeyboardMonitor.isHandlingSyntheticCapsLock, KeyboardMonitor.CapsLockHandling));
+                }
 
                 if (key == Keys.CapsLock && !KeyboardMonitor.isHandlingSyntheticCapsLock) {
                     switch (KeyboardMonitor.CapsLockHandling) {
                         case KeyboardMonitor.CapsLockBehavior.DoublePress:
                             if (isKeyDown) {
-                                Console.WriteLine("[DEBUG] DoublePress - Sending CapsLock and HyperKey Down");
+                                if (KeyboardMonitor.IsDebugEnabled) {
+                                    Console.WriteLine("[DEBUG] DoublePress - Sending CapsLock and HyperKey Down");
+                                }
                                 System.Threading.Thread.Sleep(1);
                                 KeyboardMonitor.SendKeyDown(Keys.CapsLock);
                                 KeyboardMonitor.SendKeyUp(Keys.CapsLock);
                                 KeyboardMonitor.SendHyperKeyDown();
                             } else if (isKeyUp) {
-                                Console.WriteLine("[DEBUG] DoublePress - Sending HyperKey Up");
+                                if (KeyboardMonitor.IsDebugEnabled) {
+                                    Console.WriteLine("[DEBUG] DoublePress - Sending HyperKey Up");
+                                }
                                 KeyboardMonitor.SendHyperKeyUp();
                             }
                             break;
                         case KeyboardMonitor.CapsLockBehavior.BlockToggle:
                             if (isKeyDown) {
-                                Console.WriteLine("[DEBUG] BlockToggle - Sending HyperKey Down");
+                                if (KeyboardMonitor.IsDebugEnabled) {
+                                    Console.WriteLine("[DEBUG] BlockToggle - Sending HyperKey Down");
+                                }
                                 KeyboardMonitor.SendHyperKeyDown();
                             } else if (isKeyUp) {
-                                Console.WriteLine("[DEBUG] BlockToggle - Sending HyperKey Up");
+                                if (KeyboardMonitor.IsDebugEnabled) {
+                                    Console.WriteLine("[DEBUG] BlockToggle - Sending HyperKey Up");
+                                }
                                 KeyboardMonitor.SendHyperKeyUp();
                             }
                             break;
                         case KeyboardMonitor.CapsLockBehavior.None:
                             if (isKeyDown) {
-                                Console.WriteLine("[DEBUG] None - Sending HyperKey Down and allowing CapsLock");
+                                if (KeyboardMonitor.IsDebugEnabled) {
+                                    Console.WriteLine("[DEBUG] None - Sending HyperKey Down and allowing CapsLock");
+                                }
                                 KeyboardMonitor.SendHyperKeyDown();
                             } else if (isKeyUp) {
-                                Console.WriteLine("[DEBUG] None - Sending HyperKey Up and allowing CapsLock");
+                                if (KeyboardMonitor.IsDebugEnabled) {
+                                    Console.WriteLine("[DEBUG] None - Sending HyperKey Up and allowing CapsLock");
+                                }
                                 KeyboardMonitor.SendHyperKeyUp();
                             }
                             return KeyboardMonitor.CallNextHookEx(hookId, nCode, wParam, lParam);
                     }
                 } else {
                     if (isKeyDown) {
-                        Console.WriteLine("[DEBUG] Non-CapsLock Trigger - Sending HyperKey Down");
+                        if (KeyboardMonitor.IsDebugEnabled) {
+                            Console.WriteLine("[DEBUG] Non-CapsLock Trigger - Sending HyperKey Down");
+                        }
                         KeyboardMonitor.SendHyperKeyDown();
                     } else if (isKeyUp) {
-                        Console.WriteLine("[DEBUG] Non-CapsLock Trigger - Sending HyperKey Up");
+                        if (KeyboardMonitor.IsDebugEnabled) {
+                            Console.WriteLine("[DEBUG] Non-CapsLock Trigger - Sending HyperKey Up");
+                        }
                         KeyboardMonitor.SendHyperKeyUp();
                     }
                 }

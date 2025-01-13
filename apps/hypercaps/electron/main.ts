@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, globalShortcut } from "electron";
 import path from "path";
-import { KeyboardService } from "./services/keyboard";
+import { KeyboardService } from "./features/hyperkeys/keyboard-service";
 import { Store } from "./services/store";
 import { TrayFeature } from "./features/tray";
 
@@ -64,33 +64,30 @@ const createWindow = async () => {
   ipcMain.handle("get-keyboard-service-state", () => {
     return keyboardService?.isRunning() || false;
   });
-
-  // Mapping handlers
-  ipcMain.handle("get-mappings", () => {
-    return keyboardService?.getMappings();
-  });
-
-  ipcMain.handle("add-mapping", (event, mapping) => {
-    return keyboardService?.addMapping(mapping);
-  });
-
-  ipcMain.handle("update-mapping", (event, id, updates) => {
-    return keyboardService?.updateMapping(id, updates);
-  });
-
-  ipcMain.handle("delete-mapping", (event, id) => {
-    return keyboardService?.deleteMapping(id);
-  });
-
   // HyperKey config handlers
   ipcMain.handle("get-hyperkey-config", async () => {
-    const store = Store.getInstance();
-    return await store.getHyperKeyConfig();
+    try {
+      const store = Store.getInstance();
+      const feature = await store.getFeature("hyperKey");
+      if (!feature) {
+        throw new Error("HyperKey feature not found");
+      }
+      return feature.config;
+    } catch (err) {
+      console.error("Failed to get HyperKey config:", err);
+      throw err; // Re-throw to let renderer handle error
+    }
   });
 
   ipcMain.handle("set-hyperkey-config", async (event, config) => {
     const store = Store.getInstance();
-    await store.setHyperKeyConfig(config);
+    await store.update((draft) => {
+      const hyperkeyFeature = draft.features.find((f) => f.name == "hyperKey");
+      if (hyperkeyFeature) {
+        hyperkeyFeature.config = config;
+      }
+    });
+
     await keyboardService?.restartWithConfig(config);
   });
 
@@ -144,8 +141,7 @@ app.whenReady().then(async () => {
 
   // Startup settings
   ipcMain.handle("get-startup-settings", async () => {
-    const startupOnBoot = await store.getStartupOnBoot();
-    const enableOnStartup = await store.getEnableOnStartup();
+    const { enableOnStartup, startupOnBoot } = store.getState();
     return { startupOnBoot, enableOnStartup };
   });
 
@@ -154,12 +150,12 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle("set-enable-on-startup", async (_, enabled: boolean) => {
-    await store.setEnableOnStartup(enabled);
+    await store.setStartupOnBoot(enabled);
   });
 
   // Store state
   ipcMain.handle("get-full-state", async () => {
-    return keyboardService.getFullState();
+    return keyboardService.getState();
   });
 
   // Window controls

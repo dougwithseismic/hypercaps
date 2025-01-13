@@ -8,7 +8,7 @@ import {
 } from "electron";
 import path from "path";
 import { Store } from "../services/store";
-import { KeyboardService } from "../services/keyboard";
+import { KeyboardService } from "./hyperkeys/keyboard-service";
 
 export class TrayFeature {
   private tray: Tray | null = null;
@@ -37,9 +37,8 @@ export class TrayFeature {
     if (!this.tray) return;
 
     const store = Store.getInstance();
-    const isEnabled = (await store.getFeature("hyperKey")).isEnabled;
-    const startupOnBoot = await store.getStartupOnBoot();
-    const enableOnStartup = await store.getEnableOnStartup();
+    const isEnabled = (await store.getFeature("hyperKey")).isFeatureEnabled;
+    const { startupOnBoot, enableOnStartup } = store.getState();
 
     const contextMenu = Menu.buildFromTemplate([
       {
@@ -59,6 +58,9 @@ export class TrayFeature {
         accelerator: "CommandOrControl+Shift+E",
         click: (menuItem) => {
           if (menuItem.checked) {
+            const state = this.keyboardService?.getState();
+            console.log("CHECKBOX", state);
+
             this.keyboardService?.startListening();
           } else {
             this.keyboardService?.stopListening();
@@ -83,7 +85,14 @@ export class TrayFeature {
         type: "checkbox",
         checked: enableOnStartup,
         click: async (menuItem) => {
-          await store.setEnableOnStartup(menuItem.checked);
+          await store.update((draft) => {
+            const hyperkeyFeature = draft.features.find(
+              (f) => f.name == "hyperKey"
+            );
+            if (hyperkeyFeature) {
+              hyperkeyFeature.isFeatureEnabled = menuItem.checked;
+            }
+          });
         },
       },
       { type: "separator" },

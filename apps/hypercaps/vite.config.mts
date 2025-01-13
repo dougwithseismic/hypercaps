@@ -25,6 +25,12 @@ export default defineConfig(async () => {
               sourcemap: true,
               outDir: "dist-electron/main",
             },
+            resolve: {
+              alias: {
+                "@": resolve(__dirname, "src"),
+                "@electron": resolve(__dirname, "electron"),
+              },
+            },
           },
         },
         {
@@ -37,14 +43,20 @@ export default defineConfig(async () => {
               sourcemap: true,
               outDir: "dist-electron/preload",
             },
+            resolve: {
+              alias: {
+                "@": resolve(__dirname, "src"),
+                "@electron": resolve(__dirname, "electron"),
+              },
+            },
           },
         },
       ]),
     ],
     resolve: {
       alias: {
-        "@": resolve(__dirname, "./src"),
-        "@electron": resolve(__dirname, "./electron"),
+        "@": resolve(__dirname, "src"),
+        "@electron": resolve(__dirname, "electron"),
       },
     },
     build: {
