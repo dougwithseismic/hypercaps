@@ -60,6 +60,11 @@ const createWindow = async () => {
     keyboardService?.stopListening();
   });
 
+  // Add handler for getting keyboard service state
+  ipcMain.handle("get-keyboard-service-state", () => {
+    return keyboardService?.isRunning() || false;
+  });
+
   // Mapping handlers
   ipcMain.handle("get-mappings", () => {
     return keyboardService?.getMappings();
@@ -80,7 +85,7 @@ const createWindow = async () => {
   // HyperKey config handlers
   ipcMain.handle("get-hyperkey-config", async () => {
     const store = Store.getInstance();
-    return store.getHyperKeyConfig();
+    return await store.getHyperKeyConfig();
   });
 
   ipcMain.handle("set-hyperkey-config", async (event, config) => {

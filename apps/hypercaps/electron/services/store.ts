@@ -42,9 +42,9 @@ export class Store {
       features: [
         {
           name: "hyperKey",
-          isEnabled: false,
+          isEnabled: true,
           config: {
-            isEnabled: true,
+            isHyperKeyEnabled: true,
             trigger: "CapsLock",
             modifiers: ["LShiftKey"],
           },
@@ -186,13 +186,14 @@ export class Store {
     const hyperKeyFeature = this.state.features.find(
       (f): f is Feature<"hyperKey"> => f.name === "hyperKey"
     );
+
     if (!hyperKeyFeature) {
       // Create default config if not found
       const defaultConfig: Feature<"hyperKey"> = {
         name: "hyperKey",
-        isEnabled: false,
+        isEnabled: true,
         config: {
-          isEnabled: false,
+          isHyperKeyEnabled: true,
           trigger: "CapsLock",
           modifiers: ["LShiftKey"],
         },
@@ -210,11 +211,10 @@ export class Store {
     );
     if (hyperKeyFeature) {
       hyperKeyFeature.config = config;
-      hyperKeyFeature.isEnabled = config.isEnabled;
     } else {
       this.state.features.push({
         name: "hyperKey",
-        isEnabled: config.isEnabled,
+        isEnabled: config.isHyperKeyEnabled,
         config,
       });
     }
@@ -235,7 +235,7 @@ export class Store {
     );
     if (hyperKeyFeature) {
       hyperKeyFeature.isEnabled = enabled;
-      hyperKeyFeature.config.isEnabled = enabled;
+      hyperKeyFeature.config.isHyperKeyEnabled = enabled;
     }
     await this.save();
   }

@@ -37,7 +37,7 @@ export class TrayFeature {
     if (!this.tray) return;
 
     const store = Store.getInstance();
-    const isEnabled = await store.getIsServiceEnabled();
+    const isEnabled = (await store.getFeature("hyperKey")).isEnabled;
     const startupOnBoot = await store.getStartupOnBoot();
     const enableOnStartup = await store.getEnableOnStartup();
 

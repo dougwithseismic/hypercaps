@@ -18,9 +18,9 @@ const _Store = class _Store {
       features: [
         {
           name: "hyperKey",
-          isEnabled: false,
+          isEnabled: true,
           config: {
-            isEnabled: true,
+            isHyperKeyEnabled: true,
             trigger: "CapsLock",
             modifiers: ["LShiftKey"]
           }
@@ -128,9 +128,9 @@ const _Store = class _Store {
     if (!hyperKeyFeature) {
       const defaultConfig = {
         name: "hyperKey",
-        isEnabled: false,
+        isEnabled: true,
         config: {
-          isEnabled: false,
+          isHyperKeyEnabled: true,
           trigger: "CapsLock",
           modifiers: ["LShiftKey"]
         }
@@ -147,11 +147,10 @@ const _Store = class _Store {
     );
     if (hyperKeyFeature) {
       hyperKeyFeature.config = config;
-      hyperKeyFeature.isEnabled = config.isEnabled;
     } else {
       this.state.features.push({
         name: "hyperKey",
-        isEnabled: config.isEnabled,
+        isEnabled: config.isHyperKeyEnabled,
         config
       });
     }
@@ -170,7 +169,7 @@ const _Store = class _Store {
     );
     if (hyperKeyFeature) {
       hyperKeyFeature.isEnabled = enabled;
-      hyperKeyFeature.config.isEnabled = enabled;
+      hyperKeyFeature.config.isHyperKeyEnabled = enabled;
     }
     await this.save();
   }
@@ -258,10 +257,30 @@ class KeyboardService {
     });
     this.store = Store.getInstance();
   }
+  getScriptPath() {
+    if (process.env.NODE_ENV === "development") {
+      return path.join(
+        electron.app.getAppPath(),
+        "electron",
+        "scripts",
+        "keyboard-monitor.ps1"
+      );
+    }
+    return path.join(
+      process.resourcesPath,
+      "electron",
+      "scripts",
+      "keyboard-monitor.ps1"
+    );
+  }
   async init() {
     var _a, _b;
     await this.store.load();
     const hyperKeyFeature = await this.store.getFeature("hyperKey");
+    console.log(
+      "[KeyboardService] <<<<<<<<<<<<hyperKeyFeature>>>>>>>>>>>>:",
+      hyperKeyFeature
+    );
     if (!hyperKeyFeature) {
       throw new Error("HyperKey feature not found");
     }
@@ -305,16 +324,31 @@ class KeyboardService {
           }
         }, 100);
       });
-      return;
+      if (this.keyboardProcess) {
+        console.log(
+          "[KeyboardService] Process started while waiting, returning early"
+        );
+        return;
+      }
     }
     this.isStarting = true;
     console.log(
       "[KeyboardService] Setting isStarting flag and sending loading state"
     );
     (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-loading", true);
-    const scriptPath = process.env.NODE_ENV === "development" ? path.resolve(process.cwd(), "electron/scripts/keyboard-monitor.ps1") : path.resolve(__dirname, "../scripts/keyboard-monitor.ps1");
+    const scriptPath = this.getScriptPath();
     console.log("[KeyboardService] Using script path:", scriptPath);
     console.log("[KeyboardService] Current environment:", process.env.NODE_ENV);
+    try {
+      const fs2 = require("fs");
+      if (!fs2.existsSync(scriptPath)) {
+        throw new Error(`Script not found at path: ${scriptPath}`);
+      }
+    } catch (error) {
+      console.error("[KeyboardService] Script path error:", error);
+      this.handleStartupFailure(`Script not found: ${error.message}`);
+      return;
+    }
     try {
       if (this.keyboardProcess) {
         this.keyboardProcess.kill();
@@ -326,30 +360,44 @@ class KeyboardService {
       }
       console.log(
         "[KeyboardService] Got hyperkey config:",
+        hyperKeyFeature.config,
+        "isEnabled:",
+        hyperKeyFeature.isEnabled
+      );
+      console.log(
+        "[KeyboardService] <<<<<<<<<<<<Config>>>>>>>>>>>>:",
         hyperKeyFeature.config
       );
       const config = {
         ...hyperKeyFeature.config,
-        enabled: hyperKeyFeature.isEnabled,
+        isEnabled: hyperKeyFeature.isEnabled,
+        isHyperKeyEnabled: hyperKeyFeature.config.isHyperKeyEnabled,
         // Ensure modifiers is always an array
         modifiers: Array.isArray(hyperKeyFeature.config.modifiers) ? hyperKeyFeature.config.modifiers : []
       };
-      console.log("[KeyboardService] Processed config:", config);
+      console.log("shit", config.isHyperKeyEnabled);
+      console.log(
+        "[KeyboardService] Processed config:",
+        config,
+        config.isEnabled.toString().toLowerCase(),
+        config.isEnabled.toString().toLowerCase()
+      );
       const command = [
         // First set the config
         "$Config = @{",
-        `enabled=$${config.isEnabled.toString().toLowerCase()};`,
+        `isEnabled=$${config.isEnabled.toString().toLowerCase()};`,
+        `isHyperKeyEnabled=$${config.isHyperKeyEnabled.toString().toLowerCase()};`,
         `trigger='${config.trigger}';`,
-        // Always create a PowerShell array, even if empty
         `modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(",") || "@()"});`,
         `capsLockBehavior='${config.capsLockBehavior || "BlockToggle"}';`,
         "};",
         // Log the config for debugging
         "Write-Host 'Config:' $($Config | ConvertTo-Json -Depth 10);",
-        // Then run the script
+        // Then run the script and configure
         `& {`,
         `  Set-Location '${path.dirname(scriptPath)}';`,
-        `  . '${scriptPath}'`,
+        `  . '${scriptPath}';`,
+        `  [KeyboardMonitor]::ConfigureHyperKey($Config.isEnabled, $Config.isHyperKeyEnabled, $Config.trigger, $Config.modifiers, $Config.capsLockBehavior);`,
         `}`
       ].join(" ");
       console.log(
@@ -645,13 +693,22 @@ class KeyboardService {
     this.mainWindow = null;
   }
   async restartWithConfig(config) {
+    const currentFeature = await this.store.getFeature("hyperKey");
+    if (!currentFeature) {
+      throw new Error("HyperKey feature not found");
+    }
     await this.store.updateFeature("hyperKey", {
-      isEnabled: config.isEnabled,
+      isEnabled: currentFeature.isEnabled,
+      // Preserve the service enabled state
       config
+      // Update the config
     });
     await this.stopListening();
     await this.startListening();
     await this.notifyStateUpdate();
+  }
+  isRunning() {
+    return this.keyboardProcess !== null;
   }
 }
 class TrayFeature {
@@ -673,7 +730,7 @@ class TrayFeature {
   async setupTrayMenu() {
     if (!this.tray) return;
     const store = Store.getInstance();
-    const isEnabled = await store.getIsServiceEnabled();
+    const isEnabled = (await store.getFeature("hyperKey")).isEnabled;
     const startupOnBoot = await store.getStartupOnBoot();
     const enableOnStartup = await store.getEnableOnStartup();
     const contextMenu = electron.Menu.buildFromTemplate([
@@ -826,6 +883,9 @@ const createWindow = async () => {
   electron.ipcMain.on("stop-listening", () => {
     keyboardService == null ? void 0 : keyboardService.stopListening();
   });
+  electron.ipcMain.handle("get-keyboard-service-state", () => {
+    return (keyboardService == null ? void 0 : keyboardService.isRunning()) || false;
+  });
   electron.ipcMain.handle("get-mappings", () => {
     return keyboardService == null ? void 0 : keyboardService.getMappings();
   });
@@ -840,7 +900,7 @@ const createWindow = async () => {
   });
   electron.ipcMain.handle("get-hyperkey-config", async () => {
     const store = Store.getInstance();
-    return store.getHyperKeyConfig();
+    return await store.getHyperKeyConfig();
   });
   electron.ipcMain.handle("set-hyperkey-config", async (event, config) => {
     const store = Store.getInstance();

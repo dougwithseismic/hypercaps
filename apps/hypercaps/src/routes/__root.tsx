@@ -4,7 +4,7 @@ import { ShellLayout } from "../components/shell-layout";
 
 function RootComponent() {
   return (
-    <ShellLayout statusText={"replaceMe"}>
+    <ShellLayout statusText={"HyperCaps Ready"}>
       <div className="flex h-full">
         <main className="flex-1 overflow-auto">
           <Outlet />

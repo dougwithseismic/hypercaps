@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog } from "electron";
+import { BrowserWindow, dialog, app } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import { Store } from "./store";
@@ -18,9 +18,33 @@ export class KeyboardService {
     this.store = Store.getInstance();
   }
 
+  private getScriptPath(): string {
+    // In development, the script is in the source directory
+    if (process.env.NODE_ENV === "development") {
+      return path.join(
+        app.getAppPath(),
+        "electron",
+        "scripts",
+        "keyboard-monitor.ps1"
+      );
+    }
+
+    // In production, the script is in the resources directory
+    return path.join(
+      process.resourcesPath,
+      "electron",
+      "scripts",
+      "keyboard-monitor.ps1"
+    );
+  }
+
   public async init(): Promise<void> {
     await this.store.load();
     const hyperKeyFeature = await this.store.getFeature("hyperKey");
+    console.log(
+      "[KeyboardService] <<<<<<<<<<<<hyperKeyFeature>>>>>>>>>>>>:",
+      hyperKeyFeature
+    );
 
     if (!hyperKeyFeature) {
       throw new Error("HyperKey feature not found");
@@ -77,7 +101,13 @@ export class KeyboardService {
           }
         }, 100);
       });
-      return;
+      // After waiting, if process is running, return early
+      if (this.keyboardProcess) {
+        console.log(
+          "[KeyboardService] Process started while waiting, returning early"
+        );
+        return;
+      }
     }
 
     this.isStarting = true;
@@ -86,13 +116,21 @@ export class KeyboardService {
     );
     this.mainWindow?.webContents.send("keyboard-service-loading", true);
 
-    const scriptPath =
-      process.env.NODE_ENV === "development"
-        ? path.resolve(process.cwd(), "electron/scripts/keyboard-monitor.ps1")
-        : path.resolve(__dirname, "../scripts/keyboard-monitor.ps1");
-
+    const scriptPath = this.getScriptPath();
     console.log("[KeyboardService] Using script path:", scriptPath);
     console.log("[KeyboardService] Current environment:", process.env.NODE_ENV);
+
+    // Verify script exists
+    try {
+      const fs = require("fs");
+      if (!fs.existsSync(scriptPath)) {
+        throw new Error(`Script not found at path: ${scriptPath}`);
+      }
+    } catch (error) {
+      console.error("[KeyboardService] Script path error:", error);
+      this.handleStartupFailure(`Script not found: ${error.message}`);
+      return;
+    }
 
     try {
       // Kill any existing process first
@@ -109,37 +147,52 @@ export class KeyboardService {
 
       console.log(
         "[KeyboardService] Got hyperkey config:",
-        hyperKeyFeature.config
+        hyperKeyFeature.config,
+        "isEnabled:",
+        hyperKeyFeature.isEnabled
       );
 
+      console.log(
+        "[KeyboardService] <<<<<<<<<<<<Config>>>>>>>>>>>>:",
+        hyperKeyFeature.config
+      );
       // Convert trigger to proper case for Windows.Forms.Keys enum
       const config = {
         ...hyperKeyFeature.config,
-        enabled: hyperKeyFeature.isEnabled,
+        isEnabled: hyperKeyFeature.isEnabled,
+        isHyperKeyEnabled: hyperKeyFeature.config.isHyperKeyEnabled,
         // Ensure modifiers is always an array
         modifiers: Array.isArray(hyperKeyFeature.config.modifiers)
           ? hyperKeyFeature.config.modifiers
           : [],
       };
 
-      console.log("[KeyboardService] Processed config:", config);
+      console.log("shit", config.isHyperKeyEnabled);
+
+      console.log(
+        "[KeyboardService] Processed config:",
+        config,
+        config.isEnabled.toString().toLowerCase(),
+        config.isEnabled.toString().toLowerCase()
+      );
 
       // Create PowerShell command that sets config and runs script
       const command = [
         // First set the config
         "$Config = @{",
-        `enabled=$${config.isEnabled.toString().toLowerCase()};`,
+        `isEnabled=$${config.isEnabled.toString().toLowerCase()};`,
+        `isHyperKeyEnabled=$${config.isHyperKeyEnabled.toString().toLowerCase()};`,
         `trigger='${config.trigger}';`,
-        // Always create a PowerShell array, even if empty
         `modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(",") || "@()"});`,
         `capsLockBehavior='${config.capsLockBehavior || "BlockToggle"}';`,
         "};",
         // Log the config for debugging
         "Write-Host 'Config:' $($Config | ConvertTo-Json -Depth 10);",
-        // Then run the script
+        // Then run the script and configure
         `& {`,
         `  Set-Location '${path.dirname(scriptPath)}';`,
-        `  . '${scriptPath}'`,
+        `  . '${scriptPath}';`,
+        `  [KeyboardMonitor]::ConfigureHyperKey($Config.isEnabled, $Config.isHyperKeyEnabled, $Config.trigger, $Config.modifiers, $Config.capsLockBehavior);`,
         `}`,
       ].join(" ");
 
@@ -545,12 +598,24 @@ export class KeyboardService {
   }
 
   public async restartWithConfig(config: HyperKeyFeatureConfig): Promise<void> {
+    // Get current feature to preserve isEnabled state
+    const currentFeature = await this.store.getFeature("hyperKey");
+    if (!currentFeature) {
+      throw new Error("HyperKey feature not found");
+    }
+
+    // Update feature while preserving isEnabled state
     await this.store.updateFeature("hyperKey", {
-      isEnabled: config.isEnabled,
-      config,
+      isEnabled: currentFeature.isEnabled, // Preserve the service enabled state
+      config, // Update the config
     });
+
     await this.stopListening();
     await this.startListening();
     await this.notifyStateUpdate();
+  }
+
+  public isRunning(): boolean {
+    return this.keyboardProcess !== null;
   }
 }
