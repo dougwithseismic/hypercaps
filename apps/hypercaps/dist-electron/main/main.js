@@ -4959,15 +4959,32 @@ const _MessageQueue = class _MessageQueue extends events.EventEmitter {
     __publicField(this, "timeouts", /* @__PURE__ */ new Map());
     this.options = { ...DEFAULT_OPTIONS, ...options };
   }
+  /**
+   * Singleton instance ensures all events go through the same queue
+   * This is critical for maintaining event order and state consistency
+   */
   static getInstance(options) {
     if (!_MessageQueue.instance) {
       _MessageQueue.instance = new _MessageQueue(options);
     }
     return _MessageQueue.instance;
   }
+  /**
+   * Register a handler for a specific message type
+   * Handlers should be fast and only handle transient state
+   * For persistent changes, handlers should delegate to Store service
+   */
   registerHandler(type, handler) {
     this.handlers.set(type, handler);
   }
+  /**
+   * Enqueue a message for processing
+   * Higher priority messages jump the queue but maintain order within their priority level
+   * @param type Message type that maps to a registered handler
+   * @param payload Data to be processed
+   * @param priority Higher numbers = higher priority (default 0)
+   * @returns Message ID for tracking
+   */
   async enqueue(type, payload, priority = 0) {
     const message = {
       id: generateId(),
@@ -4980,7 +4997,9 @@ const _MessageQueue = class _MessageQueue extends events.EventEmitter {
       status: "pending"
     };
     this.messages.push(message);
-    this.messages.sort((a, b) => b.priority - a.priority);
+    this.messages.sort(
+      (a, b) => b.priority - a.priority || a.timestamp - b.timestamp
+    );
     this.emit("message:added", message);
     this.processQueue();
     return message.id;
@@ -5076,6 +5095,143 @@ const _MessageQueue = class _MessageQueue extends events.EventEmitter {
 };
 __publicField(_MessageQueue, "instance");
 let MessageQueue = _MessageQueue;
+const createResult = (data) => ({
+  success: true,
+  data
+});
+const createError = (code, message, details) => ({
+  success: false,
+  error: { code, message, details }
+});
+const _IPCService = class _IPCService {
+  constructor() {
+    __publicField(this, "services");
+    __publicField(this, "queue");
+    this.services = /* @__PURE__ */ new Map();
+    this.queue = MessageQueue.getInstance();
+    this.setupIPC();
+  }
+  /**
+   * Get the singleton instance
+   */
+  static getInstance() {
+    if (!_IPCService.instance) {
+      _IPCService.instance = new _IPCService();
+    }
+    return _IPCService.instance;
+  }
+  /**
+   * Register a service with the IPC system
+   */
+  registerService(config) {
+    if (this.services.has(config.id)) {
+      throw new Error(`Service ${config.id} is already registered`);
+    }
+    const service = {
+      config,
+      handlers: /* @__PURE__ */ new Map()
+    };
+    this.services.set(config.id, service);
+    return service;
+  }
+  /**
+   * Register a handler for a specific service action
+   */
+  registerHandler(serviceId, action, handler) {
+    const service = this.services.get(serviceId);
+    if (!service) {
+      throw new Error(`Service ${serviceId} not found`);
+    }
+    service.handlers.set(action, handler);
+  }
+  /**
+   * Emit an event to all renderer processes
+   */
+  emit(event) {
+    console.log("[IPCService] Emitting event:", event);
+    this.queue.enqueue(
+      "ipc:event",
+      async () => {
+        console.log("[IPCService] Processing queued event:", event);
+        const windows = electron.BrowserWindow.getAllWindows();
+        windows.forEach((window) => {
+          console.log("[IPCService] Sending event to window:", window.id);
+          window.webContents.send("ipc:event", event);
+        });
+      },
+      1
+    );
+  }
+  /**
+   * Unregister a service
+   */
+  unregisterService(serviceId) {
+    this.services.delete(serviceId);
+  }
+  /**
+   * Set up IPC listeners
+   */
+  setupIPC() {
+    electron.ipcMain.handle("ipc:command", async (_, command) => {
+      try {
+        return await this.handleCommand(command);
+      } catch (error) {
+        return createError(
+          "COMMAND_ERROR",
+          error instanceof Error ? error.message : "Unknown error",
+          error
+        );
+      }
+    });
+    this.queue.registerHandler("ipc:event", async (message) => {
+      const event = message.payload;
+      await event();
+    });
+    this.queue.registerHandler(
+      "ipc:execute",
+      async (message) => {
+        const handler = message.payload;
+        await handler();
+      }
+    );
+  }
+  /**
+   * Handle an incoming command
+   */
+  async handleCommand(command) {
+    const service = this.services.get(command.service);
+    if (!service) {
+      return createError(
+        "SERVICE_NOT_FOUND",
+        `Service ${command.service} not found`
+      );
+    }
+    const handler = service.handlers.get(command.action);
+    if (!handler) {
+      return createError(
+        "HANDLER_NOT_FOUND",
+        `Handler for ${command.service}:${command.action} not found`
+      );
+    }
+    try {
+      const result = await this.queue.enqueue(
+        "ipc:execute",
+        async () => handler(command.params || {}),
+        service.config.priority || 2
+      );
+      return createResult(result);
+    } catch (error) {
+      return createError(
+        "EXECUTION_ERROR",
+        error instanceof Error ? error.message : "Unknown error",
+        error
+      );
+    }
+  }
+};
+__publicField(_IPCService, "instance");
+let IPCService = _IPCService;
+const ipc = IPCService.getInstance();
 class KeyboardService extends events.EventEmitter {
   constructor() {
     super();
@@ -5101,10 +5257,15 @@ class KeyboardService extends events.EventEmitter {
           }
           try {
             const state = JSON.parse(trimmed);
+            console.log("[KeyboardService] Parsed keyboard state:", state);
             const keyboardState = {
               pressedKeys: Array.isArray(state.pressedKeys) ? state.pressedKeys : [],
               timestamp: Date.now()
             };
+            console.log(
+              "[KeyboardService] Enqueueing keyboard event:",
+              keyboardState
+            );
             this.queue.enqueue("keyboardEvent", keyboardState);
           } catch (parseError) {
             if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -5119,21 +5280,77 @@ class KeyboardService extends events.EventEmitter {
     this.store = Store.getInstance();
     this.queue = MessageQueue.getInstance();
     this.setupQueueHandlers();
+    this.setupIPCHandlers();
+  }
+  /**
+   * Set up IPC service handlers
+   */
+  setupIPCHandlers() {
+    ipc.registerService({
+      id: "keyboard",
+      priority: 1
+      // High priority for keyboard events
+    });
+    ipc.registerHandler("keyboard", "start", async () => {
+      await this.startListening();
+      return this.getState();
+    });
+    ipc.registerHandler("keyboard", "stop", async () => {
+      await this.stopListening();
+      return this.getState();
+    });
+    ipc.registerHandler(
+      "keyboard",
+      "restart",
+      async (params) => {
+        await this.restartWithConfig(params.config);
+        return this.getState();
+      }
+    );
+    ipc.registerHandler("keyboard", "getState", async () => {
+      return this.getState();
+    });
   }
   setupQueueHandlers() {
     this.queue.registerHandler("setState", async (message) => {
       var _a;
+      console.log("[KeyboardService] Handling setState:", message.payload);
       const updates = message.payload;
       this.state = { ...this.state, ...updates };
       (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", {
         ...this.state,
         isRunning: this.isRunning()
       });
+      console.log("[KeyboardService] Emitting state changed event:", {
+        ...this.state,
+        isRunning: this.isRunning()
+      });
+      ipc.emit({
+        service: "keyboard",
+        event: "stateChanged",
+        data: {
+          ...this.state,
+          isRunning: this.isRunning()
+        }
+      });
       this.emit("state-change", this.state);
     });
     this.queue.registerHandler("keyboardEvent", async (message) => {
       var _a;
+      console.log(
+        "[KeyboardService] Handling keyboard event:",
+        message.payload
+      );
       (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-event", message.payload);
+      console.log(
+        "[KeyboardService] Emitting keyPressed event:",
+        message.payload
+      );
+      ipc.emit({
+        service: "keyboard",
+        event: "keyPressed",
+        data: message.payload
+      });
     });
     this.queue.on("message:failed", (message) => {
       var _a;
