@@ -21,7 +21,9 @@ import { EventEmitter } from "events";
 import path from "path";
 import { Store } from "@electron/services/store";
 import { MessageQueue } from "@electron/services/queue";
+import { ipc } from "@electron/services/ipc";
 import { HyperKeyFeatureConfig } from "./types/hyperkey-feature";
+import { KeyboardService as KeyboardServiceType } from "./types/keyboard-ipc";
 
 interface KeyboardState {
   pressedKeys: string[];
@@ -57,21 +59,83 @@ export class KeyboardService extends EventEmitter {
     this.store = Store.getInstance();
     this.queue = MessageQueue.getInstance();
     this.setupQueueHandlers();
+    this.setupIPCHandlers();
+  }
+
+  /**
+   * Set up IPC service handlers
+   */
+  private setupIPCHandlers(): void {
+    // Register keyboard service
+    ipc.registerService({
+      id: "keyboard",
+      priority: 1, // High priority for keyboard events
+    });
+
+    // Register command handlers
+    ipc.registerHandler("keyboard", "start", async () => {
+      await this.startListening();
+      return this.getState();
+    });
+
+    ipc.registerHandler("keyboard", "stop", async () => {
+      await this.stopListening();
+      return this.getState();
+    });
+
+    ipc.registerHandler(
+      "keyboard",
+      "restart",
+      async (params: KeyboardServiceType["commands"]["restart"]) => {
+        await this.restartWithConfig(params.config);
+        return this.getState();
+      }
+    );
+
+    ipc.registerHandler("keyboard", "getState", async () => {
+      return this.getState();
+    });
   }
 
   private setupQueueHandlers(): void {
     this.queue.registerHandler("setState", async (message) => {
+      console.log("[KeyboardService] Handling setState:", message.payload);
       const updates = message.payload as Partial<ServiceState>;
       this.state = { ...this.state, ...updates };
       this.mainWindow?.webContents.send("keyboard-service-state", {
         ...this.state,
         isRunning: this.isRunning(),
       });
+      console.log("[KeyboardService] Emitting state changed event:", {
+        ...this.state,
+        isRunning: this.isRunning(),
+      });
+      ipc.emit({
+        service: "keyboard",
+        event: "stateChanged",
+        data: {
+          ...this.state,
+          isRunning: this.isRunning(),
+        },
+      });
       this.emit("state-change", this.state);
     });
 
     this.queue.registerHandler("keyboardEvent", async (message) => {
+      console.log(
+        "[KeyboardService] Handling keyboard event:",
+        message.payload
+      );
       this.mainWindow?.webContents.send("keyboard-event", message.payload);
+      console.log(
+        "[KeyboardService] Emitting keyPressed event:",
+        message.payload
+      );
+      ipc.emit({
+        service: "keyboard",
+        event: "keyPressed",
+        data: message.payload,
+      });
     });
 
     this.queue.on("message:failed", (message) => {
@@ -464,6 +528,8 @@ export class KeyboardService extends EventEmitter {
 
         try {
           const state = JSON.parse(trimmed);
+          console.log("[KeyboardService] Parsed keyboard state:", state);
+
           const keyboardState: KeyboardState = {
             pressedKeys: Array.isArray(state.pressedKeys)
               ? state.pressedKeys
@@ -471,6 +537,10 @@ export class KeyboardService extends EventEmitter {
             timestamp: Date.now(),
           };
 
+          console.log(
+            "[KeyboardService] Enqueueing keyboard event:",
+            keyboardState
+          );
           // Queue keyboard events instead of sending directly
           this.queue.enqueue("keyboardEvent", keyboardState);
         } catch (parseError) {
