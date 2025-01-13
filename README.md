@@ -6,7 +6,7 @@
 [![Built with Electron](https://img.shields.io/badge/Built%20with-Electron-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Star](https://img.shields.io/github/stars/dougwithseismic/hypercaps?style=social)](https://github.com/dougwithseismic/hypercaps)
 
-The Keyboard Hack for Windows Users Living at Mach 10
+The Keyboad Hack for Windows Users Living at Mach 10
 
 Transform your keyboard into a productivity powerhouse. Born from the frustration of Windows users who needed more speed, more control, and more power than PowerToys could deliver. If you've ever felt held back by your keyboard, this is your nitro boost.
 
