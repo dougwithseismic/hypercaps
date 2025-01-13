@@ -1,17 +1,16 @@
-import type {
-  IPCCommand,
-  IPCResult,
-  IPCEvent,
-  IPCEventHandler,
-} from "@electron/services/ipc/types";
+import type { IPCCommand, IPCEventHandler } from "@electron/services/ipc/types";
 
 declare global {
   interface Window {
+    electron: {
+      minimize: () => void;
+      close: () => void;
+    };
     api: {
       ipc: {
         run: <TParams = unknown, TResult = unknown>(
           command: IPCCommand<TParams>
-        ) => Promise<TResult>;
+        ) => Promise<{ data: TResult; success: boolean }>;
         on: <TData = unknown>(
           service: string,
           event: string,
@@ -54,7 +53,7 @@ class IPCClient {
    */
   public async run<TParams = unknown, TResult = unknown>(
     command: IPCCommand<TParams>
-  ): Promise<TResult> {
+  ): Promise<{ data: TResult; success: boolean }> {
     console.log("[IPCClient] Running command:", command);
     const result = await window.api.ipc.run<TParams, TResult>(command);
     console.log("[IPCClient] Command result:", result);
