@@ -1134,19 +1134,39 @@ class TrayFeature {
         type: "checkbox",
         checked: isEnabled,
         accelerator: "CommandOrControl+Shift+E",
-        click: (menuItem) => {
-          var _a, _b, _c, _d;
-          if (menuItem.checked) {
-            const state = (_a = this.keyboardService) == null ? void 0 : _a.getState();
-            console.log("CHECKBOX", state);
-            (_b = this.keyboardService) == null ? void 0 : _b.startListening();
-          } else {
-            (_c = this.keyboardService) == null ? void 0 : _c.stopListening();
+        click: async (menuItem) => {
+          var _a, _b, _c, _d, _e, _f;
+          console.log("[Tray] Toggle HyperCaps:", menuItem.checked);
+          const prevState = (_a = this.keyboardService) == null ? void 0 : _a.getState();
+          console.log("[Tray] Previous state:", prevState);
+          try {
+            if (menuItem.checked) {
+              await ((_b = this.keyboardService) == null ? void 0 : _b.startListening());
+            } else {
+              await ((_c = this.keyboardService) == null ? void 0 : _c.stopListening());
+            }
+            const newState = (_d = this.keyboardService) == null ? void 0 : _d.getState();
+            console.log("[Tray] New state:", newState);
+            await store.update((draft) => {
+              const feature = draft.features.find((f) => f.name === "hyperKey");
+              if (feature) {
+                feature.isFeatureEnabled = menuItem.checked;
+              }
+            });
+            const finalState = (_e = this.keyboardService) == null ? void 0 : _e.getState();
+            console.log("[Tray] Final state check:", {
+              menuChecked: menuItem.checked,
+              serviceState: finalState,
+              processRunning: (_f = this.keyboardService) == null ? void 0 : _f.isRunning()
+            });
+          } catch (error) {
+            console.error("[Tray] Error toggling service:", error);
+            menuItem.checked = !menuItem.checked;
+            electron.dialog.showErrorBox(
+              "HyperCaps Error",
+              `Failed to ${menuItem.checked ? "enable" : "disable"} HyperCaps: ${error.message}`
+            );
           }
-          (_d = this.mainWindow) == null ? void 0 : _d.webContents.send(
-            "keyboard-service-state",
-            menuItem.checked
-          );
         }
       },
       { type: "separator" },

@@ -366,11 +366,15 @@ public class KeyboardHook {
     }
     finally {
         # Cleanup when the script exits
+        Write-Debug-Message "Starting cleanup process..."
         [KeyboardHook]::Cleanup()
         Write-Debug-Message "Keyboard hook cleaned up"
+        Write-Debug-Message "Process terminating..."
     }
 }
 catch {
+    Write-Debug-Message "Fatal error occurred: $_"
+    Write-Debug-Message "Stack trace: $($_.ScriptStackTrace)"
     Write-Error "Error in keyboard monitor: $_"
     exit 1
 } 

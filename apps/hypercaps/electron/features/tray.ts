@@ -56,19 +56,46 @@ export class TrayFeature {
         type: "checkbox",
         checked: isEnabled,
         accelerator: "CommandOrControl+Shift+E",
-        click: (menuItem) => {
-          if (menuItem.checked) {
-            const state = this.keyboardService?.getState();
-            console.log("CHECKBOX", state);
+        click: async (menuItem) => {
+          console.log("[Tray] Toggle HyperCaps:", menuItem.checked);
 
-            this.keyboardService?.startListening();
-          } else {
-            this.keyboardService?.stopListening();
+          const prevState = this.keyboardService?.getState();
+          console.log("[Tray] Previous state:", prevState);
+
+          try {
+            if (menuItem.checked) {
+              await this.keyboardService?.startListening();
+            } else {
+              await this.keyboardService?.stopListening();
+            }
+
+            const newState = this.keyboardService?.getState();
+            console.log("[Tray] New state:", newState);
+
+            // Update store to persist the state
+            await store.update((draft) => {
+              const feature = draft.features.find((f) => f.name === "hyperKey");
+              if (feature) {
+                feature.isFeatureEnabled = menuItem.checked;
+              }
+            });
+
+            // Double check our state is in sync
+            const finalState = this.keyboardService?.getState();
+            console.log("[Tray] Final state check:", {
+              menuChecked: menuItem.checked,
+              serviceState: finalState,
+              processRunning: this.keyboardService?.isRunning(),
+            });
+          } catch (error) {
+            console.error("[Tray] Error toggling service:", error);
+            // Revert checkbox if operation failed
+            menuItem.checked = !menuItem.checked;
+            dialog.showErrorBox(
+              "HyperCaps Error",
+              `Failed to ${menuItem.checked ? "enable" : "disable"} HyperCaps: ${error.message}`
+            );
           }
-          this.mainWindow?.webContents.send(
-            "keyboard-service-state",
-            menuItem.checked
-          );
         },
       },
       { type: "separator" },
