@@ -110,7 +110,7 @@ function Index() {
             {hyperKeyConfig?.modifiers.length === 0 ? (
               <span className="text-gray-500">None</span>
             ) : (
-              hyperKeyConfig?.modifiers.map((mod) => (
+              hyperKeyConfig?.modifiers.map((mod: string) => (
                 <Badge key={mod} variant="outline">
                   {mod}
                 </Badge>
