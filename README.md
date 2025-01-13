@@ -1,10 +1,10 @@
 # HyperCaps 🚀
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
-[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/withseismic/hypercaps/issues)
+[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/dougwithseismic/hypercaps/issues)
 [![Windows Support](https://img.shields.io/badge/Windows-0078D6?style=flat&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 [![Built with Electron](https://img.shields.io/badge/Built%20with-Electron-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
-[![Follow](https://img.shields.io/twitter/follow/withseismic?style=social)](https://twitter.com/withseismic)
+[![Star](https://img.shields.io/github/stars/dougwithseismic/hypercaps?style=social)](https://github.com/dougwithseismic/hypercaps)
 
 The Keyboard Hack for Windows Users Living at Mach 10
 
