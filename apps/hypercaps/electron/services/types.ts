@@ -1,5 +1,5 @@
-export interface HyperKeyConfig {
-  enabled: boolean;
+export interface HyperKeyFeatureConfig {
+  isEnabled: boolean;
   trigger: string;
   modifiers: string[];
   capsLockBehavior?: "None" | "DoublePress" | "BlockToggle";

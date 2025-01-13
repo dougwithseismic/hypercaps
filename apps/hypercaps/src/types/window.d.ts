@@ -1,4 +1,8 @@
-import { HyperKeyConfig, KeyMapping } from "../../electron/services/types";
+import {
+  HyperKeyFeatureConfig,
+  KeyMapping,
+} from "../../electron/services/types";
+import { AppState } from "../../electron/services/store";
 
 interface KeyboardEvent {
   pressedKeys: string[];
@@ -11,7 +15,7 @@ declare global {
       // Keyboard service methods
       startListening: () => void;
       stopListening: () => void;
-      onKeyboardEvent: (callback: (event: any) => void) => void;
+      onKeyboardEvent: (callback: (event: KeyboardEvent) => void) => void;
       onKeyboardServiceState: (callback: (enabled: boolean) => void) => void;
       onKeyboardServiceLoading: (callback: (loading: boolean) => void) => void;
 
@@ -25,10 +29,12 @@ declare global {
       deleteMapping: (id: string) => Promise<void>;
 
       // HyperKey config
-      getHyperKeyConfig: () => Promise<HyperKeyConfig>;
-      setHyperKeyConfig: (config: HyperKeyConfig) => Promise<void>;
-      restartWithConfig: (config: HyperKeyConfig) => Promise<void>;
-      onHyperKeyState: (callback: (config: HyperKeyConfig) => void) => void;
+      getHyperKeyConfig: () => Promise<HyperKeyFeatureConfig>;
+      setHyperKeyConfig: (config: HyperKeyFeatureConfig) => Promise<void>;
+      restartWithConfig: (config: HyperKeyFeatureConfig) => Promise<void>;
+      onHyperKeyState: (
+        callback: (config: HyperKeyFeatureConfig) => void
+      ) => void;
 
       // Startup settings
       getStartupSettings: () => Promise<{
@@ -37,6 +43,10 @@ declare global {
       }>;
       setStartupOnBoot: (enabled: boolean) => Promise<void>;
       setEnableOnStartup: (enabled: boolean) => Promise<void>;
+
+      // Store state
+      getFullState: () => Promise<AppState>;
+      onStoreStateUpdate: (callback: (state: AppState) => void) => void;
     };
     electron: {
       minimize: () => void;

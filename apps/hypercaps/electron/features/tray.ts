@@ -37,7 +37,7 @@ export class TrayFeature {
     if (!this.tray) return;
 
     const store = Store.getInstance();
-    const isEnabled = await store.getIsEnabled();
+    const isEnabled = await store.getIsServiceEnabled();
     const startupOnBoot = await store.getStartupOnBoot();
     const enableOnStartup = await store.getEnableOnStartup();
 

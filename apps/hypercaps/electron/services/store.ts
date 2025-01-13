@@ -1,14 +1,31 @@
 import { app } from "electron";
 import path from "path";
 import fs from "fs/promises";
-import { HyperKeyConfig, KeyMapping } from "./types";
+import { HyperKeyFeatureConfig, KeyMapping } from "./types";
 
-interface AppState {
-  mappings: KeyMapping[];
+type FeatureName = "hyperKey" | "test";
+
+interface TestFeatureConfig {
+  testSetting: string;
+}
+
+// Set features
+type FeatureConfig = {
+  hyperKey: HyperKeyFeatureConfig;
+  test: TestFeatureConfig;
+};
+
+interface Feature<T extends FeatureName> {
+  name: T;
   isEnabled: boolean;
+  config: FeatureConfig[T];
+}
+
+export interface AppState {
+  mappings: KeyMapping[];
   startupOnBoot: boolean;
   enableOnStartup: boolean;
-  hyperKeyConfig: HyperKeyConfig;
+  features: Feature<FeatureName>[];
 }
 
 export class Store {
@@ -20,14 +37,19 @@ export class Store {
     this.filePath = path.join(app.getPath("userData"), "state.json");
     this.state = {
       mappings: [],
-      isEnabled: true,
       startupOnBoot: false,
       enableOnStartup: true,
-      hyperKeyConfig: {
-        enabled: false,
-        trigger: "CapsLock",
-        modifiers: [],
-      },
+      features: [
+        {
+          name: "hyperKey",
+          isEnabled: false,
+          config: {
+            isEnabled: true,
+            trigger: "CapsLock",
+            modifiers: ["LShiftKey"],
+          },
+        },
+      ],
     };
   }
 
@@ -41,7 +63,44 @@ export class Store {
   public async load(): Promise<void> {
     try {
       const data = await fs.readFile(this.filePath, "utf-8");
-      this.state = JSON.parse(data);
+      const loadedState = JSON.parse(data);
+
+      // Migrate old hyperKeyConfig to feature system
+      if (
+        "hyperKeyConfig" in loadedState ||
+        "isServiceEnabled" in loadedState
+      ) {
+        loadedState.features = loadedState.features || [];
+
+        // Only migrate if hyperKey feature doesn't exist
+        if (
+          !loadedState.features.some(
+            (f: Feature<FeatureName>) => f.name === "hyperKey"
+          )
+        ) {
+          const isEnabled = loadedState.isServiceEnabled ?? false;
+          const config = loadedState.hyperKeyConfig ?? {
+            isEnabled,
+            trigger: "CapsLock",
+            modifiers: ["LShiftKey"],
+          };
+
+          loadedState.features.push({
+            name: "hyperKey",
+            isEnabled,
+            config: {
+              ...config,
+              isEnabled,
+            },
+          });
+        }
+
+        // Clean up old properties
+        delete loadedState.hyperKeyConfig;
+        delete loadedState.isServiceEnabled;
+      }
+
+      this.state = loadedState;
     } catch (error) {
       // If file doesn't exist or is invalid, use default state
       await this.save();
@@ -96,13 +155,88 @@ export class Store {
     await this.save();
   }
 
-  // Service state methods
-  public async getIsEnabled(): Promise<boolean> {
-    return this.state.isEnabled;
+  // Feature management methods
+  public async getFeature<T extends FeatureName>(
+    name: T
+  ): Promise<Feature<T> | undefined> {
+    return this.state.features.find((f) => f.name === name) as Feature<T>;
   }
 
-  public async setIsEnabled(enabled: boolean): Promise<void> {
-    this.state.isEnabled = enabled;
+  public async updateFeature<T extends FeatureName>(
+    name: T,
+    updates: Partial<Feature<T>>
+  ): Promise<Feature<T>> {
+    const index = this.state.features.findIndex((f) => f.name === name);
+    if (index === -1) {
+      throw new Error(`Feature ${name} not found`);
+    }
+
+    const updatedFeature = {
+      ...this.state.features[index],
+      ...updates,
+    } as Feature<T>;
+
+    this.state.features[index] = updatedFeature;
+    await this.save();
+    return updatedFeature;
+  }
+
+  // HyperKey config methods
+  public async getHyperKeyConfig(): Promise<HyperKeyFeatureConfig> {
+    const hyperKeyFeature = this.state.features.find(
+      (f): f is Feature<"hyperKey"> => f.name === "hyperKey"
+    );
+    if (!hyperKeyFeature) {
+      // Create default config if not found
+      const defaultConfig: Feature<"hyperKey"> = {
+        name: "hyperKey",
+        isEnabled: false,
+        config: {
+          isEnabled: false,
+          trigger: "CapsLock",
+          modifiers: ["LShiftKey"],
+        },
+      };
+      this.state.features.push(defaultConfig);
+      await this.save();
+      return defaultConfig.config;
+    }
+    return hyperKeyFeature.config;
+  }
+
+  public async setHyperKeyConfig(config: HyperKeyFeatureConfig): Promise<void> {
+    const hyperKeyFeature = this.state.features.find(
+      (f): f is Feature<"hyperKey"> => f.name === "hyperKey"
+    );
+    if (hyperKeyFeature) {
+      hyperKeyFeature.config = config;
+      hyperKeyFeature.isEnabled = config.isEnabled;
+    } else {
+      this.state.features.push({
+        name: "hyperKey",
+        isEnabled: config.isEnabled,
+        config,
+      });
+    }
+    await this.save();
+  }
+
+  // Service state methods
+  public async getIsServiceEnabled(): Promise<boolean> {
+    const hyperKeyFeature = this.state.features.find(
+      (f): f is Feature<"hyperKey"> => f.name === "hyperKey"
+    );
+    return hyperKeyFeature?.isEnabled ?? false;
+  }
+
+  public async setIsServiceEnabled(enabled: boolean): Promise<void> {
+    const hyperKeyFeature = this.state.features.find(
+      (f): f is Feature<"hyperKey"> => f.name === "hyperKey"
+    );
+    if (hyperKeyFeature) {
+      hyperKeyFeature.isEnabled = enabled;
+      hyperKeyFeature.config.isEnabled = enabled;
+    }
     await this.save();
   }
 
@@ -135,22 +269,8 @@ export class Store {
     await this.save();
   }
 
-  // HyperKey config methods
-  public async getHyperKeyConfig(): Promise<HyperKeyConfig> {
-    if (!this.state.hyperKeyConfig) {
-      // Ensure we have a default config if none exists
-      this.state.hyperKeyConfig = {
-        enabled: false,
-        trigger: "CapsLock",
-        modifiers: [],
-      };
-      await this.save();
-    }
-    return this.state.hyperKeyConfig;
-  }
-
-  public async setHyperKeyConfig(config: HyperKeyConfig): Promise<void> {
-    this.state.hyperKeyConfig = config;
-    await this.save();
+  // Get full store state
+  public async getFullState(): Promise<AppState> {
+    return { ...this.state };
   }
 }

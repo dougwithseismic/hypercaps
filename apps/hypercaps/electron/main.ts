@@ -137,20 +137,29 @@ app.whenReady().then(async () => {
     await trayFeature.initialize();
   }
 
-  // Setup startup settings IPC handlers
+  // Startup settings
   ipcMain.handle("get-startup-settings", async () => {
-    return {
-      startupOnBoot: await store.getStartupOnBoot(),
-      enableOnStartup: await store.getEnableOnStartup(),
-    };
+    const startupOnBoot = await store.getStartupOnBoot();
+    const enableOnStartup = await store.getEnableOnStartup();
+    return { startupOnBoot, enableOnStartup };
   });
 
-  ipcMain.handle("set-startup-on-boot", async (event, enabled: boolean) => {
+  ipcMain.handle("set-startup-on-boot", async (_, enabled: boolean) => {
     await store.setStartupOnBoot(enabled);
   });
 
-  ipcMain.handle("set-enable-on-startup", async (event, enabled: boolean) => {
+  ipcMain.handle("set-enable-on-startup", async (_, enabled: boolean) => {
     await store.setEnableOnStartup(enabled);
+  });
+
+  // Store state
+  ipcMain.handle("get-full-state", async () => {
+    return keyboardService.getFullState();
+  });
+
+  // Window controls
+  ipcMain.on("minimize-window", () => {
+    mainWindow?.minimize();
   });
 });
 

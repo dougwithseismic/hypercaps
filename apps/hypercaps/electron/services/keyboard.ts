@@ -2,7 +2,10 @@ import { BrowserWindow, dialog } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import { Store } from "./store";
-import { HyperKeyConfig, KeyMapping } from "./types";
+import { HyperKeyFeatureConfig, KeyMapping } from "./types";
+
+// Import AppState from store
+import type { AppState } from "./store";
 
 export class KeyboardService {
   private mainWindow: BrowserWindow | null = null;
@@ -17,26 +20,25 @@ export class KeyboardService {
 
   public async init(): Promise<void> {
     await this.store.load();
-    const isEnabled = await this.store.getIsEnabled();
-    const hyperKeyConfig = await this.store.getHyperKeyConfig();
+    const hyperKeyFeature = await this.store.getFeature("hyperKey");
 
-    // Update hyperkey config to match service state
-    if (hyperKeyConfig.enabled !== isEnabled) {
-      await this.store.setHyperKeyConfig({
-        ...hyperKeyConfig,
-        enabled: isEnabled,
-      });
+    if (!hyperKeyFeature) {
+      throw new Error("HyperKey feature not found");
     }
 
-    // Send both states to the renderer
+    const isEnabled = hyperKeyFeature.isEnabled;
+    const hyperKeyConfig = hyperKeyFeature.config;
+
+    // Send states to renderer
     this.mainWindow?.webContents.send("keyboard-service-state", isEnabled);
     this.mainWindow?.webContents.send("hyperkey-state", {
       ...hyperKeyConfig,
       enabled: isEnabled,
     });
 
-    console.log("[KeyboardService] isEnabled:", isEnabled);
-    // Only start if service is enabled
+    // Send full state
+    await this.notifyStateUpdate();
+
     if (isEnabled) {
       await this.startListening();
     }
@@ -44,6 +46,15 @@ export class KeyboardService {
 
   public setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window;
+  }
+
+  public async getFullState(): Promise<AppState> {
+    return this.store.getFullState();
+  }
+
+  private async notifyStateUpdate(): Promise<void> {
+    const fullState = await this.store.getFullState();
+    this.mainWindow?.webContents.send("store-state-update", fullState);
   }
 
   public async startListening(): Promise<void> {
@@ -90,21 +101,24 @@ export class KeyboardService {
         this.keyboardProcess = null;
       }
 
-      // Get hyperkey config - store is already loaded in init()
-      const hyperKeyConfig = await this.store.getHyperKeyConfig();
-      if (!hyperKeyConfig) {
-        throw new Error("Failed to get hyperkey config");
+      // Get hyperkey feature
+      const hyperKeyFeature = await this.store.getFeature("hyperKey");
+      if (!hyperKeyFeature) {
+        throw new Error("Failed to get hyperkey feature");
       }
 
-      console.log("[KeyboardService] Got hyperkey config:", hyperKeyConfig);
+      console.log(
+        "[KeyboardService] Got hyperkey config:",
+        hyperKeyFeature.config
+      );
 
       // Convert trigger to proper case for Windows.Forms.Keys enum
       const config = {
-        ...hyperKeyConfig,
-        trigger: hyperKeyConfig.trigger,
+        ...hyperKeyFeature.config,
+        enabled: hyperKeyFeature.isEnabled,
         // Ensure modifiers is always an array
-        modifiers: Array.isArray(hyperKeyConfig.modifiers)
-          ? hyperKeyConfig.modifiers
+        modifiers: Array.isArray(hyperKeyFeature.config.modifiers)
+          ? hyperKeyFeature.config.modifiers
           : [],
       };
 
@@ -114,7 +128,7 @@ export class KeyboardService {
       const command = [
         // First set the config
         "$Config = @{",
-        `enabled=$${config.enabled.toString().toLowerCase()};`,
+        `enabled=$${config.isEnabled.toString().toLowerCase()};`,
         `trigger='${config.trigger}';`,
         // Always create a PowerShell array, even if empty
         `modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(",") || "@()"});`,
@@ -220,8 +234,10 @@ export class KeyboardService {
       });
 
       console.log("[KeyboardService] Updating store and sending success state");
-      await this.store.setIsEnabled(true);
+      await this.store.setIsServiceEnabled(true);
       this.mainWindow?.webContents.send("keyboard-service-state", true);
+
+      await this.notifyStateUpdate();
     } catch (error) {
       console.error("[KeyboardService] Startup error:", error);
       this.handleStartupFailure(
@@ -261,8 +277,10 @@ export class KeyboardService {
       this.keyboardProcess.kill();
       this.keyboardProcess = null;
     }
-    await this.store.setIsEnabled(false);
+    await this.store.setIsServiceEnabled(false);
     this.mainWindow?.webContents.send("keyboard-service-state", false);
+
+    await this.notifyStateUpdate();
   }
 
   public async getMappings(): Promise<KeyMapping[]> {
@@ -272,18 +290,23 @@ export class KeyboardService {
   public async addMapping(
     mapping: Omit<KeyMapping, "id">
   ): Promise<KeyMapping> {
-    return this.store.addMapping(mapping);
+    const result = await this.store.addMapping(mapping);
+    await this.notifyStateUpdate();
+    return result;
   }
 
   public async updateMapping(
     id: string,
     updates: Partial<KeyMapping>
   ): Promise<KeyMapping> {
-    return this.store.updateMapping(id, updates);
+    const result = await this.store.updateMapping(id, updates);
+    await this.notifyStateUpdate();
+    return result;
   }
 
   public async deleteMapping(id: string): Promise<void> {
-    return this.store.deleteMapping(id);
+    await this.store.deleteMapping(id);
+    await this.notifyStateUpdate();
   }
 
   private async executeCommand(command: string): Promise<void> {
@@ -521,9 +544,13 @@ export class KeyboardService {
     this.mainWindow = null;
   }
 
-  public async restartWithConfig(config: HyperKeyConfig): Promise<void> {
-    await this.store.setHyperKeyConfig(config);
+  public async restartWithConfig(config: HyperKeyFeatureConfig): Promise<void> {
+    await this.store.updateFeature("hyperKey", {
+      isEnabled: config.isEnabled,
+      config,
+    });
     await this.stopListening();
     await this.startListening();
+    await this.notifyStateUpdate();
   }
 }

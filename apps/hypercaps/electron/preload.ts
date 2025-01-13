@@ -38,6 +38,12 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("set-startup-on-boot", enabled),
   setEnableOnStartup: (enabled: boolean) =>
     ipcRenderer.invoke("set-enable-on-startup", enabled),
+
+  // Store state
+  getFullState: () => ipcRenderer.invoke("get-full-state"),
+  onStoreStateUpdate: (callback: (state: any) => void) => {
+    ipcRenderer.on("store-state-update", (_, state) => callback(state));
+  },
 });
 
 // Expose window control methods

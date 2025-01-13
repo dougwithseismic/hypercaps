@@ -29,7 +29,12 @@ electron.contextBridge.exposeInMainWorld("api", {
   // Startup settings
   getStartupSettings: () => electron.ipcRenderer.invoke("get-startup-settings"),
   setStartupOnBoot: (enabled) => electron.ipcRenderer.invoke("set-startup-on-boot", enabled),
-  setEnableOnStartup: (enabled) => electron.ipcRenderer.invoke("set-enable-on-startup", enabled)
+  setEnableOnStartup: (enabled) => electron.ipcRenderer.invoke("set-enable-on-startup", enabled),
+  // Store state
+  getFullState: () => electron.ipcRenderer.invoke("get-full-state"),
+  onStoreStateUpdate: (callback) => {
+    electron.ipcRenderer.on("store-state-update", (_, state) => callback(state));
+  }
 });
 electron.contextBridge.exposeInMainWorld("electron", {
   minimize: () => electron.ipcRenderer.send("minimize-window"),

@@ -13,14 +13,19 @@ const _Store = class _Store {
     this.filePath = path.join(electron.app.getPath("userData"), "state.json");
     this.state = {
       mappings: [],
-      isEnabled: true,
       startupOnBoot: false,
       enableOnStartup: true,
-      hyperKeyConfig: {
-        enabled: false,
-        trigger: "CapsLock",
-        modifiers: []
-      }
+      features: [
+        {
+          name: "hyperKey",
+          isEnabled: false,
+          config: {
+            isEnabled: true,
+            trigger: "CapsLock",
+            modifiers: ["LShiftKey"]
+          }
+        }
+      ]
     };
   }
   static getInstance() {
@@ -32,7 +37,31 @@ const _Store = class _Store {
   async load() {
     try {
       const data = await fs.readFile(this.filePath, "utf-8");
-      this.state = JSON.parse(data);
+      const loadedState = JSON.parse(data);
+      if ("hyperKeyConfig" in loadedState || "isServiceEnabled" in loadedState) {
+        loadedState.features = loadedState.features || [];
+        if (!loadedState.features.some(
+          (f) => f.name === "hyperKey"
+        )) {
+          const isEnabled = loadedState.isServiceEnabled ?? false;
+          const config = loadedState.hyperKeyConfig ?? {
+            isEnabled,
+            trigger: "CapsLock",
+            modifiers: ["LShiftKey"]
+          };
+          loadedState.features.push({
+            name: "hyperKey",
+            isEnabled,
+            config: {
+              ...config,
+              isEnabled
+            }
+          });
+        }
+        delete loadedState.hyperKeyConfig;
+        delete loadedState.isServiceEnabled;
+      }
+      this.state = loadedState;
     } catch (error) {
       await this.save();
     }
@@ -74,12 +103,75 @@ const _Store = class _Store {
     this.state.mappings = this.state.mappings.filter((m) => m.id !== id);
     await this.save();
   }
-  // Service state methods
-  async getIsEnabled() {
-    return this.state.isEnabled;
+  // Feature management methods
+  async getFeature(name) {
+    return this.state.features.find((f) => f.name === name);
   }
-  async setIsEnabled(enabled) {
-    this.state.isEnabled = enabled;
+  async updateFeature(name, updates) {
+    const index = this.state.features.findIndex((f) => f.name === name);
+    if (index === -1) {
+      throw new Error(`Feature ${name} not found`);
+    }
+    const updatedFeature = {
+      ...this.state.features[index],
+      ...updates
+    };
+    this.state.features[index] = updatedFeature;
+    await this.save();
+    return updatedFeature;
+  }
+  // HyperKey config methods
+  async getHyperKeyConfig() {
+    const hyperKeyFeature = this.state.features.find(
+      (f) => f.name === "hyperKey"
+    );
+    if (!hyperKeyFeature) {
+      const defaultConfig = {
+        name: "hyperKey",
+        isEnabled: false,
+        config: {
+          isEnabled: false,
+          trigger: "CapsLock",
+          modifiers: ["LShiftKey"]
+        }
+      };
+      this.state.features.push(defaultConfig);
+      await this.save();
+      return defaultConfig.config;
+    }
+    return hyperKeyFeature.config;
+  }
+  async setHyperKeyConfig(config) {
+    const hyperKeyFeature = this.state.features.find(
+      (f) => f.name === "hyperKey"
+    );
+    if (hyperKeyFeature) {
+      hyperKeyFeature.config = config;
+      hyperKeyFeature.isEnabled = config.isEnabled;
+    } else {
+      this.state.features.push({
+        name: "hyperKey",
+        isEnabled: config.isEnabled,
+        config
+      });
+    }
+    await this.save();
+  }
+  // Service state methods
+  async getIsServiceEnabled() {
+    const hyperKeyFeature = this.state.features.find(
+      (f) => f.name === "hyperKey"
+    );
+    return (hyperKeyFeature == null ? void 0 : hyperKeyFeature.isEnabled) ?? false;
+  }
+  async setIsServiceEnabled(enabled) {
+    const hyperKeyFeature = this.state.features.find(
+      (f) => f.name === "hyperKey"
+    );
+    if (hyperKeyFeature) {
+      hyperKeyFeature.isEnabled = enabled;
+      hyperKeyFeature.config.isEnabled = enabled;
+    }
     await this.save();
   }
   // Startup settings methods
@@ -107,21 +199,9 @@ const _Store = class _Store {
     this.state.enableOnStartup = enabled;
     await this.save();
   }
-  // HyperKey config methods
-  async getHyperKeyConfig() {
-    if (!this.state.hyperKeyConfig) {
-      this.state.hyperKeyConfig = {
-        enabled: false,
-        trigger: "CapsLock",
-        modifiers: []
-      };
-      await this.save();
-    }
-    return this.state.hyperKeyConfig;
-  }
-  async setHyperKeyConfig(config) {
-    this.state.hyperKeyConfig = config;
-    await this.save();
+  // Get full store state
+  async getFullState() {
+    return { ...this.state };
   }
 };
 __publicField(_Store, "instance");
@@ -181,26 +261,32 @@ class KeyboardService {
   async init() {
     var _a, _b;
     await this.store.load();
-    const isEnabled = await this.store.getIsEnabled();
-    const hyperKeyConfig = await this.store.getHyperKeyConfig();
-    if (hyperKeyConfig.enabled !== isEnabled) {
-      await this.store.setHyperKeyConfig({
-        ...hyperKeyConfig,
-        enabled: isEnabled
-      });
+    const hyperKeyFeature = await this.store.getFeature("hyperKey");
+    if (!hyperKeyFeature) {
+      throw new Error("HyperKey feature not found");
     }
+    const isEnabled = hyperKeyFeature.isEnabled;
+    const hyperKeyConfig = hyperKeyFeature.config;
     (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", isEnabled);
     (_b = this.mainWindow) == null ? void 0 : _b.webContents.send("hyperkey-state", {
       ...hyperKeyConfig,
       enabled: isEnabled
     });
-    console.log("[KeyboardService] isEnabled:", isEnabled);
+    await this.notifyStateUpdate();
     if (isEnabled) {
       await this.startListening();
     }
   }
   setMainWindow(window) {
     this.mainWindow = window;
+  }
+  async getFullState() {
+    return this.store.getFullState();
+  }
+  async notifyStateUpdate() {
+    var _a;
+    const fullState = await this.store.getFullState();
+    (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("store-state-update", fullState);
   }
   async startListening() {
     var _a, _b, _c, _d;
@@ -234,22 +320,25 @@ class KeyboardService {
         this.keyboardProcess.kill();
         this.keyboardProcess = null;
       }
-      const hyperKeyConfig = await this.store.getHyperKeyConfig();
-      if (!hyperKeyConfig) {
-        throw new Error("Failed to get hyperkey config");
+      const hyperKeyFeature = await this.store.getFeature("hyperKey");
+      if (!hyperKeyFeature) {
+        throw new Error("Failed to get hyperkey feature");
       }
-      console.log("[KeyboardService] Got hyperkey config:", hyperKeyConfig);
+      console.log(
+        "[KeyboardService] Got hyperkey config:",
+        hyperKeyFeature.config
+      );
       const config = {
-        ...hyperKeyConfig,
-        trigger: hyperKeyConfig.trigger,
+        ...hyperKeyFeature.config,
+        enabled: hyperKeyFeature.isEnabled,
         // Ensure modifiers is always an array
-        modifiers: Array.isArray(hyperKeyConfig.modifiers) ? hyperKeyConfig.modifiers : []
+        modifiers: Array.isArray(hyperKeyFeature.config.modifiers) ? hyperKeyFeature.config.modifiers : []
       };
       console.log("[KeyboardService] Processed config:", config);
       const command = [
         // First set the config
         "$Config = @{",
-        `enabled=$${config.enabled.toString().toLowerCase()};`,
+        `enabled=$${config.isEnabled.toString().toLowerCase()};`,
         `trigger='${config.trigger}';`,
         // Always create a PowerShell array, even if empty
         `modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(",") || "@()"});`,
@@ -345,8 +434,9 @@ class KeyboardService {
         (_a2 = this.mainWindow) == null ? void 0 : _a2.webContents.send("keyboard-service-state", false);
       });
       console.log("[KeyboardService] Updating store and sending success state");
-      await this.store.setIsEnabled(true);
+      await this.store.setIsServiceEnabled(true);
       (_d = this.mainWindow) == null ? void 0 : _d.webContents.send("keyboard-service-state", true);
+      await this.notifyStateUpdate();
     } catch (error) {
       console.error("[KeyboardService] Startup error:", error);
       this.handleStartupFailure(
@@ -385,20 +475,26 @@ class KeyboardService {
       this.keyboardProcess.kill();
       this.keyboardProcess = null;
     }
-    await this.store.setIsEnabled(false);
+    await this.store.setIsServiceEnabled(false);
     (_c = this.mainWindow) == null ? void 0 : _c.webContents.send("keyboard-service-state", false);
+    await this.notifyStateUpdate();
   }
   async getMappings() {
     return this.store.getMappings();
   }
   async addMapping(mapping) {
-    return this.store.addMapping(mapping);
+    const result = await this.store.addMapping(mapping);
+    await this.notifyStateUpdate();
+    return result;
   }
   async updateMapping(id, updates) {
-    return this.store.updateMapping(id, updates);
+    const result = await this.store.updateMapping(id, updates);
+    await this.notifyStateUpdate();
+    return result;
   }
   async deleteMapping(id) {
-    return this.store.deleteMapping(id);
+    await this.store.deleteMapping(id);
+    await this.notifyStateUpdate();
   }
   async executeCommand(command) {
     try {
@@ -549,9 +645,13 @@ class KeyboardService {
     this.mainWindow = null;
   }
   async restartWithConfig(config) {
-    await this.store.setHyperKeyConfig(config);
+    await this.store.updateFeature("hyperKey", {
+      isEnabled: config.isEnabled,
+      config
+    });
     await this.stopListening();
     await this.startListening();
+    await this.notifyStateUpdate();
   }
 }
 class TrayFeature {
@@ -573,7 +673,7 @@ class TrayFeature {
   async setupTrayMenu() {
     if (!this.tray) return;
     const store = Store.getInstance();
-    const isEnabled = await store.getIsEnabled();
+    const isEnabled = await store.getIsServiceEnabled();
     const startupOnBoot = await store.getStartupOnBoot();
     const enableOnStartup = await store.getEnableOnStartup();
     const contextMenu = electron.Menu.buildFromTemplate([
@@ -780,16 +880,21 @@ electron.app.whenReady().then(async () => {
     await trayFeature.initialize();
   }
   electron.ipcMain.handle("get-startup-settings", async () => {
-    return {
-      startupOnBoot: await store.getStartupOnBoot(),
-      enableOnStartup: await store.getEnableOnStartup()
-    };
+    const startupOnBoot = await store.getStartupOnBoot();
+    const enableOnStartup = await store.getEnableOnStartup();
+    return { startupOnBoot, enableOnStartup };
   });
-  electron.ipcMain.handle("set-startup-on-boot", async (event, enabled) => {
+  electron.ipcMain.handle("set-startup-on-boot", async (_, enabled) => {
     await store.setStartupOnBoot(enabled);
   });
-  electron.ipcMain.handle("set-enable-on-startup", async (event, enabled) => {
+  electron.ipcMain.handle("set-enable-on-startup", async (_, enabled) => {
     await store.setEnableOnStartup(enabled);
+  });
+  electron.ipcMain.handle("get-full-state", async () => {
+    return keyboardService.getFullState();
+  });
+  electron.ipcMain.on("minimize-window", () => {
+    mainWindow == null ? void 0 : mainWindow.minimize();
   });
 });
 electron.app.on("before-quit", () => {
