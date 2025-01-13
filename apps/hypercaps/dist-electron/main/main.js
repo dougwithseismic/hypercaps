@@ -147,8 +147,23 @@ class KeyboardService {
           try {
             const state = JSON.parse(trimmed);
             console.log("[KeyboardService] Parsed state:", state);
+            const pressedKeys = Array.isArray(state.pressedKeys) ? state.pressedKeys : [];
+            this.store.getMappings().then((mappings) => {
+              for (const mapping of mappings) {
+                if (!mapping.enabled) continue;
+                const allTriggersPressed = mapping.triggers.every(
+                  (trigger) => pressedKeys.includes(trigger)
+                );
+                if (allTriggersPressed) {
+                  console.log(
+                    `[KeyboardService] Executing mapping: ${mapping.name} (${mapping.id})`
+                  );
+                  this.executeMapping(mapping);
+                }
+              }
+            });
             (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-event", {
-              pressedKeys: Array.isArray(state.pressedKeys) ? state.pressedKeys : [],
+              pressedKeys,
               timestamp: Date.now()
             });
           } catch (parseError) {
@@ -384,6 +399,150 @@ class KeyboardService {
   }
   async deleteMapping(id) {
     return this.store.deleteMapping(id);
+  }
+  async executeCommand(command) {
+    try {
+      const { exec } = require("child_process");
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`[KeyboardService] Command execution error: ${error}`);
+          return;
+        }
+        if (stderr) {
+          console.error(`[KeyboardService] Command stderr: ${stderr}`);
+        }
+        if (stdout) {
+          console.log(`[KeyboardService] Command output: ${stdout}`);
+        }
+      });
+    } catch (error) {
+      console.error("[KeyboardService] Failed to execute command:", error);
+    }
+  }
+  async executeMapping(mapping) {
+    var _a, _b, _c, _d, _e, _f, _g;
+    try {
+      const now = Date.now();
+      await this.store.updateMapping(mapping.id, {
+        metadata: {
+          ...mapping.metadata,
+          lastUsed: now,
+          useCount: (((_a = mapping.metadata) == null ? void 0 : _a.useCount) || 0) + 1
+        }
+      });
+      switch (mapping.actionType) {
+        case "command": {
+          const { exec } = require("child_process");
+          const options = {
+            ...((_b = mapping.options) == null ? void 0 : _b.workingDirectory) && {
+              cwd: mapping.options.workingDirectory
+            },
+            ...((_c = mapping.options) == null ? void 0 : _c.shell) && { shell: mapping.options.shell }
+          };
+          const cmd = ((_d = mapping.options) == null ? void 0 : _d.runAsAdmin) ? `powershell.exe Start-Process -Verb RunAs "${mapping.action}"` : mapping.action;
+          if ((_e = mapping.options) == null ? void 0 : _e.async) {
+            exec(cmd, options);
+          } else {
+            await new Promise((resolve, reject) => {
+              exec(
+                cmd,
+                options,
+                (error, stdout, stderr) => {
+                  if (error) {
+                    console.error(
+                      `[KeyboardService] Command execution error:`,
+                      error
+                    );
+                    reject(error);
+                    return;
+                  }
+                  if (stderr) {
+                    console.error(`[KeyboardService] Command stderr:`, stderr);
+                  }
+                  if (stdout) {
+                    console.log(`[KeyboardService] Command output:`, stdout);
+                  }
+                  resolve(void 0);
+                }
+              );
+            });
+          }
+          break;
+        }
+        case "script": {
+          const { execFile } = require("child_process");
+          const options = {
+            ...((_f = mapping.options) == null ? void 0 : _f.workingDirectory) && {
+              cwd: mapping.options.workingDirectory
+            }
+          };
+          if ((_g = mapping.options) == null ? void 0 : _g.async) {
+            execFile(mapping.action, [], options);
+          } else {
+            await new Promise((resolve, reject) => {
+              execFile(
+                mapping.action,
+                [],
+                options,
+                (error, stdout, stderr) => {
+                  if (error) {
+                    console.error(
+                      `[KeyboardService] Script execution error:`,
+                      error
+                    );
+                    reject(error);
+                    return;
+                  }
+                  if (stderr) {
+                    console.error(`[KeyboardService] Script stderr:`, stderr);
+                  }
+                  if (stdout) {
+                    console.log(`[KeyboardService] Script output:`, stdout);
+                  }
+                  resolve(void 0);
+                }
+              );
+            });
+          }
+          break;
+        }
+        case "shortcut": {
+          const { keyboard, Key } = require("@nut-tree/nut-js");
+          const keys = mapping.action.toLowerCase().split("+");
+          const modifierKeys = keys.slice(0, -1).map((key) => {
+            switch (key) {
+              case "control":
+              case "ctrl":
+                return Key.LeftControl;
+              case "shift":
+                return Key.LeftShift;
+              case "alt":
+                return Key.LeftAlt;
+              case "command":
+              case "cmd":
+              case "win":
+                return Key.LeftWindows;
+              default:
+                return null;
+            }
+          }).filter((key) => key !== null);
+          const finalKey = keys[keys.length - 1].toUpperCase();
+          await keyboard.pressKey(...modifierKeys, Key[finalKey]);
+          await keyboard.releaseKey(...modifierKeys, Key[finalKey]);
+          break;
+        }
+        default:
+          console.error(
+            `[KeyboardService] Unknown action type: ${mapping.actionType}`
+          );
+      }
+    } catch (error) {
+      console.error("[KeyboardService] Failed to execute mapping:", error);
+      electron.dialog.showErrorBox(
+        "Shortcut Error",
+        `Failed to execute shortcut "${mapping.name}": ${error}`
+      );
+    }
   }
   dispose() {
     this.stopListening();

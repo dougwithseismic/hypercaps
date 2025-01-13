@@ -22,6 +22,10 @@ electron.contextBridge.exposeInMainWorld("api", {
   // HyperKey config
   getHyperKeyConfig: () => electron.ipcRenderer.invoke("get-hyperkey-config"),
   setHyperKeyConfig: (config) => electron.ipcRenderer.invoke("set-hyperkey-config", config),
+  restartWithConfig: (config) => electron.ipcRenderer.invoke("restart-with-config", config),
+  onHyperKeyState: (callback) => {
+    electron.ipcRenderer.on("hyperkey-state", (_, config) => callback(config));
+  },
   // Startup settings
   getStartupSettings: () => electron.ipcRenderer.invoke("get-startup-settings"),
   setStartupOnBoot: (enabled) => electron.ipcRenderer.invoke("set-startup-on-boot", enabled),

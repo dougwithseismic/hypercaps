@@ -26,6 +26,11 @@ contextBridge.exposeInMainWorld("api", {
   getHyperKeyConfig: () => ipcRenderer.invoke("get-hyperkey-config"),
   setHyperKeyConfig: (config: any) =>
     ipcRenderer.invoke("set-hyperkey-config", config),
+  restartWithConfig: (config: any) =>
+    ipcRenderer.invoke("restart-with-config", config),
+  onHyperKeyState: (callback: (config: any) => void) => {
+    ipcRenderer.on("hyperkey-state", (_, config) => callback(config));
+  },
 
   // Startup settings
   getStartupSettings: () => ipcRenderer.invoke("get-startup-settings"),
