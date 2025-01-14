@@ -68,10 +68,66 @@ export class ShortcutService {
   }
 
   private setupIPCHandlers(): void {
+    // Handle keyboard frame events
     this.ipc.registerHandler("keyboard", "frame", async (data) => {
       const frameEvent = data as KeyboardEvents["frame"];
       await this.handleFrameEvent(frameEvent);
     });
+
+    // Get shortcut manager config
+    this.ipc.registerHandler("get-shortcut-config", "get", async () => {
+      const state = (await this.store.getFeature("shortcutManager"))
+        ?.config as ShortcutState;
+      return state || { isEnabled: false, shortcuts: [] };
+    });
+
+    // Get all shortcuts
+    this.ipc.registerHandler("get-shortcuts", "get", async () => {
+      const state = (await this.store.getFeature("shortcutManager"))
+        ?.config as ShortcutState;
+      return state?.shortcuts || [];
+    });
+
+    // Add a new shortcut
+    this.ipc.registerHandler(
+      "add-shortcut",
+      "add",
+      async (shortcut: Omit<Shortcut, "id">) => {
+        await this.addShortcut(shortcut);
+      }
+    );
+
+    // Remove a shortcut
+    this.ipc.registerHandler(
+      "remove-shortcut",
+      "remove",
+      async (id: string) => {
+        await this.removeShortcut(id);
+      }
+    );
+
+    // Update a shortcut
+    this.ipc.registerHandler(
+      "update-shortcut",
+      "update",
+      async ({ id, shortcut }: { id: string; shortcut: Partial<Shortcut> }) => {
+        await this.updateShortcut(id, shortcut);
+      }
+    );
+
+    // Toggle a shortcut
+    this.ipc.registerHandler(
+      "toggle-shortcut",
+      "toggle",
+      async (id: string) => {
+        const state = (await this.store.getFeature("shortcutManager"))
+          ?.config as ShortcutState;
+        const shortcut = state?.shortcuts.find((s) => s.id === id);
+        if (shortcut) {
+          await this.updateShortcut(id, { enabled: !shortcut.enabled });
+        }
+      }
+    );
   }
 
   async initialize(): Promise<void> {
