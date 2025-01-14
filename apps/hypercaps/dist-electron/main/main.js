@@ -5772,100 +5772,6 @@ class KeyboardService extends events.EventEmitter {
     this.mainWindow = null;
   }
 }
-class TriggerMatcher {
-  constructor(trigger) {
-    __publicField(this, "state");
-    __publicField(this, "trigger");
-    this.trigger = trigger;
-    this.resetState(Date.now());
-  }
-  resetState(timestamp) {
-    this.state = {
-      currentStep: 0,
-      stepStartTime: timestamp,
-      sequenceStartTime: timestamp,
-      pressedKeys: /* @__PURE__ */ new Set(),
-      completedSteps: new Array(this.trigger.steps.length).fill(false)
-    };
-  }
-  isStepTimedOut(step, timestamp) {
-    if (!step.timeWindow) return false;
-    return timestamp - this.state.stepStartTime > step.timeWindow;
-  }
-  isSequenceTimedOut(timestamp) {
-    if (!this.trigger.totalTimeWindow) return false;
-    return timestamp - this.state.sequenceStartTime > this.trigger.totalTimeWindow;
-  }
-  isComboMatched(step) {
-    return step.keys.every((key) => this.state.pressedKeys.has(key));
-  }
-  isSingleMatched(step, buffers) {
-    return step.keys.some((key) => {
-      const buffer = buffers.get(key);
-      const bufferConfig = this.getStepBuffer(step);
-      return buffer && buffer.tapCount >= (bufferConfig.tapCount || 1);
-    });
-  }
-  getStepBuffer(step) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
-    return {
-      window: ((_a = step.buffer) == null ? void 0 : _a.window) ?? ((_b = this.trigger.defaultBuffer) == null ? void 0 : _b.window) ?? 200,
-      tapCount: ((_c = step.buffer) == null ? void 0 : _c.tapCount) ?? ((_d = this.trigger.defaultBuffer) == null ? void 0 : _d.tapCount) ?? 1,
-      tapWindow: ((_e = step.buffer) == null ? void 0 : _e.tapWindow) ?? ((_f = this.trigger.defaultBuffer) == null ? void 0 : _f.tapWindow) ?? 100,
-      holdTime: ((_g = step.buffer) == null ? void 0 : _g.holdTime) ?? ((_h = this.trigger.defaultBuffer) == null ? void 0 : _h.holdTime)
-    };
-  }
-  isStepMatched(step, buffers) {
-    if (step.type === "combo") {
-      return this.isComboMatched(step);
-    } else {
-      return this.isSingleMatched(step, buffers);
-    }
-  }
-  updateState(pressedKeys, buffers, timestamp) {
-    if (this.isSequenceTimedOut(timestamp)) {
-      this.resetState(timestamp);
-      return false;
-    }
-    const currentStep = this.trigger.steps[this.state.currentStep];
-    if (this.isStepTimedOut(currentStep, timestamp)) {
-      this.resetState(timestamp);
-      return false;
-    }
-    this.state.pressedKeys = pressedKeys;
-    if (this.isStepMatched(currentStep, buffers)) {
-      this.state.completedSteps[this.state.currentStep] = true;
-      if (this.state.currentStep < this.trigger.steps.length - 1) {
-        this.state.currentStep++;
-        this.state.stepStartTime = timestamp;
-        return false;
-      }
-      const completed = this.state.completedSteps.every((step) => step);
-      if (completed) {
-        this.resetState(timestamp);
-        return true;
-      }
-    }
-    return false;
-  }
-  getCurrentProgress() {
-    return {
-      currentStep: this.state.currentStep,
-      totalSteps: this.trigger.steps.length,
-      completedSteps: [...this.state.completedSteps]
-    };
-  }
-  getRequiredKeys() {
-    const keys = /* @__PURE__ */ new Set();
-    this.trigger.steps.forEach((step) => {
-      step.keys.forEach((key) => keys.add(key));
-    });
-    return keys;
-  }
-  getStepForKey(key) {
-    return this.trigger.steps.find((step) => step.keys.includes(key)) || null;
-  }
-}
 const byteToHex = [];
 for (let i = 0; i < 256; ++i) {
   byteToHex.push((i + 256).toString(16).slice(1));
@@ -5900,18 +5806,142 @@ function v4(options, buf, offset) {
   rnds[8] = rnds[8] & 63 | 128;
   return unsafeStringify(rnds);
 }
+class InputBufferMatcher {
+  // Window for bundling simultaneous keys
+  constructor(maxSize, maxAge) {
+    __publicField(this, "events", []);
+    __publicField(this, "maxSize");
+    __publicField(this, "maxAge");
+    __publicField(this, "SIMULTANEOUS_WINDOW", 50);
+    this.maxSize = maxSize;
+    this.maxAge = maxAge;
+  }
+  addEvent(event) {
+    const recentEvents = this.events.filter(
+      (e) => Math.abs(e.timestamp - event.timestamp) <= this.SIMULTANEOUS_WINDOW
+    );
+    if (recentEvents.length > 0) {
+      event = { ...event, timestamp: recentEvents[0].timestamp };
+    }
+    this.events.push(event);
+    this.cleanOldEvents(event.timestamp);
+    if (this.events.length > this.maxSize) {
+      this.events = this.events.slice(-this.maxSize);
+    }
+  }
+  cleanOldEvents(currentTime) {
+    this.events = this.events.filter((event) => {
+      return currentTime - event.timestamp <= this.maxAge;
+    });
+  }
+  findMatches(commands, currentTime) {
+    this.cleanOldEvents(currentTime);
+    const matches = [];
+    for (const command of commands) {
+      const match = this.matchCommand(command, currentTime);
+      if (match) {
+        matches.push(match);
+        this.events = this.events.filter((e) => !match.events.includes(e));
+      }
+    }
+    return matches;
+  }
+  matchCommand(command, currentTime) {
+    const pattern = command.pattern;
+    const events2 = this.events;
+    const eventGroups = this.groupEventsByTimestamp(events2);
+    if (eventGroups.length < pattern.sequence.length) {
+      return null;
+    }
+    for (let i = 0; i <= eventGroups.length - pattern.sequence.length; i++) {
+      const match = this.tryMatchAtIndex(i, pattern, eventGroups, currentTime);
+      if (match) {
+        return {
+          command,
+          events: match.events,
+          startTime: match.startTime,
+          endTime: match.endTime
+        };
+      }
+    }
+    return null;
+  }
+  groupEventsByTimestamp(events2) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const event of events2) {
+      const existing = Array.from(groups.entries()).find(
+        ([timestamp]) => Math.abs(timestamp - event.timestamp) <= this.SIMULTANEOUS_WINDOW
+      );
+      if (existing) {
+        existing[1].push(event);
+      } else {
+        groups.set(event.timestamp, [event]);
+      }
+    }
+    return Array.from(groups.values());
+  }
+  tryMatchAtIndex(startIndex, pattern, eventGroups, currentTime) {
+    const sequence = pattern.sequence;
+    const matchedEvents = [];
+    let lastMatchTime = eventGroups[startIndex][0].timestamp;
+    let currentIndex = startIndex;
+    for (const step of sequence) {
+      const stepEvents = this.findStepEvents(
+        currentIndex,
+        step,
+        eventGroups,
+        lastMatchTime
+      );
+      if (!stepEvents) {
+        return null;
+      }
+      matchedEvents.push(...stepEvents.events);
+      lastMatchTime = stepEvents.endTime;
+      currentIndex = stepEvents.nextIndex;
+    }
+    const startTime = matchedEvents[0].timestamp;
+    const endTime = matchedEvents[matchedEvents.length - 1].timestamp;
+    if (endTime - startTime > pattern.window) {
+      return null;
+    }
+    return {
+      events: matchedEvents,
+      startTime,
+      endTime
+    };
+  }
+  findStepEvents(startIndex, step, eventGroups, lastMatchTime) {
+    const requiredKeys = new Set(step.keys);
+    const matchedEvents = [];
+    const currentGroup = eventGroups[startIndex];
+    for (const event of currentGroup) {
+      if (requiredKeys.has(event.key)) {
+        matchedEvents.push(event);
+        requiredKeys.delete(event.key);
+      }
+    }
+    if (requiredKeys.size > 0) {
+      return null;
+    }
+    return {
+      events: matchedEvents,
+      endTime: currentGroup[currentGroup.length - 1].timestamp,
+      nextIndex: startIndex + 1
+    };
+  }
+}
 class ShortcutService {
-  // ~60fps, much more responsive
   constructor() {
     __publicField(this, "store");
     __publicField(this, "ipc");
-    __publicField(this, "triggerMatchers", /* @__PURE__ */ new Map());
-    __publicField(this, "activeBuffers", /* @__PURE__ */ new Map());
-    __publicField(this, "relevantKeys", /* @__PURE__ */ new Set());
-    __publicField(this, "cleanupTimer", null);
-    __publicField(this, "CLEANUP_INTERVAL", 16);
+    __publicField(this, "matcher");
+    __publicField(this, "relevantKeys");
+    __publicField(this, "lastExecutions");
     this.store = Store.getInstance();
     this.ipc = IPCService.getInstance();
+    this.matcher = new InputBufferMatcher(8, 1e3);
+    this.relevantKeys = /* @__PURE__ */ new Set();
+    this.lastExecutions = /* @__PURE__ */ new Map();
     this.setupIPCHandlers();
   }
   setupIPCHandlers() {
@@ -5919,124 +5949,6 @@ class ShortcutService {
       const keyboardEvent = data;
       await this.handleKeyboardEvent(keyboardEvent);
     });
-  }
-  startCleanupTimer() {
-    if (this.cleanupTimer) return;
-    this.cleanupTimer = setInterval(() => {
-      const now = Date.now();
-      this.cleanupExpiredBuffers(now);
-      if (this.activeBuffers.size === 0 && this.cleanupTimer) {
-        clearInterval(this.cleanupTimer);
-        this.cleanupTimer = null;
-      }
-    }, this.CLEANUP_INTERVAL);
-  }
-  cleanupExpiredBuffers(timestamp) {
-    let hasExpired = false;
-    for (const [key, buffer] of this.activeBuffers.entries()) {
-      if (timestamp - buffer.startTime > buffer.bufferWindow) {
-        console.log(`[ShortcutService] Buffer expired for key ${key}`);
-        this.activeBuffers.delete(key);
-        hasExpired = true;
-      }
-    }
-    if (hasExpired && this.activeBuffers.size === 0 && this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
-  }
-  getBufferConfigForKey(key) {
-    let maxWindow = 200;
-    let maxTapCount = 1;
-    let maxTapWindow = 100;
-    for (const [_, matcher] of this.triggerMatchers) {
-      const step = matcher.getStepForKey(key);
-      if (step && step.type === "single") {
-        const config = matcher.getStepBuffer(step);
-        maxWindow = Math.max(maxWindow, config.window || 200);
-        maxTapCount = Math.max(maxTapCount, config.tapCount || 1);
-        maxTapWindow = Math.max(maxTapWindow, config.tapWindow || 100);
-      }
-    }
-    return {
-      window: maxWindow,
-      tapCount: maxTapCount,
-      tapWindow: maxTapWindow
-    };
-  }
-  createOrUpdateBuffer(key, pressedKeys, timestamp) {
-    if (pressedKeys.size === 0) return;
-    let buffer = this.activeBuffers.get(key);
-    const interferingKeys = Array.from(pressedKeys).filter((pressedKey) => {
-      if (pressedKey === key) return false;
-      for (const [_, matcher] of this.triggerMatchers) {
-        const step = matcher.getStepForKey(key);
-        if (!step) continue;
-        if (step.type === "single") {
-          return true;
-        }
-        if (step.type === "combo" && step.keys.includes(pressedKey)) {
-          return false;
-        }
-      }
-      return true;
-    });
-    const hasInterference = interferingKeys.length > 0;
-    if (hasInterference) {
-      if (buffer) {
-        console.log(
-          `[ShortcutService] Clearing buffer for ${key} due to interference from:`,
-          interferingKeys
-        );
-        this.activeBuffers.delete(key);
-        return;
-      }
-      console.log(
-        `[ShortcutService] Not creating buffer for ${key} due to interference from:`,
-        interferingKeys
-      );
-      return;
-    }
-    if (!buffer) {
-      const config = this.getBufferConfigForKey(key);
-      buffer = {
-        key,
-        startTime: timestamp,
-        lastTapTime: timestamp,
-        tapCount: 1,
-        requiredTaps: config.tapCount,
-        tapWindow: config.tapWindow,
-        bufferWindow: config.window
-      };
-      this.activeBuffers.set(key, buffer);
-      this.startCleanupTimer();
-      console.log(
-        `[ShortcutService] Created new buffer for key ${key} at ${timestamp}, config:`,
-        config
-      );
-    } else {
-      const timeSinceLastTap = timestamp - buffer.lastTapTime;
-      const isKeyRepeat = timeSinceLastTap < 20;
-      if (!isKeyRepeat && timeSinceLastTap <= buffer.tapWindow) {
-        buffer.tapCount++;
-        buffer.lastTapTime = timestamp;
-        buffer.startTime = timestamp;
-        console.log(
-          `[ShortcutService] Key ${key} tapped, count: ${buffer.tapCount}/${buffer.requiredTaps} at ${timestamp}`
-        );
-      } else if (isKeyRepeat) {
-        console.log(
-          `[ShortcutService] Ignoring key repeat for ${key} (${timeSinceLastTap}ms)`
-        );
-      } else if (timeSinceLastTap > buffer.tapWindow) {
-        buffer.tapCount = 1;
-        buffer.lastTapTime = timestamp;
-        buffer.startTime = timestamp;
-        console.log(
-          `[ShortcutService] Key ${key} tap window expired, resetting count at ${timestamp}`
-        );
-      }
-    }
   }
   async initialize() {
     var _a;
@@ -6057,54 +5969,10 @@ class ShortcutService {
         });
       }
       const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
-      if (!(state == null ? void 0 : state.shortcuts) || state.shortcuts.length === 0) {
-        const testShortcut = {
-          id: v4(),
-          name: "Test Complex Notepad",
-          enabled: true,
-          trigger: {
-            steps: [
-              {
-                type: "combo",
-                keys: ["LShiftKey", "LControlKey", "N"],
-                timeWindow: 200
-              },
-              {
-                type: "single",
-                keys: ["H"],
-                buffer: {
-                  window: 800,
-                  tapCount: 2,
-                  tapWindow: 250
-                }
-              }
-            ],
-            totalTimeWindow: 2e3
-          },
-          action: {
-            type: "launch",
-            program: "notepad.exe"
-          }
-        };
-        await this.store.update((draft) => {
-          const feature2 = draft.features.find(
-            (f) => f.name === "shortcutManager"
-          );
-          if (feature2) {
-            feature2.config.shortcuts = [testShortcut];
-          }
-        });
-        const matcher = new TriggerMatcher(testShortcut.trigger);
-        this.triggerMatchers.set(testShortcut.id, matcher);
-        matcher.getRequiredKeys().forEach((key) => this.relevantKeys.add(key));
-        console.log("[ShortcutService] Added test shortcut:", testShortcut);
-      }
       if (state == null ? void 0 : state.shortcuts) {
         state.shortcuts.forEach((shortcut) => {
           if (shortcut.enabled) {
-            const matcher = new TriggerMatcher(shortcut.trigger);
-            this.triggerMatchers.set(shortcut.id, matcher);
-            matcher.getRequiredKeys().forEach((key) => this.relevantKeys.add(key));
+            this.addRelevantKeys(shortcut.pattern.sequence);
           }
         });
       }
@@ -6125,69 +5993,43 @@ class ShortcutService {
       data.timestamp
     );
     if (pressedKeys.size === 0) return;
-    for (const pressedKey of pressedKeys) {
-      if (this.relevantKeys.has(pressedKey)) continue;
-      for (const [bufferKey, _] of this.activeBuffers) {
-        console.log(
-          `[ShortcutService] Clearing buffer for ${bufferKey} due to interference from non-tracked key:`,
-          pressedKey
-        );
-        this.activeBuffers.delete(bufferKey);
-      }
-      break;
-    }
-    this.cleanupExpiredBuffers(data.timestamp);
     for (const key of pressedKeys) {
-      if (this.relevantKeys.has(key)) {
-        this.createOrUpdateBuffer(key, pressedKeys, data.timestamp);
-      }
+      const event = {
+        key,
+        type: "press",
+        timestamp: data.timestamp
+      };
+      this.matcher.addEvent(event);
     }
-    const usedBuffers = /* @__PURE__ */ new Set();
-    for (const [shortcutId, matcher] of this.triggerMatchers) {
-      const shortcut = state.shortcuts.find(
-        (s) => s.id === shortcutId
-      );
-      if (!shortcut || !shortcut.enabled) continue;
-      const isTriggered = matcher.updateState(
-        pressedKeys,
-        this.activeBuffers,
-        data.timestamp
-      );
-      if (isTriggered) {
-        console.log(`[ShortcutService] Shortcut triggered: ${shortcut.name}`);
-        await this.executeShortcut(shortcut);
-        matcher.getRequiredKeys().forEach((key) => usedBuffers.add(key));
-      } else {
-        const progress = matcher.getCurrentProgress();
-        if (progress.completedSteps.some((step) => step)) {
-          console.log(`[ShortcutService] Shortcut progress:`, {
-            name: shortcut.name,
-            currentStep: progress.currentStep + 1,
-            totalSteps: progress.totalSteps,
-            completedSteps: progress.completedSteps
-          });
-        }
-      }
+    const enabledShortcuts = state.shortcuts.filter((s) => s.enabled);
+    const matches = this.matcher.findMatches(enabledShortcuts, data.timestamp);
+    for (const match of matches) {
+      await this.executeShortcut(match);
     }
-    usedBuffers.forEach((key) => {
-      if (this.activeBuffers.has(key)) {
-        console.log(`[ShortcutService] Clearing used buffer for key ${key}`);
-        this.activeBuffers.delete(key);
-      }
-    });
   }
-  async executeShortcut(shortcut) {
+  async executeShortcut(match) {
+    const now = Date.now();
+    const lastExecution = this.lastExecutions.get(match.command.id) || 0;
+    const cooldown = match.command.cooldown || 500;
+    if (now - lastExecution < cooldown) {
+      console.log(
+        `[ShortcutService] Skipping execution of ${match.command.name} - in cooldown`
+      );
+      return;
+    }
+    console.log(`[ShortcutService] Executing shortcut: ${match.command.name}`);
+    this.lastExecutions.set(match.command.id, now);
     try {
-      if (shortcut.action.type === "launch" && shortcut.action.program) {
-        child_process.exec(shortcut.action.program, (error) => {
+      if (match.command.action.type === "launch") {
+        child_process.exec(match.command.action.program, (error) => {
           if (error) {
             console.error(
               `[ShortcutService] Error executing shortcut: ${error}`
             );
           }
         });
-      } else if (shortcut.action.type === "command" && shortcut.action.command) {
-        child_process.exec(shortcut.action.command, (error) => {
+      } else if (match.command.action.type === "command") {
+        child_process.exec(match.command.action.command, (error) => {
           if (error) {
             console.error(
               `[ShortcutService] Error executing command: ${error}`
@@ -6199,9 +6041,40 @@ class ShortcutService {
       console.error("[ShortcutService] Error executing shortcut:", error);
     }
   }
-  async addShortcut(shortcut) {
+  addRelevantKeys(sequence) {
+    sequence.forEach((item) => {
+      if (typeof item === "string") {
+        this.relevantKeys.add(item);
+      } else {
+        item.keys.forEach((key) => this.relevantKeys.add(key));
+      }
+    });
+  }
+  removeRelevantKeys(sequence, id, shortcuts) {
+    const allKeys = sequence.flatMap(
+      (item) => typeof item === "string" ? [item] : item.keys
+    );
+    allKeys.forEach((key) => {
+      let isUsedElsewhere = false;
+      for (const other of shortcuts) {
+        if (other.id !== id && other.enabled) {
+          const otherKeys = other.pattern.sequence.flatMap(
+            (seq) => typeof seq === "string" ? [seq] : seq.keys
+          );
+          if (otherKeys.includes(key)) {
+            isUsedElsewhere = true;
+            break;
+          }
+        }
+      }
+      if (!isUsedElsewhere) {
+        this.relevantKeys.delete(key);
+      }
+    });
+  }
+  async addShortcut(command) {
     const newShortcut = {
-      ...shortcut,
+      ...command,
       id: v4()
     };
     await this.store.update((draft) => {
@@ -6211,52 +6084,42 @@ class ShortcutService {
       }
     });
     if (newShortcut.enabled) {
-      const matcher = new TriggerMatcher(newShortcut.trigger);
-      this.triggerMatchers.set(newShortcut.id, matcher);
-      matcher.getRequiredKeys().forEach((key) => this.relevantKeys.add(key));
+      this.addRelevantKeys(newShortcut.pattern.sequence);
     }
   }
   async removeShortcut(id) {
-    const matcher = this.triggerMatchers.get(id);
-    if (matcher) {
-      matcher.getRequiredKeys().forEach((key) => {
-        let isUsedElsewhere = false;
-        for (const [otherId, otherMatcher] of this.triggerMatchers) {
-          if (otherId !== id && otherMatcher.getRequiredKeys().has(key)) {
-            isUsedElsewhere = true;
-            break;
-          }
-        }
-        if (!isUsedElsewhere) {
-          this.relevantKeys.delete(key);
-        }
-      });
+    var _a;
+    const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
+    const shortcut = state.shortcuts.find((s) => s.id === id);
+    if (shortcut) {
+      this.removeRelevantKeys(shortcut.pattern.sequence, id, state.shortcuts);
     }
     await this.store.update((draft) => {
       const feature = draft.features.find((f) => f.name === "shortcutManager");
       if (feature) {
-        const state = feature.config;
-        state.shortcuts = state.shortcuts.filter((s) => s.id !== id);
+        const state2 = feature.config;
+        state2.shortcuts = state2.shortcuts.filter((s) => s.id !== id);
       }
     });
-    this.triggerMatchers.delete(id);
   }
-  async updateShortcut(id, shortcut) {
+  async updateShortcut(id, update) {
     await this.store.update((draft) => {
       const feature = draft.features.find((f) => f.name === "shortcutManager");
       if (feature) {
         const state = feature.config;
         const index = state.shortcuts.findIndex((s) => s.id === id);
         if (index !== -1) {
-          state.shortcuts[index] = { ...state.shortcuts[index], ...shortcut };
-          if (shortcut.trigger || shortcut.enabled !== void 0) {
+          const oldShortcut = state.shortcuts[index];
+          state.shortcuts[index] = { ...oldShortcut, ...update };
+          if (update.pattern || update.enabled !== void 0) {
+            this.removeRelevantKeys(
+              oldShortcut.pattern.sequence,
+              id,
+              state.shortcuts
+            );
             const updatedShortcut = state.shortcuts[index];
             if (updatedShortcut.enabled) {
-              const matcher = new TriggerMatcher(updatedShortcut.trigger);
-              this.triggerMatchers.set(id, matcher);
-              matcher.getRequiredKeys().forEach((key) => this.relevantKeys.add(key));
-            } else {
-              this.triggerMatchers.delete(id);
+              this.addRelevantKeys(updatedShortcut.pattern.sequence);
             }
           }
         }
