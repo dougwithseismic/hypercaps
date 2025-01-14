@@ -49,8 +49,10 @@ function shortcutToCommand(shortcut: Shortcut): Command {
         keys: step.keys,
         holdTime: step.holdTime,
         window: step.window || shortcut.trigger.totalTimeWindow,
+        strict: step.strict ?? shortcut.trigger.strict,
       })),
       window: shortcut.trigger.totalTimeWindow || 5000,
+      strict: shortcut.trigger.strict,
     },
   };
 }
@@ -264,6 +266,9 @@ export class ShortcutService {
           }
         });
       }
+
+      // Clear the matcher state after successful execution
+      this.matcher.clearFramesUpTo(match.endTime);
     } catch (error) {
       console.error('[ShortcutService] Error executing shortcut:', error);
     }

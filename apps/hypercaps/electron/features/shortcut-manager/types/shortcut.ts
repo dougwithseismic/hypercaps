@@ -12,14 +12,16 @@ export interface BufferConfig {
 export interface TriggerStep {
   type: TriggerStepType;
   keys: string[];
-  holdTime?: number; // Duration in ms for hold-type steps
-  window?: number; // Time window in ms for this step
+  holdTime?: number;
+  window?: number;
+  strict?: boolean;
 }
 
 export interface ShortcutTrigger {
   steps: TriggerStep[];
   totalTimeWindow?: number;
   defaultBuffer?: BufferConfig;
+  strict?: boolean;
 }
 
 export interface TriggerState {
@@ -60,7 +62,9 @@ export const BufferConfigSchema = z.object({
 export const TriggerStepSchema = z.object({
   type: z.enum(['combo', 'single', 'hold']),
   keys: z.array(z.string()),
-  timeWindow: z.number().optional(),
+  holdTime: z.number().optional(),
+  window: z.number().optional(),
+  strict: z.boolean().optional(),
   buffer: BufferConfigSchema.optional(),
 });
 
@@ -68,6 +72,7 @@ export const ShortcutTriggerSchema = z.object({
   steps: z.array(TriggerStepSchema),
   totalTimeWindow: z.number().optional(),
   defaultBuffer: BufferConfigSchema.optional(),
+  strict: z.boolean().optional(),
 });
 
 export const ShortcutActionSchema = z.object({

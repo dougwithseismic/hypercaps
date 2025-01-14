@@ -5914,7 +5914,7 @@ class InputBufferMatcher {
           if (!this.matchReleaseStep(step.keys, frame)) return null;
           break;
         case "combo":
-          if (!this.matchComboStep(step.keys, frame)) return null;
+          if (!this.matchComboStep(step.keys, frame, step.strict)) return null;
           break;
       }
       events2.push(...this.getEventsFromFrame(frame));
@@ -5956,10 +5956,23 @@ class InputBufferMatcher {
   matchReleaseStep(keys, frame) {
     return keys.every((key) => frame.justReleased.has(key));
   }
-  matchComboStep(keys, frame) {
-    return keys.every(
+  matchComboStep(keys, frame, strict = false) {
+    console.log(`[InputBufferMatcher] Matching combo step:`, {
+      keys,
+      strict,
+      justPressed: Array.from(frame.justPressed),
+      heldKeys: Array.from(frame.heldKeys)
+    });
+    if (strict) {
+      const matched2 = keys.every((key) => frame.justPressed.has(key));
+      console.log(`[InputBufferMatcher] Strict combo match result: ${matched2}`);
+      return matched2;
+    }
+    const matched = keys.every(
       (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
     );
+    console.log(`[InputBufferMatcher] Normal combo match result: ${matched}`);
+    return matched;
   }
   getEventsFromFrame(frame) {
     const events2 = [];
@@ -5970,6 +5983,27 @@ class InputBufferMatcher {
       events2.push({ key, type: "release", timestamp: frame.timestamp });
     }
     return events2;
+  }
+  reset() {
+    console.log("[InputBufferMatcher] Resetting all state");
+    this.frames = [];
+    this.keyStates.clear();
+  }
+  clearFramesUpTo(timestamp) {
+    console.log(
+      `[InputBufferMatcher] Clearing frames up to timestamp ${timestamp}`
+    );
+    const index = this.frames.findIndex((frame) => frame.timestamp > timestamp);
+    if (index !== -1) {
+      this.frames = this.frames.slice(index);
+      for (const [key, state] of this.keyStates.entries()) {
+        if (state.lastUpdateTime <= timestamp) {
+          this.keyStates.delete(key);
+        }
+      }
+    } else {
+      this.reset();
+    }
   }
 }
 class TriggerMatcher {
@@ -6045,6 +6079,13 @@ class TriggerMatcher {
   reset() {
     console.log("[TriggerMatcher] Resetting state");
     this.lastMatchTime = 0;
+    this.inputBuffer.reset();
+  }
+  clearFramesUpTo(timestamp) {
+    console.log(
+      `[TriggerMatcher] Clearing frames up to timestamp ${timestamp}`
+    );
+    this.inputBuffer.clearFramesUpTo(timestamp);
   }
 }
 function mapStepType(type) {
@@ -6068,7 +6109,8 @@ function shortcutToCommand(shortcut) {
         type: mapStepType(step.type),
         keys: step.keys,
         holdTime: step.holdTime,
-        window: step.window || shortcut.trigger.totalTimeWindow
+        window: step.window || shortcut.trigger.totalTimeWindow,
+        strict: step.strict
       })),
       window: shortcut.trigger.totalTimeWindow || 5e3
     }
@@ -6233,6 +6275,7 @@ class ShortcutService {
           }
         });
       }
+      this.matcher.clearFramesUpTo(match.endTime);
     } catch (error) {
       console.error("[ShortcutService] Error executing shortcut:", error);
     }
