@@ -1,6 +1,9 @@
 import { useCallback, useEffect } from "react";
 import { ipc, createCommand } from "../lib/ipc/client";
-import type { IPCEvent, IPCEventHandler } from "@electron/services/ipc/types";
+import type {
+  IPCEvent,
+  IPCEventHandler,
+} from "@electron/features/shortcut-manager/services/ipc/types";
 
 /**
  * Hook for interacting with IPC services

@@ -123,15 +123,15 @@ export class KeyboardService extends EventEmitter {
     });
 
     this.queue.registerHandler("keyboardEvent", async (message) => {
-      console.log(
-        "[KeyboardService] Handling keyboard event:",
-        message.payload
-      );
+      // console.log(
+      //   "[KeyboardService] Handling keyboard event:",
+      //   message.payload
+      // );
       this.mainWindow?.webContents.send("keyboard-event", message.payload);
-      console.log(
-        "[KeyboardService] Emitting keyPressed event:",
-        message.payload
-      );
+      // console.log(
+      //   "[KeyboardService] Emitting keyPressed event:",
+      //   message.payload
+      // );
       ipc.emit({
         service: "keyboard",
         event: "keyPressed",
@@ -532,7 +532,7 @@ export class KeyboardService extends EventEmitter {
 
         try {
           const state = JSON.parse(trimmed);
-          console.log("[KeyboardService] Parsed keyboard state:", state);
+          // console.log("[KeyboardService] Parsed keyboard state:", state);
 
           const keyboardState: KeyboardState = {
             pressedKeys: Array.isArray(state.pressedKeys)
@@ -541,10 +541,10 @@ export class KeyboardService extends EventEmitter {
             timestamp: Date.now(),
           };
 
-          console.log(
-            "[KeyboardService] Enqueueing keyboard event:",
-            keyboardState
-          );
+          // console.log(
+          //   "[KeyboardService] Enqueueing keyboard event:",
+          //   keyboardState
+          // );
           // Queue keyboard events instead of sending directly
           this.queue.enqueue("keyboardEvent", keyboardState);
         } catch (parseError) {

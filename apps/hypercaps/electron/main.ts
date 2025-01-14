@@ -1,9 +1,10 @@
 import { app, BrowserWindow, ipcMain, dialog, globalShortcut } from "electron";
 import path from "path";
 import { KeyboardService } from "./features/hyperkeys/keyboard-service";
-import { Store } from "./services/store";
+import { ShortcutService } from "./features/shortcut-manager/shortcut-service";
+import { Store } from "@electron/services/store";
 import { TrayFeature } from "./features/tray";
-import { AppState } from "./services/store/types/app-state";
+import { AppState } from "@electron/services/store/types/app-state";
 
 // Immediate environment logging
 console.log("=== Environment Debug ===");
@@ -26,6 +27,7 @@ if (require("electron-squirrel-startup")) {
 }
 
 let keyboardService: KeyboardService;
+let shortcutService: ShortcutService;
 let trayFeature: TrayFeature | null = null;
 let mainWindow: BrowserWindow | null = null;
 
@@ -39,6 +41,13 @@ const initializeServices = async (window: BrowserWindow) => {
     console.log("[Main] Creating new keyboard service");
     keyboardService = new KeyboardService();
     await keyboardService.init();
+  }
+
+  // Initialize shortcut service if not already initialized
+  if (!shortcutService) {
+    console.log("[Main] Creating new shortcut service");
+    shortcutService = new ShortcutService();
+    await shortcutService.initialize();
   }
 
   // Set the window and re-register handlers

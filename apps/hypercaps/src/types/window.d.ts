@@ -1,4 +1,4 @@
-import { AppState } from "@electron/services/store/types/app-state";
+import { AppState } from "@electron/features/shortcut-manager/services/store/types/app-state";
 import { HyperKeyFeatureConfig } from "@electron/features/hyperkeys/types/hyperkey-feature";
 
 interface StartupSettings {

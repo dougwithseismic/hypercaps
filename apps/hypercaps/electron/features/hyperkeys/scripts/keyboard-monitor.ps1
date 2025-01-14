@@ -168,7 +168,7 @@ public static class KeyboardMonitor {
             return;
         }
 
-        UpdateModifierState();
+        UpdateModifierState(false);
     }
 
     public static void SendHyperKeyDown() {
@@ -184,7 +184,7 @@ public static class KeyboardMonitor {
         }
     }
 
-    public static void UpdateModifierState() {
+    public static void UpdateModifierState(bool forceUpdate = false) {
         // Convert HashSet to array directly
         var keys = KeyboardMonitor.GetPressedKeys().ToArray();
         var keyNames = new string[keys.Length];
@@ -194,14 +194,19 @@ public static class KeyboardMonitor {
 
         // Create JSON manually using string.Format
         var quotedKeys = keyNames.Select(k => string.Format("\"{0}\"", k));
-        var json = string.Format("{{\"pressedKeys\":[{0}]}}", string.Join(",", quotedKeys));
+        var json = string.Format("{{\"pressedKeys\":[{0}],\"timestamp\":{1}}}", string.Join(",", quotedKeys), DateTimeOffset.Now.ToUnixTimeMilliseconds());
         
-        // Only send if state has changed
-        if (json != KeyboardMonitor.lastSentState) {
+        // Send immediately if it's a force update (key-up) or if enough time has passed
+        if (forceUpdate || 
+            (json != KeyboardMonitor.lastSentState && 
+             (DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastUpdateTime) > 50)) {
             KeyboardMonitor.lastSentState = json;
+            lastUpdateTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             Console.WriteLine(json);
         }
     }
+
+    private static long lastUpdateTime = 0;
 }
 
 public class KeyboardHook {
@@ -239,22 +244,16 @@ public class KeyboardHook {
             bool isKeyDown = wParam == (IntPtr)KeyboardMonitor.WM_KEYDOWN || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYDOWN;
             bool isKeyUp = wParam == (IntPtr)KeyboardMonitor.WM_KEYUP || wParam == (IntPtr)KeyboardMonitor.WM_SYSKEYUP;
 
-            // Debug logging for key events
-            if (KeyboardMonitor.IsDebugEnabled) {
-                Console.WriteLine(string.Format("[DEBUG] Key Event - Key: {0}, IsDown: {1}, IsUp: {2}, IsEnabled: {3}, IsHyperKeyEnabled: {4}, IsTrigger: {5}",
-                    key, isKeyDown, isKeyUp, KeyboardMonitor.IsEnabled, KeyboardMonitor.IsHyperKeyEnabled, key == KeyboardMonitor.HyperKeyTrigger));
-            }
-
             // Only process keys if the service is enabled
             if (KeyboardMonitor.IsEnabled) {
                 // Track key states and update output
                 if (isKeyDown) {
                     KeyboardMonitor.AddPressedKey(key);
-                    KeyboardMonitor.UpdateModifierState();
+                    KeyboardMonitor.UpdateModifierState(false); // Debounce key-down events
                 }
                 else if (isKeyUp) {
                     KeyboardMonitor.RemovePressedKey(key);
-                    KeyboardMonitor.UpdateModifierState();
+                    KeyboardMonitor.UpdateModifierState(true); // Force update on key-up
                 }
 
                 // If this is our trigger key and HyperKey is enabled

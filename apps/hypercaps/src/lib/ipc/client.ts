@@ -1,4 +1,7 @@
-import type { IPCCommand, IPCEventHandler } from "@electron/services/ipc/types";
+import type {
+  IPCCommand,
+  IPCEventHandler,
+} from "@electron/features/shortcut-manager/services/ipc/types";
 
 declare global {
   interface Window {

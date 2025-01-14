@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { ipc, createCommand } from "../lib/ipc/client";
-import { AppState } from "@electron/services/store/types/app-state";
-import { HyperKeyFeatureConfig } from "@electron/services/types";
+import { AppState } from "@electron/features/shortcut-manager/services/store/types/app-state";
+import { HyperKeyFeatureConfig } from "@electron/features/shortcut-manager/services/types";
 
 interface KeyState {
   pressedKeys: string[];
