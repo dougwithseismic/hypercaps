@@ -5116,9 +5116,7 @@ class MessageQueue extends events.EventEmitter {
       status: "pending"
     };
     this.messages.push(message);
-    this.messages.sort(
-      (a, b) => b.priority - a.priority || a.timestamp - b.timestamp
-    );
+    this.messages.sort((a, b) => b.priority - a.priority || a.timestamp - b.timestamp);
     this.emit("message:added", message);
     this.processQueue();
     return message.id;
@@ -5127,9 +5125,7 @@ class MessageQueue extends events.EventEmitter {
     if (this.processing.size >= this.options.maxConcurrent) {
       return;
     }
-    const pendingMessages = this.messages.filter(
-      (m) => m.status === "pending" && !this.processing.has(m.id)
-    );
+    const pendingMessages = this.messages.filter((m) => m.status === "pending" && !this.processing.has(m.id));
     if (pendingMessages.length === 0) {
       if (this.processing.size === 0) {
         this.emit("queue:empty");
@@ -5140,9 +5136,7 @@ class MessageQueue extends events.EventEmitter {
     const handler = this.handlers.get(message.type);
     if (!handler) {
       message.status = "failed";
-      message.error = new Error(
-        `No handler registered for message type: ${message.type}`
-      );
+      message.error = new Error(`No handler registered for message type: ${message.type}`);
       this.emit("message:failed", message);
       return;
     }
@@ -5186,9 +5180,7 @@ class MessageQueue extends events.EventEmitter {
   }
   handleTimeout(message) {
     this.processing.delete(message.id);
-    message.error = new Error(
-      `Message processing timed out after ${this.options.timeout}ms`
-    );
+    message.error = new Error(`Message processing timed out after ${this.options.timeout}ms`);
     this.handleError(message, message.error);
   }
   clearTimeout(messageId) {
@@ -5267,27 +5259,17 @@ class IPCService {
   async handleCommand(command) {
     const service = this.services.get(command.service);
     if (!service) {
-      return createError(
-        "SERVICE_NOT_FOUND",
-        `Service ${command.service} not found`
-      );
+      return createError("SERVICE_NOT_FOUND", `Service ${command.service} not found`);
     }
     const handler = service.handlers.get(command.action);
     if (!handler) {
-      return createError(
-        "HANDLER_NOT_FOUND",
-        `Handler for ${command.service}:${command.action} not found`
-      );
+      return createError("HANDLER_NOT_FOUND", `Handler for ${command.service}:${command.action} not found`);
     }
     try {
       const result = await handler(command.params || {});
       return createResult(result);
     } catch (error) {
-      return createError(
-        "EXECUTION_ERROR",
-        error instanceof Error ? error.message : "Unknown error",
-        error
-      );
+      return createError("EXECUTION_ERROR", error instanceof Error ? error.message : "Unknown error", error);
     }
   }
   /**
@@ -5324,10 +5306,7 @@ class IPCService {
           try {
             handler(event.data);
           } catch (error) {
-            console.error(
-              `[IPCService] Handler error for ${event.service}:${event.event}:`,
-              error
-            );
+            console.error(`[IPCService] Handler error for ${event.service}:${event.event}:`, error);
           }
         });
       }
@@ -5348,24 +5327,17 @@ class IPCService {
       try {
         return await this.handleCommand(command);
       } catch (error) {
-        return createError(
-          "COMMAND_ERROR",
-          error instanceof Error ? error.message : "Unknown error",
-          error
-        );
+        return createError("COMMAND_ERROR", error instanceof Error ? error.message : "Unknown error", error);
       }
     });
     this.queue.registerHandler("ipc:event", async (message) => {
       const event = message.payload;
       await event();
     });
-    this.queue.registerHandler(
-      "ipc:execute",
-      async (message) => {
-        const handler = message.payload;
-        await handler();
-      }
-    );
+    this.queue.registerHandler("ipc:execute", async (message) => {
+      const handler = message.payload;
+      await handler();
+    });
   }
 }
 const ipc$1 = IPCService.getInstance();
@@ -6108,10 +6080,15 @@ class ShortcutService {
     __publicField(this, "ipc");
     __publicField(this, "matcher");
     __publicField(this, "lastExecutions");
+    __publicField(this, "name", "shortcut-manager");
     this.store = Store.getInstance();
     this.ipc = IPCService.getInstance();
     this.matcher = new TriggerMatcher(32, 5e3);
     this.lastExecutions = /* @__PURE__ */ new Map();
+    this.ipc.registerService({
+      id: this.name,
+      priority: 1
+    });
     this.setupIPCHandlers();
   }
   setupIPCHandlers() {
@@ -6119,40 +6096,40 @@ class ShortcutService {
       const frameEvent = data;
       await this.handleFrameEvent(frameEvent);
     });
-    this.ipc.registerHandler("get-shortcut-config", "get", async () => {
+    this.ipc.registerHandler(this.name, "get-shortcut-config", async () => {
       var _a;
       const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
       return state || { isEnabled: false, shortcuts: [] };
     });
-    this.ipc.registerHandler("get-shortcuts", "get", async () => {
+    this.ipc.registerHandler(this.name, "get-shortcuts", async () => {
       var _a;
       const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
       return (state == null ? void 0 : state.shortcuts) || [];
     });
     this.ipc.registerHandler(
+      this.name,
       "add-shortcut",
-      "add",
       async (shortcut) => {
         await this.addShortcut(shortcut);
       }
     );
     this.ipc.registerHandler(
+      this.name,
       "remove-shortcut",
-      "remove",
       async (id) => {
         await this.removeShortcut(id);
       }
     );
     this.ipc.registerHandler(
+      this.name,
       "update-shortcut",
-      "update",
       async ({ id, shortcut }) => {
         await this.updateShortcut(id, shortcut);
       }
     );
     this.ipc.registerHandler(
+      this.name,
       "toggle-shortcut",
-      "toggle",
       async (id) => {
         var _a;
         const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;

@@ -60,12 +60,20 @@ export class ShortcutService {
   private ipc: IPCService;
   private matcher: TriggerMatcher;
   private lastExecutions: Map<string, number>;
+  private name: string = "shortcut-manager";
 
   constructor() {
     this.store = Store.getInstance();
     this.ipc = IPCService.getInstance();
     this.matcher = new TriggerMatcher(32, 5000); // 32 frames, 5 seconds
     this.lastExecutions = new Map();
+
+    // Register the service first
+    this.ipc.registerService({
+      id: this.name,
+      priority: 1,
+    });
+
     this.setupIPCHandlers();
   }
 
@@ -77,14 +85,14 @@ export class ShortcutService {
     });
 
     // Get shortcut manager config
-    this.ipc.registerHandler("get-shortcut-config", "get", async () => {
+    this.ipc.registerHandler(this.name, "get-shortcut-config", async () => {
       const state = (await this.store.getFeature("shortcutManager"))
         ?.config as ShortcutState;
       return state || { isEnabled: false, shortcuts: [] };
     });
 
     // Get all shortcuts
-    this.ipc.registerHandler("get-shortcuts", "get", async () => {
+    this.ipc.registerHandler(this.name, "get-shortcuts", async () => {
       const state = (await this.store.getFeature("shortcutManager"))
         ?.config as ShortcutState;
       return state?.shortcuts || [];
@@ -92,8 +100,8 @@ export class ShortcutService {
 
     // Add a new shortcut
     this.ipc.registerHandler(
+      this.name,
       "add-shortcut",
-      "add",
       async (shortcut: Omit<Shortcut, "id">) => {
         await this.addShortcut(shortcut);
       }
@@ -101,8 +109,8 @@ export class ShortcutService {
 
     // Remove a shortcut
     this.ipc.registerHandler(
+      this.name,
       "remove-shortcut",
-      "remove",
       async (id: string) => {
         await this.removeShortcut(id);
       }
@@ -110,8 +118,8 @@ export class ShortcutService {
 
     // Update a shortcut
     this.ipc.registerHandler(
+      this.name,
       "update-shortcut",
-      "update",
       async ({ id, shortcut }: { id: string; shortcut: Partial<Shortcut> }) => {
         await this.updateShortcut(id, shortcut);
       }
@@ -119,8 +127,8 @@ export class ShortcutService {
 
     // Toggle a shortcut
     this.ipc.registerHandler(
+      this.name,
       "toggle-shortcut",
-      "toggle",
       async (id: string) => {
         const state = (await this.store.getFeature("shortcutManager"))
           ?.config as ShortcutState;
