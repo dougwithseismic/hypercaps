@@ -1,7 +1,7 @@
+import { AppState } from "@electron/services/store/types/app-state";
 import { contextBridge, ipcRenderer } from "electron";
-import { AppState } from "./features/shortcut-manager/services/store/types/app-state";
 import { HyperKeyFeatureConfig } from "./features/hyperkeys/types/hyperkey-feature";
-import type { IPCCommand } from "./features/shortcut-manager/services/ipc/types";
+import type { IPCCommand } from "@electron/services/ipc/types";
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -73,5 +73,25 @@ contextBridge.exposeInMainWorld("api", {
   // Store state
   getFullState: async () => {
     return ipcRenderer.invoke("get-full-state") as Promise<AppState>;
+  },
+
+  // Shortcut manager
+  getShortcutConfig: async () => {
+    return ipcRenderer.invoke("get-shortcut-config");
+  },
+  getShortcuts: async () => {
+    return ipcRenderer.invoke("get-shortcuts");
+  },
+  addShortcut: async (shortcut: unknown) => {
+    return ipcRenderer.invoke("add-shortcut", shortcut);
+  },
+  removeShortcut: async (id: string) => {
+    return ipcRenderer.invoke("remove-shortcut", id);
+  },
+  updateShortcut: async (id: string, shortcut: unknown) => {
+    return ipcRenderer.invoke("update-shortcut", shortcut);
+  },
+  toggleShortcut: async (id: string) => {
+    return ipcRenderer.invoke("toggle-shortcut", id);
   },
 });

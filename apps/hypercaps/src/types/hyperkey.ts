@@ -1,6 +1,2 @@
-export interface HyperKeyConfig {
-  isHyperKeyEnabled: boolean;
-  trigger: string;
-  modifiers: string[];
-  capsLockBehavior?: "None" | "DoublePress" | "BlockToggle";
-}
+import { HyperKeyFeatureConfig } from "@electron/features/hyperkeys/types/hyperkey-feature";
+export type HyperKeyConfig = HyperKeyFeatureConfig;
