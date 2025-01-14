@@ -1,28 +1,28 @@
-import { app, BrowserWindow, ipcMain, dialog, globalShortcut } from "electron";
-import path from "path";
-import { KeyboardService } from "./features/hyperkeys/keyboard-service";
-import { ShortcutService } from "./features/shortcut-manager/shortcut-service";
-import { Store } from "@electron/services/store";
-import { TrayFeature } from "./features/tray";
-import { AppState } from "@electron/services/store/types/app-state";
+import { app, BrowserWindow, ipcMain, dialog, globalShortcut } from 'electron';
+import path from 'path';
+import { KeyboardService } from './features/hyperkeys/keyboard-service';
+import { ShortcutService } from './features/shortcut-manager/shortcut-service';
+import { Store } from '@electron/services/store';
+import { TrayFeature } from './features/tray';
+import { AppState } from '@electron/services/store/types/app-state';
 
 // Immediate environment logging
-console.log("=== Environment Debug ===");
-console.log("NODE_ENV:", process.env.NODE_ENV);
-console.log("isDev:", process.env.NODE_ENV === "development");
-console.log("======================");
+console.log('=== Environment Debug ===');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('isDev:', process.env.NODE_ENV === 'development');
+console.log('======================');
 
 // Check platform - exit if not Windows
-if (process.platform !== "win32") {
+if (process.platform !== 'win32') {
   dialog.showErrorBox(
-    "Unsupported Platform",
-    "HyperCaps is only supported on Windows. The application will now exit."
+    'Unsupported Platform',
+    'HyperCaps is only supported on Windows. The application will now exit.'
   );
   app.quit();
 }
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (require("electron-squirrel-startup")) {
+if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
@@ -32,20 +32,20 @@ let trayFeature: TrayFeature | null = null;
 let mainWindow: BrowserWindow | null = null;
 
 const initializeServices = async (window: BrowserWindow) => {
-  console.log("[Main] Initializing services");
+  console.log('[Main] Initializing services');
   const store = Store.getInstance();
   await store.load();
 
   // Initialize keyboard service if not already initialized
   if (!keyboardService) {
-    console.log("[Main] Creating new keyboard service");
+    console.log('[Main] Creating new keyboard service');
     keyboardService = new KeyboardService();
     await keyboardService.init();
   }
 
   // Initialize shortcut service if not already initialized
   if (!shortcutService) {
-    console.log("[Main] Creating new shortcut service");
+    console.log('[Main] Creating new shortcut service');
     shortcutService = new ShortcutService();
     await shortcutService.initialize();
   }
@@ -55,14 +55,14 @@ const initializeServices = async (window: BrowserWindow) => {
 
   // Initialize tray feature if needed
   if (!trayFeature) {
-    console.log("[Main] Creating new tray feature");
+    console.log('[Main] Creating new tray feature');
     trayFeature = new TrayFeature(window, keyboardService);
     await trayFeature.initialize();
   }
 };
 
 const createWindow = async () => {
-  console.log("Environment:", process.env.NODE_ENV);
+  console.log('Environment:', process.env.NODE_ENV);
 
   // Create the browser window.
   mainWindow = new BrowserWindow({
@@ -72,7 +72,7 @@ const createWindow = async () => {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, "../preload/preload.js"),
+      preload: path.join(__dirname, '../preload/preload.js'),
     },
     resizable: true,
     minimizable: true,
@@ -80,45 +80,45 @@ const createWindow = async () => {
     fullscreenable: false,
     // Round corners on Windows 11
     roundedCorners: true,
-    backgroundMaterial: "acrylic",
+    backgroundMaterial: 'acrylic',
     darkTheme: true,
-    backgroundColor: "#00000000",
+    backgroundColor: '#00000000',
   });
 
   // Setup IPC handlers
-  ipcMain.on("start-listening", () => {
+  ipcMain.on('start-listening', () => {
     keyboardService?.startListening();
   });
 
-  ipcMain.on("stop-listening", () => {
+  ipcMain.on('stop-listening', () => {
     keyboardService?.stopListening();
   });
 
   // Add handler for getting keyboard service state
-  ipcMain.handle("get-keyboard-service-state", () => {
+  ipcMain.handle('get-keyboard-service-state', () => {
     return keyboardService?.isRunning() || false;
   });
 
   // HyperKey config handlers
-  ipcMain.handle("get-hyperkey-config", async () => {
+  ipcMain.handle('get-hyperkey-config', async () => {
     const store = Store.getInstance();
-    const hyperKey = await store.getFeature("hyperKey");
+    const hyperKey = await store.getFeature('hyperKey');
     return hyperKey?.config;
   });
 
-  ipcMain.handle("set-hyperkey-config", async (event, config) => {
+  ipcMain.handle('set-hyperkey-config', async (event, config) => {
     const store = Store.getInstance();
     await store.update((draft) => {
-      const hyperkeyFeature = draft.features.find((f) => f.name === "hyperKey");
+      const hyperkeyFeature = draft.features.find((f) => f.name === 'hyperKey');
       if (hyperkeyFeature) {
         hyperkeyFeature.config = config;
       }
     });
 
     // Emit config change event
-    mainWindow?.webContents.send("ipc:event", {
-      service: "hyperKey",
-      event: "configChanged",
+    mainWindow?.webContents.send('ipc:event', {
+      service: 'hyperKey',
+      event: 'configChanged',
       data: config,
     });
 
@@ -126,33 +126,33 @@ const createWindow = async () => {
   });
 
   // Load appropriate content based on environment
-  if (process.env.NODE_ENV === "development") {
-    mainWindow.loadURL("http://localhost:5173");
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.loadURL('http://localhost:5173');
   } else {
     // In production, load the built index.html file
-    const indexPath = path.join(app.getAppPath(), "dist", "index.html");
+    const indexPath = path.join(app.getAppPath(), 'dist', 'index.html');
     mainWindow.loadFile(indexPath);
 
     // Handle page refresh in production
     mainWindow.webContents.on(
-      "did-fail-load",
+      'did-fail-load',
       (event, errorCode, errorDescription) => {
-        console.log("Failed to load:", errorCode, errorDescription);
+        console.log('Failed to load:', errorCode, errorDescription);
         mainWindow?.loadFile(indexPath);
       }
     );
   }
 
   // Handle window reload
-  mainWindow.webContents.on("did-finish-load", async () => {
-    console.log("[Main] Window finished loading, initializing services");
+  mainWindow.webContents.on('did-finish-load', async () => {
+    console.log('[Main] Window finished loading, initializing services');
     if (mainWindow) {
       await initializeServices(mainWindow);
     }
   });
 
   // Hide window instead of closing when user clicks X
-  mainWindow.on("close", (event) => {
+  mainWindow.on('close', (event) => {
     if (!(mainWindow as any).isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
@@ -162,11 +162,11 @@ const createWindow = async () => {
 };
 
 // Add window control handlers
-ipcMain.on("minimize-window", () => {
+ipcMain.on('minimize-window', () => {
   mainWindow?.minimize();
 });
 
-ipcMain.on("close-window", () => {
+ipcMain.on('close-window', () => {
   mainWindow?.hide();
 });
 
@@ -180,7 +180,7 @@ app.whenReady().then(async () => {
   }
 
   // Startup settings
-  ipcMain.handle("get-startup-settings", async () => {
+  ipcMain.handle('get-startup-settings', async () => {
     const store = Store.getInstance();
     const state = store.getState();
     return {
@@ -189,7 +189,7 @@ app.whenReady().then(async () => {
     };
   });
 
-  ipcMain.handle("set-startup-on-boot", async (_, enabled: boolean) => {
+  ipcMain.handle('set-startup-on-boot', async (_, enabled: boolean) => {
     const store = Store.getInstance();
     await store.update((draft) => {
       if (!draft.settings) draft.settings = {};
@@ -197,7 +197,7 @@ app.whenReady().then(async () => {
     });
   });
 
-  ipcMain.handle("set-start-minimized", async (_, enabled: boolean) => {
+  ipcMain.handle('set-start-minimized', async (_, enabled: boolean) => {
     const store = Store.getInstance();
     await store.update((draft) => {
       if (!draft.settings) draft.settings = {};
@@ -206,19 +206,19 @@ app.whenReady().then(async () => {
   });
 
   // Store state
-  ipcMain.handle("get-full-state", async () => {
+  ipcMain.handle('get-full-state', async () => {
     const store = Store.getInstance();
     return store.getState();
   });
 
   // Window controls
-  ipcMain.on("minimize-window", () => {
+  ipcMain.on('minimize-window', () => {
     mainWindow?.minimize();
   });
 });
 
 // Add proper cleanup
-app.on("before-quit", () => {
+app.on('before-quit', () => {
   if (keyboardService) {
     keyboardService.dispose();
   }
@@ -229,13 +229,13 @@ app.on("before-quit", () => {
 });
 
 // Quit when all windows are closed, except on macOS
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-app.on("activate", () => {
+app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
@@ -244,10 +244,10 @@ app.on("activate", () => {
 });
 
 // Listen for store changes and emit events
-Store.getInstance().on("stateChanged", (state: AppState) => {
-  mainWindow?.webContents.send("ipc:event", {
-    service: "store",
-    event: "stateChanged",
+Store.getInstance().on('stateChanged', (state: AppState) => {
+  mainWindow?.webContents.send('ipc:event', {
+    service: 'store',
+    event: 'stateChanged',
     data: state,
   });
 });

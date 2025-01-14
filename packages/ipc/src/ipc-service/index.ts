@@ -1,5 +1,5 @@
-import { ipcMain, BrowserWindow } from "electron";
-import { MessageQueue } from "@hypercaps/message-queue";
+import { ipcMain, BrowserWindow } from 'electron';
+import { MessageQueue } from '@hypercaps/message-queue';
 import {
   IPCCommand,
   IPCResult,
@@ -9,7 +9,7 @@ import {
   IPCEvent,
   createError,
   createResult,
-} from "../types";
+} from '../types';
 
 /**
  * Core IPC service that handles communication between main and renderer processes
@@ -92,7 +92,7 @@ export class IPCService {
     const service = this.services.get(command.service);
     if (!service) {
       return createError(
-        "SERVICE_NOT_FOUND",
+        'SERVICE_NOT_FOUND',
         `Service ${command.service} not found`
       ) as IPCResult<TResult>;
     }
@@ -103,7 +103,7 @@ export class IPCService {
     >;
     if (!handler) {
       return createError(
-        "HANDLER_NOT_FOUND",
+        'HANDLER_NOT_FOUND',
         `Handler for ${command.service}:${command.action} not found`
       ) as IPCResult<TResult>;
     }
@@ -113,8 +113,8 @@ export class IPCService {
       return createResult(result) as IPCResult<TResult>;
     } catch (error) {
       return createError(
-        "EXECUTION_ERROR",
-        error instanceof Error ? error.message : "Unknown error",
+        'EXECUTION_ERROR',
+        error instanceof Error ? error.message : 'Unknown error',
         error
       ) as IPCResult<TResult>;
     }
@@ -150,7 +150,7 @@ export class IPCService {
       try {
         listener(event);
       } catch (error) {
-        console.error("[IPCService] Event listener error:", error);
+        console.error('[IPCService] Event listener error:', error);
       }
     });
 
@@ -186,27 +186,27 @@ export class IPCService {
    */
   private setupIPC(): void {
     // Handle incoming commands
-    ipcMain.handle("ipc:command", async (_, command: IPCCommand) => {
+    ipcMain.handle('ipc:command', async (_, command: IPCCommand) => {
       try {
         return await this.handleCommand(command);
       } catch (error) {
         return createError(
-          "COMMAND_ERROR",
-          error instanceof Error ? error.message : "Unknown error",
+          'COMMAND_ERROR',
+          error instanceof Error ? error.message : 'Unknown error',
           error
         );
       }
     });
 
     // Register queue handler for events
-    this.queue.registerHandler("ipc:event", async (message) => {
+    this.queue.registerHandler('ipc:event', async (message) => {
       const event = message.payload as () => Promise<void>;
       await event();
     });
 
     // Register queue handler for command execution
     this.queue.registerHandler<() => Promise<unknown>>(
-      "ipc:execute",
+      'ipc:execute',
       async (message) => {
         const handler = message.payload;
         await handler();

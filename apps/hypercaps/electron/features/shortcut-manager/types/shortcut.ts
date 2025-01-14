@@ -1,6 +1,6 @@
-import { z } from "zod";
+import { z } from 'zod';
 
-export type TriggerStepType = "single" | "combo" | "hold";
+export type TriggerStepType = 'single' | 'combo' | 'hold';
 
 export interface BufferConfig {
   window?: number;
@@ -40,7 +40,7 @@ export interface Shortcut {
   cooldown?: number; // Optional cooldown in milliseconds
 }
 
-export type ShortcutActionType = "launch" | "command";
+export type ShortcutActionType = 'launch' | 'command';
 
 export interface ShortcutAction {
   type: ShortcutActionType;
@@ -58,7 +58,7 @@ export const BufferConfigSchema = z.object({
 });
 
 export const TriggerStepSchema = z.object({
-  type: z.enum(["combo", "single", "hold"]),
+  type: z.enum(['combo', 'single', 'hold']),
   keys: z.array(z.string()),
   timeWindow: z.number().optional(),
   buffer: BufferConfigSchema.optional(),
@@ -71,7 +71,7 @@ export const ShortcutTriggerSchema = z.object({
 });
 
 export const ShortcutActionSchema = z.object({
-  type: z.enum(["launch", "command"]),
+  type: z.enum(['launch', 'command']),
   program: z.string().optional(),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
@@ -92,14 +92,14 @@ export interface ShortcutState {
 
 export interface ShortcutCommands {
   addShortcut: {
-    shortcut: Omit<Shortcut, "id">;
+    shortcut: Omit<Shortcut, 'id'>;
   };
   removeShortcut: {
     id: string;
   };
   updateShortcut: {
     id: string;
-    shortcut: Partial<Omit<Shortcut, "id">>;
+    shortcut: Partial<Omit<Shortcut, 'id'>>;
   };
   toggleEnabled: {
     enabled: boolean;
