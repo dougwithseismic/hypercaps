@@ -1,5 +1,5 @@
-import { ipcMain, BrowserWindow } from "electron";
-import { ipc as ipcService } from "@hypercaps/ipc";
+import { ipcMain, BrowserWindow } from 'electron';
+import { ipc as ipcService } from '@hypercaps/ipc';
 
 export const ipc = ipcService;
 
@@ -7,7 +7,7 @@ export const ipc = ipcService;
 ipc.onEvent((event) => {
   const windows = BrowserWindow.getAllWindows();
   windows.forEach((window) => {
-    console.log("[IPCService] Sending event to window:", window.id);
-    window.webContents.send("ipc:event", event);
+    console.log('[IPCService] Sending event to window:', window.id);
+    window.webContents.send('ipc:event', event);
   });
 });

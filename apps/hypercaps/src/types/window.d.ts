@@ -1,6 +1,6 @@
-import { AppState } from "@electron/features/shortcut-manager/services/store/types/app-state";
-import { HyperKeyFeatureConfig } from "@electron/features/hyperkeys/types/hyperkey-feature";
-import { Shortcut } from "@electron/features/shortcut-manager/types/shortcut";
+import { AppState } from '@electron/features/shortcut-manager/services/store/types/app-state';
+import { HyperKeyFeatureConfig } from '@electron/features/hyperkeys/types/hyperkey-feature';
+import { Shortcut } from '@electron/features/shortcut-manager/types/shortcut';
 
 interface StartupSettings {
   startupOnBoot: boolean;

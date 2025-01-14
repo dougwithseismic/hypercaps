@@ -6,7 +6,7 @@ export interface QueuedMessage<T = any> {
   priority: number;
   retries: number;
   maxRetries: number;
-  status: "pending" | "processing" | "completed" | "failed";
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   error?: Error;
 }
 
@@ -22,11 +22,11 @@ export type MessageHandler<T = any> = (
 ) => Promise<void>;
 
 export interface MessageQueueEvents {
-  "message:added": (message: QueuedMessage) => void;
-  "message:started": (message: QueuedMessage) => void;
-  "message:completed": (message: QueuedMessage) => void;
-  "message:failed": (message: QueuedMessage) => void;
-  "message:retrying": (message: QueuedMessage) => void;
-  "queue:empty": () => void;
-  "queue:error": (error: Error) => void;
+  'message:added': (message: QueuedMessage) => void;
+  'message:started': (message: QueuedMessage) => void;
+  'message:completed': (message: QueuedMessage) => void;
+  'message:failed': (message: QueuedMessage) => void;
+  'message:retrying': (message: QueuedMessage) => void;
+  'queue:empty': () => void;
+  'queue:error': (error: Error) => void;
 }

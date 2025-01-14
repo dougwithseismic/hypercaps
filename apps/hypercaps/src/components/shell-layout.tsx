@@ -1,4 +1,4 @@
-import React from "react";
+import React from 'react';
 
 interface ShellLayoutProps {
   children: React.ReactNode;
@@ -8,7 +8,7 @@ interface ShellLayoutProps {
 
 export function ShellLayout({
   children,
-  title = "HyperCaps",
+  title = 'HyperCaps',
   statusText,
 }: ShellLayoutProps) {
   return (

@@ -1,5 +1,5 @@
-import { z } from "zod";
-import { FeatureSchema } from "./feature-config";
+import { z } from 'zod';
+import { FeatureSchema } from './feature-config';
 
 // Application-level settings
 export const AppSettingsSchema = z.object({

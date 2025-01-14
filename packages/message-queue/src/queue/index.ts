@@ -18,14 +18,14 @@
  * @note This is NOT for persistent storage - use Store service for that
  */
 
-import { EventEmitter } from "events";
-import crypto from "crypto";
+import { EventEmitter } from 'events';
+import crypto from 'crypto';
 import {
   QueuedMessage,
   MessageQueueOptions,
   MessageHandler,
   MessageQueueEvents,
-} from "./types";
+} from './types';
 
 const DEFAULT_OPTIONS: Required<MessageQueueOptions> = {
   maxConcurrent: 1,
@@ -35,7 +35,7 @@ const DEFAULT_OPTIONS: Required<MessageQueueOptions> = {
 };
 
 function generateId(): string {
-  return crypto.randomBytes(16).toString("hex");
+  return crypto.randomBytes(16).toString('hex');
 }
 
 export class MessageQueue extends EventEmitter {
@@ -92,7 +92,7 @@ export class MessageQueue extends EventEmitter {
       priority,
       retries: 0,
       maxRetries: this.options.maxRetries,
-      status: "pending",
+      status: 'pending',
     };
 
     this.messages.push(message);
@@ -100,7 +100,7 @@ export class MessageQueue extends EventEmitter {
       (a, b) => b.priority - a.priority || a.timestamp - b.timestamp
     );
 
-    this.emit("message:added", message);
+    this.emit('message:added', message);
     this.processQueue();
 
     return message.id;
@@ -112,12 +112,12 @@ export class MessageQueue extends EventEmitter {
     }
 
     const pendingMessages = this.messages.filter(
-      (m) => m.status === "pending" && !this.processing.has(m.id)
+      (m) => m.status === 'pending' && !this.processing.has(m.id)
     );
 
     if (pendingMessages.length === 0) {
       if (this.processing.size === 0) {
-        this.emit("queue:empty");
+        this.emit('queue:empty');
       }
       return;
     }
@@ -126,17 +126,17 @@ export class MessageQueue extends EventEmitter {
     const handler = this.handlers.get(message.type);
 
     if (!handler) {
-      message.status = "failed";
+      message.status = 'failed';
       message.error = new Error(
         `No handler registered for message type: ${message.type}`
       );
-      this.emit("message:failed", message);
+      this.emit('message:failed', message);
       return;
     }
 
     this.processing.add(message.id);
-    message.status = "processing";
-    this.emit("message:started", message);
+    message.status = 'processing';
+    this.emit('message:started', message);
 
     // Set timeout
     const timeout = setTimeout(() => {
@@ -155,8 +155,8 @@ export class MessageQueue extends EventEmitter {
   private handleSuccess(message: QueuedMessage): void {
     this.clearTimeout(message.id);
     this.processing.delete(message.id);
-    message.status = "completed";
-    this.emit("message:completed", message);
+    message.status = 'completed';
+    this.emit('message:completed', message);
     this.messages = this.messages.filter((m) => m.id !== message.id);
     this.processQueue();
   }
@@ -168,12 +168,12 @@ export class MessageQueue extends EventEmitter {
 
     if (message.retries < message.maxRetries) {
       message.retries++;
-      message.status = "pending";
-      this.emit("message:retrying", message);
+      message.status = 'pending';
+      this.emit('message:retrying', message);
       setTimeout(() => this.processQueue(), this.options.retryDelay);
     } else {
-      message.status = "failed";
-      this.emit("message:failed", message);
+      message.status = 'failed';
+      this.emit('message:failed', message);
       this.messages = this.messages.filter((m) => m.id !== message.id);
       this.processQueue();
     }
@@ -201,7 +201,7 @@ export class MessageQueue extends EventEmitter {
     total: number;
   } {
     return {
-      pending: this.messages.filter((m) => m.status === "pending").length,
+      pending: this.messages.filter((m) => m.status === 'pending').length,
       processing: this.processing.size,
       total: this.messages.length,
     };

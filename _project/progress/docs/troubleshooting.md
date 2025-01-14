@@ -70,6 +70,7 @@ hypercaps --diagnose
 **Solutions:**
 
 1. Check Task Manager:
+
    - End any existing HyperCaps processes
    - Look for error status
 
@@ -116,6 +117,7 @@ hypercaps --diagnose
 **Solutions:**
 
 1. Check if HyperCaps is enabled:
+
    - Look for tray icon status
    - Verify Gaming Mode is off
 
@@ -207,10 +209,7 @@ hypercaps --diagnose
 
    ```json
    {
-     "gameExclusions": [
-       "game.exe",
-       "launcher.exe"
-     ]
+     "gameExclusions": ["game.exe", "launcher.exe"]
    }
    ```
 

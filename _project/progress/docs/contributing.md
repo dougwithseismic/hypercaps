@@ -67,6 +67,7 @@ hypercaps/
    ```
 
 2. **Make Changes**
+
    - Write clean, maintainable code
    - Follow our coding standards
    - Add tests where appropriate
@@ -134,6 +135,7 @@ hypercaps/
 ## Pull Request Process
 
 1. **Before Submitting**
+
    - Update documentation
    - Add/update tests
    - Run all tests locally
@@ -141,6 +143,7 @@ hypercaps/
    - Fix any lint errors
 
 2. **Review Process**
+
    - Two maintainer approvals required
    - Address review feedback
    - Keep discussions focused
@@ -165,6 +168,7 @@ Join our [Discord server](https://discord.gg/hypercaps) to:
 ### Issue Reporting
 
 1. **Search Existing Issues**
+
    - Check if issue already exists
    - Look for related discussions
    - Review closed issues
@@ -178,6 +182,7 @@ Join our [Discord server](https://discord.gg/hypercaps) to:
 ### Feature Requests
 
 1. **Propose Features**
+
    - Use feature request template
    - Explain the problem solved
    - Describe proposed solution

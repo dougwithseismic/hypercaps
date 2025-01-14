@@ -1,10 +1,10 @@
-import { z } from "zod";
-import { HyperKeyFeatureConfigSchema } from "@electron/features/hyperkeys/types/hyperkey-feature";
+import { z } from 'zod';
+import { HyperKeyFeatureConfigSchema } from '@electron/features/hyperkeys/types/hyperkey-feature';
 
 // Available features in HyperCaps
 export const FeatureNameSchema = z.enum([
-  "hyperKey", // Trigger key functionality
-  "shortcutManager", // Shortcut management
+  'hyperKey', // Trigger key functionality
+  'shortcutManager', // Shortcut management
 ]);
 export type FeatureName = z.infer<typeof FeatureNameSchema>;
 
@@ -16,7 +16,7 @@ export const ShortcutManagerConfigSchema = z.object({
       name: z.string(),
       triggerKey: z.string(),
       action: z.object({
-        type: z.literal("launch"),
+        type: z.literal('launch'),
         program: z.string(),
       }),
       enabled: z.boolean(),

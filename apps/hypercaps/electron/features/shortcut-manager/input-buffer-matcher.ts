@@ -4,7 +4,7 @@ import {
   Command,
   CommandMatch,
   KeyState,
-} from "./types/input-buffer";
+} from './types/input-buffer';
 
 export class InputBufferMatcher {
   private frames: InputFrame[] = [];
@@ -30,7 +30,7 @@ export class InputBufferMatcher {
     for (const key of frame.justPressed) {
       this.keyStates.set(key, {
         key,
-        state: "justPressed",
+        state: 'justPressed',
         initialPressTime: frame.timestamp,
         holdDuration: 0,
         lastUpdateTime: frame.timestamp,
@@ -40,8 +40,8 @@ export class InputBufferMatcher {
     for (const key of frame.heldKeys) {
       const state = this.keyStates.get(key);
       if (state) {
-        if (state.state === "justPressed") {
-          state.state = "held";
+        if (state.state === 'justPressed') {
+          state.state = 'held';
         }
         state.holdDuration = frame.holdDurations.get(key) || 0;
         state.lastUpdateTime = frame.timestamp;
@@ -51,7 +51,7 @@ export class InputBufferMatcher {
     for (const key of frame.justReleased) {
       const state = this.keyStates.get(key);
       if (state) {
-        state.state = "released";
+        state.state = 'released';
         state.lastUpdateTime = frame.timestamp;
       }
     }
@@ -59,7 +59,7 @@ export class InputBufferMatcher {
     // Clean up released keys after a frame
     for (const [key, state] of this.keyStates.entries()) {
       if (
-        state.state === "released" &&
+        state.state === 'released' &&
         frame.timestamp - state.lastUpdateTime > 16
       ) {
         this.keyStates.delete(key);
@@ -110,10 +110,10 @@ export class InputBufferMatcher {
       if (!frame) return null;
 
       switch (step.type) {
-        case "press":
+        case 'press':
           if (!this.matchPressStep(step.keys, frame)) return null;
           break;
-        case "hold":
+        case 'hold':
           if (
             !this.matchHoldStep(
               step.keys,
@@ -124,10 +124,10 @@ export class InputBufferMatcher {
           )
             return null;
           break;
-        case "release":
+        case 'release':
           if (!this.matchReleaseStep(step.keys, frame)) return null;
           break;
-        case "combo":
+        case 'combo':
           if (!this.matchComboStep(step.keys, frame)) return null;
           break;
       }
@@ -206,12 +206,12 @@ export class InputBufferMatcher {
 
     // Add press events
     for (const key of frame.justPressed) {
-      events.push({ key, type: "press", timestamp: frame.timestamp });
+      events.push({ key, type: 'press', timestamp: frame.timestamp });
     }
 
     // Add release events
     for (const key of frame.justReleased) {
-      events.push({ key, type: "release", timestamp: frame.timestamp });
+      events.push({ key, type: 'release', timestamp: frame.timestamp });
     }
 
     return events;
