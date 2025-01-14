@@ -4,6 +4,7 @@
  */
 
 import { HyperKeyFeatureConfig } from './hyperkey-feature';
+import { KeyEvent, KeyState, ServiceState } from './keyboard-state';
 
 /**
  * Keyboard service commands
@@ -24,10 +25,7 @@ export interface KeyboardEvents {
   keyPressed: {
     pressedKeys: string[];
     timestamp: number;
-    event?: {
-      type: 'keydown' | 'keyup';
-      key: string;
-    };
+    event?: KeyEvent;
     state?: {
       held: string[];
       holdDurations: Record<string, number>;
@@ -36,26 +34,11 @@ export interface KeyboardEvents {
   frame: {
     frame: number;
     timestamp: number;
-    event: {
-      type: 'keydown' | 'keyup';
-      key: string;
-    };
-    state: {
-      justPressed: string[];
-      held: string[];
-      justReleased: string[];
-      holdDurations: Record<string, number>;
-    };
+    event: KeyEvent;
+    state: KeyState;
   };
-  stateChanged: {
-    isListening: boolean;
-    isLoading: boolean;
-    isStarting: boolean;
-    error?: string;
-    lastError?: {
-      message: string;
-      timestamp: number;
-    };
+  stateChanged: ServiceState & {
+    isRunning: boolean;
   };
   configChanged: {
     config: HyperKeyFeatureConfig;

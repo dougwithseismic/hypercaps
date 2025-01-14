@@ -1,14 +1,15 @@
 import {
   KeyEvent,
-  InputFrame,
+  KeyboardFrame,
+  KeyboardState,
   Command,
   CommandMatch,
-  KeyState,
-} from './types/input-buffer';
+  TriggerStep,
+} from './types';
 
-export class InputBufferMatcher {
-  private frames: InputFrame[] = [];
-  private keyStates: Map<string, KeyState> = new Map();
+export class KeyboardEventMatcher {
+  private frames: KeyboardFrame[] = [];
+  private keyStates: Map<string, KeyboardState> = new Map();
   private nextFrameId = 0;
   private readonly maxSize: number;
   private readonly maxAge: number;
@@ -17,15 +18,11 @@ export class InputBufferMatcher {
     this.maxSize = maxSize;
     this.maxAge = maxAge;
     console.log(
-      `[InputBufferMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
+      `[KeyboardEventMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
     );
   }
 
-  public addFrame(frame: InputFrame): void {
-    console.log(
-      `[InputBufferMatcher] Adding frame ${frame.id} with ${frame.justPressed.size} pressed, ${frame.heldKeys.size} held, ${frame.justReleased.size} released keys`
-    );
-
+  public addFrame(frame: KeyboardFrame): void {
     // Update key states based on frame data
     for (const key of frame.justPressed) {
       this.keyStates.set(key, {
@@ -71,7 +68,6 @@ export class InputBufferMatcher {
   }
 
   private cleanOldFrames(currentTime: number): void {
-    // Remove frames older than maxAge or beyond maxSize
     while (
       this.frames.length > 0 &&
       (this.frames.length > this.maxSize ||
@@ -105,31 +101,12 @@ export class InputBufferMatcher {
     const events: KeyEvent[] = [];
     const holdDurations = new Map<string, number>();
 
-    for (const step of pattern.sequence) {
+    for (const step of pattern.steps) {
       const frame = this.frames[currentIndex];
       if (!frame) return null;
 
-      switch (step.type) {
-        case 'press':
-          if (!this.matchPressStep(step.keys, frame)) return null;
-          break;
-        case 'hold':
-          if (
-            !this.matchHoldStep(
-              step.keys,
-              frame,
-              step.holdTime || 0,
-              holdDurations
-            )
-          )
-            return null;
-          break;
-        case 'release':
-          if (!this.matchReleaseStep(step.keys, frame)) return null;
-          break;
-        case 'combo':
-          if (!this.matchComboStep(step.keys, frame, step.strict)) return null;
-          break;
+      if (!this.isStepMatched(step, frame, holdDurations)) {
+        return null;
       }
 
       // Add events from this frame
@@ -158,94 +135,82 @@ export class InputBufferMatcher {
     };
   }
 
-  private matchPressStep(keys: string[], frame: InputFrame): boolean {
-    return keys.every((key) => frame.justPressed.has(key));
-  }
-
-  private matchHoldStep(
-    keys: string[],
-    frame: InputFrame,
-    requiredHoldTime: number,
+  private isStepMatched(
+    step: TriggerStep,
+    frame: KeyboardFrame,
     holdDurations: Map<string, number>
   ): boolean {
-    // All keys must be either held or just pressed
-    if (
-      !keys.every(
-        (key) => frame.heldKeys.has(key) || frame.justPressed.has(key)
-      )
-    ) {
-      return false;
-    }
+    switch (step.type) {
+      case 'hold':
+        if (!step.conditions?.holdTime) return false;
 
-    // Check hold durations
-    for (const key of keys) {
-      const duration = frame.holdDurations.get(key) || 0;
-      if (duration < requiredHoldTime) {
+        // All keys must be either held or just pressed
+        if (
+          !step.keys.every(
+            (key: string) =>
+              frame.heldKeys.has(key) || frame.justPressed.has(key)
+          )
+        ) {
+          return false;
+        }
+
+        // Check hold durations
+        for (const key of step.keys) {
+          const duration = frame.holdDurations.get(key) || 0;
+          if (duration < step.conditions.holdTime) {
+            return false;
+          }
+          holdDurations.set(key, duration);
+        }
+        return true;
+
+      case 'combo':
+        const allKeysActive = step.keys.every(
+          (key: string) => frame.justPressed.has(key) || frame.heldKeys.has(key)
+        );
+        const isStrict = step.conditions?.strict ?? false;
+
+        if (isStrict) {
+          return step.keys.every((key: string) => frame.justPressed.has(key));
+        }
+        return allKeysActive;
+
+      case 'press':
+        return step.keys.some((key: string) => frame.justPressed.has(key));
+
+      case 'release':
+        return step.keys.every((key: string) => frame.justReleased.has(key));
+
+      default:
         return false;
-      }
-      holdDurations.set(key, duration);
     }
-
-    return true;
   }
 
-  private matchReleaseStep(keys: string[], frame: InputFrame): boolean {
-    return keys.every((key) => frame.justReleased.has(key));
-  }
-
-  private matchComboStep(
-    keys: string[],
-    frame: InputFrame,
-    strict: boolean = false
-  ): boolean {
-    console.log(`[InputBufferMatcher] Matching combo step:`, {
-      keys,
-      strict,
-      justPressed: Array.from(frame.justPressed),
-      heldKeys: Array.from(frame.heldKeys),
-    });
-
-    if (strict) {
-      // In strict mode, all keys must be just pressed in this frame
-      const matched = keys.every((key) => frame.justPressed.has(key));
-      console.log(`[InputBufferMatcher] Strict combo match result: ${matched}`);
-      return matched;
-    }
-
-    // In normal mode, keys can be either just pressed or held
-    const matched = keys.every(
-      (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
-    );
-    console.log(`[InputBufferMatcher] Normal combo match result: ${matched}`);
-    return matched;
-  }
-
-  private getEventsFromFrame(frame: InputFrame): KeyEvent[] {
+  private getEventsFromFrame(frame: KeyboardFrame): KeyEvent[] {
     const events: KeyEvent[] = [];
 
-    // Add press events
     for (const key of frame.justPressed) {
       events.push({ key, type: 'press', timestamp: frame.timestamp });
     }
 
-    // Add release events
     for (const key of frame.justReleased) {
-      events.push({ key, type: 'release', timestamp: frame.timestamp });
+      events.push({
+        key,
+        type: 'release',
+        timestamp: frame.timestamp,
+        duration: frame.holdDurations.get(key),
+      });
     }
 
     return events;
   }
 
   public reset(): void {
-    console.log('[InputBufferMatcher] Resetting all state');
     this.frames = [];
     this.keyStates.clear();
   }
 
   public clearFramesUpTo(timestamp: number): void {
-    console.log(
-      `[InputBufferMatcher] Clearing frames up to timestamp ${timestamp}`
-    );
     const index = this.frames.findIndex((frame) => frame.timestamp > timestamp);
     if (index !== -1) {
       this.frames = this.frames.slice(index);

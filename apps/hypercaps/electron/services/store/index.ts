@@ -52,11 +52,6 @@ interface OldPattern {
   defaultBuffer?: any;
 }
 
-interface OldShortcut {
-  pattern: OldPattern;
-  [key: string]: any;
-}
-
 const MIGRATIONS: Migration[] = [
   // {
   //   version: "0.1.0",

@@ -1,3 +1,24 @@
+import { BrowserWindow, dialog, app } from 'electron';
+import { spawn, ChildProcess } from 'child_process';
+import { EventEmitter } from 'events';
+import path from 'path';
+import { Store } from '@electron/services/store';
+import { ipc } from '@electron/services/ipc';
+import { HyperKeyFeatureConfig } from './types/hyperkey-feature';
+import { Shortcut, TriggerStep } from '../shortcut-manager/types/';
+import { KeyboardState, ServiceState } from './types/keyboard-state';
+import { IPCSERVICE_NAMES } from '@electron/consts';
+
+const SERVICE_ACTIONS = {
+  START: 'start',
+  STOP: 'stop',
+  RESTART: 'restart',
+  GET_STATE: 'getState',
+  STATE_CHANGED: 'stateChanged',
+  FRAME: 'frame',
+  CONFIG_CHANGED: 'configChanged',
+} as const;
+
 /**
  * Keyboard Service
  *
@@ -15,47 +36,12 @@
  * 4. State updates are propagated to renderer via MessageQueue
  */
 
-import { BrowserWindow, dialog, app } from 'electron';
-import { spawn, ChildProcess } from 'child_process';
-import { EventEmitter } from 'events';
-import path from 'path';
-import { Store } from '@electron/services/store';
-import { ipc } from '@electron/services/ipc';
-import { HyperKeyFeatureConfig } from './types/hyperkey-feature';
-import { Shortcut, TriggerStep } from '../shortcut-manager/types/shortcut';
-
-interface KeyboardState {
-  frame: number;
-  timestamp: number;
-  event: {
-    type: 'keydown' | 'keyup';
-    key: string;
-  };
-  state: {
-    justPressed: string[];
-    held: string[];
-    justReleased: string[];
-    holdDurations: { [key: string]: number };
-  };
-}
-
-interface ServiceState {
-  isListening: boolean;
-  isLoading: boolean;
-  isStarting: boolean;
-  isHyperKeyEnabled: boolean;
-  error?: string;
-  lastError?: {
-    message: string;
-    timestamp: number;
-  };
-}
-
 export class KeyboardService extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
   private keyboardProcess: ChildProcess | null = null;
   private store: Store;
   private startupTimeout: NodeJS.Timeout | null = null;
+  private bufferWindow: number = 3000; // Default 3 seconds
   private state: ServiceState = {
     isListening: false,
     isLoading: false,
@@ -75,32 +61,44 @@ export class KeyboardService extends EventEmitter {
 
   private setupIPCHandlers(): void {
     ipc.registerService({
-      id: 'keyboard',
+      id: IPCSERVICE_NAMES.KEYBOARD,
       priority: 1,
     });
 
-    ipc.registerHandler('keyboard', 'start', async () => {
-      await this.startListening();
-      return this.getState();
-    });
-
-    ipc.registerHandler('keyboard', 'stop', async () => {
-      await this.stopListening();
-      return this.getState();
-    });
+    ipc.registerHandler(
+      IPCSERVICE_NAMES.KEYBOARD,
+      SERVICE_ACTIONS.START,
+      async () => {
+        await this.startListening();
+        return this.getState();
+      }
+    );
 
     ipc.registerHandler(
-      'keyboard',
-      'restart',
+      IPCSERVICE_NAMES.KEYBOARD,
+      SERVICE_ACTIONS.STOP,
+      async () => {
+        await this.stopListening();
+        return this.getState();
+      }
+    );
+
+    ipc.registerHandler(
+      IPCSERVICE_NAMES.KEYBOARD,
+      SERVICE_ACTIONS.RESTART,
       async (params: { config: HyperKeyFeatureConfig }) => {
         await this.restartWithConfig(params.config);
         return this.getState();
       }
     );
 
-    ipc.registerHandler('keyboard', 'getState', async () => {
-      return this.getState();
-    });
+    ipc.registerHandler(
+      IPCSERVICE_NAMES.KEYBOARD,
+      SERVICE_ACTIONS.GET_STATE,
+      async () => {
+        return this.getState();
+      }
+    );
   }
 
   private setState(updates: Partial<ServiceState>): void {
@@ -113,8 +111,8 @@ export class KeyboardService extends EventEmitter {
     });
 
     ipc.emit({
-      service: 'keyboard',
-      event: 'stateChanged',
+      service: IPCSERVICE_NAMES.KEYBOARD,
+      event: SERVICE_ACTIONS.STATE_CHANGED,
       data: {
         ...this.state,
         isRunning: this.isRunning(),
@@ -123,7 +121,8 @@ export class KeyboardService extends EventEmitter {
   }
 
   private getScriptPath(): string {
-    const scriptName = 'keyboard-monitor.ps1';
+    const scriptName = 'keyboard-monitor-polling.ps1';
+    // const scriptName = 'keyboard-monitor.ps1';
     const scriptSubPath = path.join(
       'electron',
       'features',
@@ -138,7 +137,7 @@ export class KeyboardService extends EventEmitter {
   }
 
   public async getState(): Promise<ServiceState> {
-    const hyperKey = await this.store.getFeature('hyperKey');
+    const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
     return {
       ...this.state,
       isHyperKeyEnabled: hyperKey?.config.isHyperKeyEnabled ?? false,
@@ -147,7 +146,7 @@ export class KeyboardService extends EventEmitter {
 
   public async init(): Promise<void> {
     await this.store.load();
-    const hyperKey = await this.store.getFeature('hyperKey');
+    const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
     console.log('[KeyboardService] HyperKey feature state:', hyperKey);
 
     if (!hyperKey) {
@@ -214,8 +213,8 @@ export class KeyboardService extends EventEmitter {
           // Send frame state directly to renderer and emit IPC event
           this.mainWindow?.webContents.send('keyboard-frame', keyboardState);
           ipc.emit({
-            service: 'keyboard',
-            event: 'frame',
+            service: IPCSERVICE_NAMES.KEYBOARD,
+            event: SERVICE_ACTIONS.FRAME,
             data: keyboardState,
           });
         } catch (parseError) {
@@ -232,6 +231,47 @@ export class KeyboardService extends EventEmitter {
     }
   };
 
+  /**
+   * Updates the buffer window based on the longest possible shortcut sequence
+   * This should be called whenever shortcuts are updated
+   */
+  public async updateBufferWindow(): Promise<void> {
+    const shortcutManager = await this.store.getFeature(
+      IPCSERVICE_NAMES.SHORTCUT_MANAGER
+    );
+
+    if (shortcutManager?.config?.shortcuts) {
+      const shortcuts = shortcutManager.config.shortcuts as Shortcut[];
+      this.bufferWindow = shortcuts.reduce((max, shortcut) => {
+        // Check trigger window
+        const triggerWindow = shortcut.trigger.totalTimeWindow || 0;
+        // Check hold times in sequence
+        const holdTimes =
+          shortcut.trigger.steps.reduce(
+            (maxHold: number, step: TriggerStep) => {
+              const holdTime = step.holdTime || 0;
+              return Math.max(maxHold, holdTime);
+            },
+            0
+          ) || 0;
+        return Math.max(max, triggerWindow, holdTimes);
+      }, this.bufferWindow);
+
+      // If we're already running, restart with new buffer window
+      if (this.isRunning()) {
+        await this.restartListening();
+      }
+    }
+  }
+
+  /**
+   * Restarts the keyboard service with current configuration
+   */
+  private async restartListening(): Promise<void> {
+    await this.stopListening();
+    await this.startListening();
+  }
+
   public async startListening(): Promise<void> {
     console.log('[KeyboardService] startListening() called');
 
@@ -240,7 +280,7 @@ export class KeyboardService extends EventEmitter {
       return;
     }
 
-    const hyperKey = await this.store.getFeature('hyperKey');
+    const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
     if (!hyperKey?.isFeatureEnabled) {
       console.log('[KeyboardService] Feature is disabled, not starting');
       return;
@@ -269,31 +309,10 @@ export class KeyboardService extends EventEmitter {
 
     try {
       const scriptPath = this.getScriptPath();
-      const hyperKey = await this.store.getFeature('hyperKey');
-      const shortcutManager = await this.store.getFeature('shortcutManager');
+      const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
 
       if (!hyperKey) {
         throw new Error('HyperKey feature not found');
-      }
-
-      // Calculate max buffer window from shortcuts
-      let maxBufferWindow = 3000; // Default 3 seconds
-      if (shortcutManager?.config?.shortcuts) {
-        const shortcuts = shortcutManager.config.shortcuts as Shortcut[];
-        maxBufferWindow = shortcuts.reduce((max, shortcut) => {
-          // Check trigger window
-          const triggerWindow = shortcut.trigger.totalTimeWindow || 0;
-          // Check hold times in sequence
-          const holdTimes =
-            shortcut.trigger.steps.reduce(
-              (maxHold: number, step: TriggerStep) => {
-                const holdTime = step.holdTime || 0;
-                return Math.max(maxHold, holdTime);
-              },
-              0
-            ) || 0;
-          return Math.max(max, triggerWindow, holdTimes);
-        }, maxBufferWindow);
       }
 
       const config = {
@@ -302,7 +321,7 @@ export class KeyboardService extends EventEmitter {
         trigger: hyperKey.config.trigger,
         modifiers: hyperKey.config.modifiers || [],
         capsLockBehavior: hyperKey.config.capsLockBehavior || 'BlockToggle',
-        bufferWindow: maxBufferWindow,
+        bufferWindow: this.bufferWindow,
       };
 
       const command = [
@@ -340,13 +359,6 @@ export class KeyboardService extends EventEmitter {
       console.log('[KeyboardService] Script path:', scriptPath);
       console.log('[KeyboardService] Process env:', process.env.NODE_ENV);
 
-      // Verify script exists
-      const fs = require('fs');
-      if (!fs.existsSync(scriptPath)) {
-        throw new Error(`Script not found at path: ${scriptPath}`);
-      }
-      console.log('[KeyboardService] Script exists at path');
-
       this.keyboardProcess = spawn('powershell.exe', [
         '-ExecutionPolicy',
         'Bypass',
@@ -369,7 +381,9 @@ export class KeyboardService extends EventEmitter {
 
       // Update store on successful start
       await this.store.update((draft) => {
-        const feature = draft.features.find((f) => f.name === 'hyperKey');
+        const feature = draft.features.find(
+          (f) => f.name === IPCSERVICE_NAMES.HYPERKEY
+        );
         if (feature) {
           feature.isFeatureEnabled = true;
         }
@@ -563,7 +577,9 @@ export class KeyboardService extends EventEmitter {
 
   public async restartWithConfig(config: HyperKeyFeatureConfig): Promise<void> {
     await this.store.update((draft) => {
-      const feature = draft.features.find((f) => f.name === 'hyperKey');
+      const feature = draft.features.find(
+        (f) => f.name === IPCSERVICE_NAMES.HYPERKEY
+      );
       if (feature) {
         feature.config = config;
       }
@@ -571,8 +587,8 @@ export class KeyboardService extends EventEmitter {
 
     // Emit config change event
     this.mainWindow?.webContents.send('ipc:event', {
-      service: 'hyperKey',
-      event: 'configChanged',
+      service: IPCSERVICE_NAMES.HYPERKEY,
+      event: SERVICE_ACTIONS.CONFIG_CHANGED,
       data: config,
     });
 
