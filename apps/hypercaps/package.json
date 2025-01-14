@@ -134,5 +134,5 @@
     "preview": "vite preview",
     "start": "cross-env NODE_ENV=development electron ."
   },
-  "version": "0.0.1"
+  "version": "0.2.0"
 }
