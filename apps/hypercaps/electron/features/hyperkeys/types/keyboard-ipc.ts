@@ -3,7 +3,7 @@
  * Defines the interface for keyboard service communication
  */
 
-import { HyperKeyFeatureConfig } from "./hyperkey-feature";
+import { HyperKeyFeatureConfig } from './hyperkey-feature';
 
 /**
  * Keyboard service commands
@@ -25,7 +25,7 @@ export interface KeyboardEvents {
     pressedKeys: string[];
     timestamp: number;
     event?: {
-      type: "keydown" | "keyup";
+      type: 'keydown' | 'keyup';
       key: string;
     };
     state?: {
@@ -37,7 +37,7 @@ export interface KeyboardEvents {
     frame: number;
     timestamp: number;
     event: {
-      type: "keydown" | "keyup";
+      type: 'keydown' | 'keyup';
       key: string;
     };
     state: {

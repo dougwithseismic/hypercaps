@@ -7,10 +7,10 @@
  * Available IPC services
  */
 export const IPC_SERVICES = {
-  HYPERKEY: "hyperkey",
-  SHORTCUT: "shortcut",
-  STARTUP: "startup",
-  WINDOW: "window",
+  HYPERKEY: 'hyperkey',
+  SHORTCUT: 'shortcut',
+  STARTUP: 'startup',
+  WINDOW: 'window',
 } as const;
 
 export type ServiceName = (typeof IPC_SERVICES)[keyof typeof IPC_SERVICES];
@@ -131,7 +131,7 @@ export type ActionParams<
 > = TService extends keyof ServiceContractMap
   ? TAction extends keyof ServiceContractMap[TService]
     ? ServiceContractMap[TService][TAction] extends { params: any }
-      ? ServiceContractMap[TService][TAction]["params"]
+      ? ServiceContractMap[TService][TAction]['params']
       : never
     : never
   : never;
@@ -145,7 +145,7 @@ export type ActionResult<
 > = TService extends keyof ServiceContractMap
   ? TAction extends keyof ServiceContractMap[TService]
     ? ServiceContractMap[TService][TAction] extends { result: any }
-      ? ServiceContractMap[TService][TAction]["result"]
+      ? ServiceContractMap[TService][TAction]['result']
       : never
     : never
   : never;

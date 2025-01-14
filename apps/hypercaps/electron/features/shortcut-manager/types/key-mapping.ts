@@ -1,11 +1,11 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 export const KeyMappingSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
   triggers: z.array(z.string()),
-  actionType: z.enum(["command", "shortcut", "script"]),
+  actionType: z.enum(['command', 'shortcut', 'script']),
   action: z.string(),
   enabled: z.boolean(),
   options: z

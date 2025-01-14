@@ -3,7 +3,7 @@ import type {
   IPCEvent,
   IPCEventHandler,
   IPCResult,
-} from "../types";
+} from '../types';
 
 /**
  * Client-side IPC service for communicating with the main process
@@ -31,11 +31,11 @@ export class IPCClient {
     command: IPCCommand<TParams>
   ): Promise<IPCResult<TResult>> {
     if (!window?.api?.ipc?.run) {
-      throw new Error("IPC bridge not initialized");
+      throw new Error('IPC bridge not initialized');
     }
-    console.log("[IPCClient] Running command:", command);
+    console.log('[IPCClient] Running command:', command);
     const result = await window.api.ipc.run<TParams, TResult>(command);
-    console.log("[IPCClient] Command result:", result);
+    console.log('[IPCClient] Command result:', result);
     return result;
   }
 
@@ -48,11 +48,11 @@ export class IPCClient {
     handler: IPCEventHandler<TData>
   ): () => void {
     if (!window?.api?.ipc?.on) {
-      throw new Error("IPC bridge not initialized");
+      throw new Error('IPC bridge not initialized');
     }
 
     const channel = `${service}:${event}`;
-    console.log("[IPCClient] Setting up event listener:", channel);
+    console.log('[IPCClient] Setting up event listener:', channel);
 
     // Create a set for this channel if it doesn't exist
     if (!this.eventHandlers.has(channel)) {
@@ -67,9 +67,9 @@ export class IPCClient {
       service,
       event,
       (eventData: TData) => {
-        console.log("[IPCClient] Received event data:", eventData);
+        console.log('[IPCClient] Received event data:', eventData);
         this.eventHandlers.get(channel)?.forEach((h) => {
-          console.log("[IPCClient] Calling handler for channel:", channel);
+          console.log('[IPCClient] Calling handler for channel:', channel);
           h({ service, event, data: eventData } as IPCEvent<TData>);
         });
       }
@@ -77,7 +77,7 @@ export class IPCClient {
 
     // Return cleanup function
     return () => {
-      console.log("[IPCClient] Cleaning up event listener:", channel);
+      console.log('[IPCClient] Cleaning up event listener:', channel);
       this.eventHandlers.get(channel)?.delete(handler);
       if (this.eventHandlers.get(channel)?.size === 0) {
         this.eventHandlers.delete(channel);

@@ -97,11 +97,11 @@ The application uses a custom IPC system for type-safe communication:
 const { pressedKeys } = useHypercapsKeys();
 
 // Commands
-await ipc.run(createCommand("keyboard", "start"));
+await ipc.run(createCommand('keyboard', 'start'));
 
 // Events
-ipc.on("keyboard", "keyPressed", (event) => {
-  console.log("Keys pressed:", event.data.pressedKeys);
+ipc.on('keyboard', 'keyPressed', (event) => {
+  console.log('Keys pressed:', event.data.pressedKeys);
 });
 ```
 
@@ -119,13 +119,13 @@ HyperCaps follows Electron's security best practices:
 
 ```typescript
 // Preload script exposes safe APIs
-contextBridge.exposeInMainWorld("api", {
+contextBridge.exposeInMainWorld('api', {
   ipc: {
-    run: async <T>(command) => ipcRenderer.invoke("ipc:command", command),
+    run: async <T>(command) => ipcRenderer.invoke('ipc:command', command),
     on: <T>(service, event, callback) => {
       // Safe event handling
-    }
-  }
+    },
+  },
 });
 ```
 
@@ -182,13 +182,13 @@ Debug output from the keyboard monitor:
 ```typescript
 // Define a custom mapping
 const mapping: KeyMapping = {
-  trigger: "CapsLock",
-  modifiers: ["Control", "Shift", "Win"],
-  action: "hyperkey"
+  trigger: 'CapsLock',
+  modifiers: ['Control', 'Shift', 'Win'],
+  action: 'hyperkey',
 };
 
 // Apply the mapping
-await ipc.run(createCommand("keyboard", "setMapping", mapping));
+await ipc.run(createCommand('keyboard', 'setMapping', mapping));
 ```
 
 ### Event Priority System
@@ -201,10 +201,10 @@ Messages are processed based on priority:
 
 ```typescript
 // High priority event
-queue.enqueue("keyboardEvent", data, 1);
+queue.enqueue('keyboardEvent', data, 1);
 
 // Normal priority command
-queue.enqueue("setState", updates, 2);
+queue.enqueue('setState', updates, 2);
 ```
 
 ### State Management
@@ -218,12 +218,14 @@ await store.update((draft) => {
 });
 
 // State migrations
-const migrations = [{
-  version: "0.2.0",
-  migrate: (state) => {
-    // Migration logic
-  }
-}];
+const migrations = [
+  {
+    version: '0.2.0',
+    migrate: (state) => {
+      // Migration logic
+    },
+  },
+];
 ```
 
 ## Error Handling
@@ -236,9 +238,9 @@ The application implements comprehensive error handling:
 try {
   await ipc.run(command);
 } catch (error) {
-  if (error.code === "SERVICE_NOT_FOUND") {
+  if (error.code === 'SERVICE_NOT_FOUND') {
     // Handle service not found
-  } else if (error.code === "HANDLER_NOT_FOUND") {
+  } else if (error.code === 'HANDLER_NOT_FOUND') {
     // Handle missing handler
   }
 }
@@ -247,8 +249,8 @@ try {
 ### Queue Errors
 
 ```typescript
-queue.on("message:failed", (message) => {
-  if (message.type === "setState") {
+queue.on('message:failed', (message) => {
+  if (message.type === 'setState') {
     // Handle state update failure
   }
 });

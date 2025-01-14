@@ -1,0 +1,29 @@
+# Build outputs
+dist/
+build/
+coverage/
+.next/
+out/
+
+# Package management
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Cache and logs
+.turbo/
+.cache/
+*.log
+
+# Environment and config files
+.env*
+.npmrc
+
+# Generated files
+*.gen.*
+*.generated.*
+tsconfig.tsbuildinfo
+
+# Public assets
+public/

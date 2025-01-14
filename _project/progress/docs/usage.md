@@ -14,6 +14,7 @@ Learn how to use HyperCaps effectively to boost your productivity.
 ### Setting Up Your Trigger Key
 
 1. **Choose Your Trigger**
+
    - Open HyperCaps settings
    - Navigate to "Key Configuration"
    - Select your preferred trigger key (CapsLock recommended)
@@ -27,6 +28,7 @@ Learn how to use HyperCaps effectively to boost your productivity.
 ### Creating Key Mappings
 
 1. **Basic Mapping**
+
    - Click "Add New Mapping"
    - Select your source key
    - Choose target modifiers (Ctrl, Alt, Shift, Win)
@@ -55,6 +57,7 @@ You can combine multiple modifiers for complex shortcuts:
 ### Command Execution
 
 1. **Running Commands**
+
    - Add a new mapping
    - Instead of a target key, select "Run Command"
    - Enter your command or select a preset
@@ -132,6 +135,7 @@ You can combine multiple modifiers for complex shortcuts:
 ### Common Issues
 
 1. **Keys Not Responding**
+
    - Check if HyperCaps is enabled
    - Verify mapping configuration
    - Ensure no conflicts with other software

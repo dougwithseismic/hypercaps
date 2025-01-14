@@ -18,17 +18,17 @@
  * @note This is NOT for real-time state - use MessageQueue service for that
  */
 
-import { app } from "electron";
-import path from "path";
-import fs from "fs";
-import { produce } from "immer";
-import { z } from "zod";
-import { AppState, AppStateSchema } from "./types/app-state";
-import { Feature, FeatureName } from "./types/feature-config";
-import { EventEmitter } from "events";
+import { app } from 'electron';
+import path from 'path';
+import fs from 'fs';
+import { produce } from 'immer';
+import { z } from 'zod';
+import { AppState, AppStateSchema } from './types/app-state';
+import { Feature, FeatureName } from './types/feature-config';
+import { EventEmitter } from 'events';
 
 // Get version from package.json
-const pkg = require(path.join(app.getAppPath(), "package.json"));
+const pkg = require(path.join(app.getAppPath(), 'package.json'));
 const CURRENT_STATE_VERSION = pkg.version;
 
 // Version when each migration was introduced
@@ -205,18 +205,18 @@ const DEFAULT_STATE: AppState = {
   },
   features: [
     {
-      name: "hyperKey",
+      name: 'hyperKey',
       isFeatureEnabled: true,
       enableFeatureOnStartup: true,
       config: {
         isHyperKeyEnabled: true,
-        trigger: "CapsLock",
+        trigger: 'CapsLock',
         modifiers: [],
-        capsLockBehavior: "BlockToggle",
+        capsLockBehavior: 'BlockToggle',
       },
     },
     {
-      name: "shortcutManager",
+      name: 'shortcutManager',
       isFeatureEnabled: true,
       enableFeatureOnStartup: true,
       config: {
@@ -235,9 +235,9 @@ export class Store extends EventEmitter {
   private constructor() {
     super();
     this.statePath =
-      process.env.NODE_ENV === "development"
-        ? path.join(app.getAppPath(), "state.json")
-        : path.join(app.getPath("userData"), "state.json");
+      process.env.NODE_ENV === 'development'
+        ? path.join(app.getAppPath(), 'state.json')
+        : path.join(app.getPath('userData'), 'state.json');
   }
 
   public static getInstance(): Store {
@@ -252,8 +252,8 @@ export class Store extends EventEmitter {
   }
 
   private compareVersions(a: string, b: string): number {
-    const partsA = a.split(".").map(Number);
-    const partsB = b.split(".").map(Number);
+    const partsA = a.split('.').map(Number);
+    const partsB = b.split('.').map(Number);
 
     for (let i = 0; i < 3; i++) {
       const partA = partsA[i] || 0;
@@ -267,20 +267,20 @@ export class Store extends EventEmitter {
     try {
       return schema.parse(state);
     } catch (error) {
-      console.error("[Store] State validation failed:", error);
+      console.error('[Store] State validation failed:', error);
       if (error instanceof z.ZodError) {
         console.error(
-          "[Store] Validation errors:",
+          '[Store] Validation errors:',
           JSON.stringify(error.errors, null, 2)
         );
       }
-      console.warn("[Store] Falling back to default state");
+      console.warn('[Store] Falling back to default state');
       return DEFAULT_STATE;
     }
   }
 
   private migrateState(versionedState: Partial<VersionedState>): AppState {
-    const version = versionedState.version || "0.0.0";
+    const version = versionedState.version || '0.0.0';
     let state = versionedState.state || DEFAULT_STATE;
 
     // Sort migrations by version
@@ -324,7 +324,7 @@ export class Store extends EventEmitter {
   public async load(): Promise<void> {
     try {
       if (fs.existsSync(this.statePath)) {
-        const data = await fs.promises.readFile(this.statePath, "utf-8");
+        const data = await fs.promises.readFile(this.statePath, 'utf-8');
         const versionedState = JSON.parse(data) as Partial<VersionedState>;
 
         // Migrate state if needed
@@ -343,7 +343,7 @@ export class Store extends EventEmitter {
         await this.save();
       }
     } catch (error) {
-      console.error("Failed to load state:", error);
+      console.error('Failed to load state:', error);
       this.state = DEFAULT_STATE;
       await this.save();
     }
@@ -359,10 +359,10 @@ export class Store extends EventEmitter {
       await fs.promises.writeFile(
         this.statePath,
         JSON.stringify(versionedState, null, 2),
-        "utf-8"
+        'utf-8'
       );
     } catch (error) {
-      console.error("Failed to save state:", error);
+      console.error('Failed to save state:', error);
     }
   }
 
@@ -370,7 +370,7 @@ export class Store extends EventEmitter {
     this.state = produce(this.state, updater);
     await this.save();
     // Emit state change event
-    this.emit("stateChanged", this.state);
+    this.emit('stateChanged', this.state);
   }
 
   public async getFeature<T extends FeatureName>(
