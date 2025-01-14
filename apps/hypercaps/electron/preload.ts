@@ -1,17 +1,17 @@
-import { AppState } from "@electron/services/store/types/app-state";
-import { contextBridge, ipcRenderer } from "electron";
-import { HyperKeyFeatureConfig } from "./features/hyperkeys/types/hyperkey-feature";
-import { IPCCommand } from "@hypercaps/ipc";
+import { AppState } from '@electron/services/store/types/app-state';
+import { contextBridge, ipcRenderer } from 'electron';
+import { HyperKeyFeatureConfig } from './features/hyperkeys/types/hyperkey-feature';
+import { IPCCommand } from '@hypercaps/ipc';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
-contextBridge.exposeInMainWorld("api", {
+contextBridge.exposeInMainWorld('api', {
   // Window controls
   minimizeWindow: () => {
-    ipcRenderer.send("minimize-window");
+    ipcRenderer.send('minimize-window');
   },
   closeWindow: () => {
-    ipcRenderer.send("close-window");
+    ipcRenderer.send('close-window');
   },
 
   // Custom IPC Bridge
@@ -20,9 +20,9 @@ contextBridge.exposeInMainWorld("api", {
     run: async <TParams = unknown, TResult = unknown>(
       command: IPCCommand<TParams>
     ): Promise<TResult> => {
-      console.log("[Preload] Running command:", command);
-      const result = await ipcRenderer.invoke("ipc:command", command);
-      console.log("[Preload] Command result:", result);
+      console.log('[Preload] Running command:', command);
+      const result = await ipcRenderer.invoke('ipc:command', command);
+      console.log('[Preload] Command result:', result);
       return result as TResult;
     },
 
@@ -32,66 +32,66 @@ contextBridge.exposeInMainWorld("api", {
       event: string,
       callback: (data: TData) => void
     ) => {
-      console.log("[Preload] Setting up event listener:", service, event);
+      console.log('[Preload] Setting up event listener:', service, event);
       const handler = (
         _: unknown,
         ipcEvent: { service: string; event: string; data: TData }
       ) => {
-        console.log("[Preload] Received event:", ipcEvent);
+        console.log('[Preload] Received event:', ipcEvent);
         if (ipcEvent.service === service && ipcEvent.event === event) {
-          console.log("[Preload] Event matched, calling callback");
+          console.log('[Preload] Event matched, calling callback');
           callback(ipcEvent.data);
         }
       };
-      ipcRenderer.on("ipc:event", handler);
+      ipcRenderer.on('ipc:event', handler);
       return () => {
-        console.log("[Preload] Removing event listener:", service, event);
-        ipcRenderer.removeListener("ipc:event", handler);
+        console.log('[Preload] Removing event listener:', service, event);
+        ipcRenderer.removeListener('ipc:event', handler);
       };
     },
   },
 
   // HyperKey feature
   getHyperKeyConfig: async () => {
-    return ipcRenderer.invoke("get-hyperkey-config");
+    return ipcRenderer.invoke('get-hyperkey-config');
   },
   setHyperKeyConfig: async (config: HyperKeyFeatureConfig) => {
-    return ipcRenderer.invoke("set-hyperkey-config", config);
+    return ipcRenderer.invoke('set-hyperkey-config', config);
   },
 
   // App settings
   getStartupSettings: async () => {
-    return ipcRenderer.invoke("get-startup-settings");
+    return ipcRenderer.invoke('get-startup-settings');
   },
   setStartupOnBoot: async (enabled: boolean) => {
-    return ipcRenderer.invoke("set-startup-on-boot", enabled);
+    return ipcRenderer.invoke('set-startup-on-boot', enabled);
   },
   setStartMinimized: async (enabled: boolean) => {
-    return ipcRenderer.invoke("set-start-minimized", enabled);
+    return ipcRenderer.invoke('set-start-minimized', enabled);
   },
 
   // Store state
   getFullState: async () => {
-    return ipcRenderer.invoke("get-full-state") as Promise<AppState>;
+    return ipcRenderer.invoke('get-full-state') as Promise<AppState>;
   },
 
   // Shortcut manager
   getShortcutConfig: async () => {
-    return ipcRenderer.invoke("get-shortcut-config");
+    return ipcRenderer.invoke('get-shortcut-config');
   },
   getShortcuts: async () => {
-    return ipcRenderer.invoke("get-shortcuts");
+    return ipcRenderer.invoke('get-shortcuts');
   },
   addShortcut: async (shortcut: unknown) => {
-    return ipcRenderer.invoke("add-shortcut", shortcut);
+    return ipcRenderer.invoke('add-shortcut', shortcut);
   },
   removeShortcut: async (id: string) => {
-    return ipcRenderer.invoke("remove-shortcut", id);
+    return ipcRenderer.invoke('remove-shortcut', id);
   },
   updateShortcut: async (id: string, shortcut: unknown) => {
-    return ipcRenderer.invoke("update-shortcut", shortcut);
+    return ipcRenderer.invoke('update-shortcut', shortcut);
   },
   toggleShortcut: async (id: string) => {
-    return ipcRenderer.invoke("toggle-shortcut", id);
+    return ipcRenderer.invoke('toggle-shortcut', id);
   },
 });

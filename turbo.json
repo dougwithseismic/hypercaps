@@ -6,11 +6,28 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "check": {
+      "dependsOn": ["lint", "format:check"],
+      "outputs": []
+    },
     "dev": {
       "cache": false,
       "persistent": true
     },
+    "format": {
+      "cache": false,
+      "outputs": []
+    },
+    "format:check": {
+      "cache": false,
+      "outputs": []
+    },
     "lint": {
+      "dependsOn": ["^lint"],
+      "outputs": []
+    },
+    "lint:fix": {
+      "dependsOn": ["^lint:fix"],
       "outputs": []
     },
     "type-check": {

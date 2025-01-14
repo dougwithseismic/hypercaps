@@ -1,12 +1,12 @@
 export interface KeyEvent {
   key: string;
-  type: "press" | "release";
+  type: 'press' | 'release';
   timestamp: number;
 }
 
 export interface KeyState {
   key: string;
-  state: "idle" | "justPressed" | "held" | "released";
+  state: 'idle' | 'justPressed' | 'held' | 'released';
   initialPressTime: number;
   holdDuration: number;
   lastUpdateTime: number;
@@ -23,7 +23,7 @@ export interface InputFrame {
 
 export interface CommandPattern {
   sequence: Array<{
-    type: "press" | "hold" | "release" | "combo";
+    type: 'press' | 'hold' | 'release' | 'combo';
     keys: string[];
     holdTime?: number;
     window?: number;

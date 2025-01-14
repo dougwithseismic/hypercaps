@@ -32,11 +32,13 @@ scoop install hypercaps
 ## Post-Installation Setup
 
 1. **First Launch**
+
    - HyperCaps will start automatically after installation
    - Look for the HyperCaps icon in your system tray
    - Click the icon to open the configuration window
 
 2. **Windows Startup**
+
    - HyperCaps is configured to start with Windows by default
    - You can disable this in the settings if preferred
 
@@ -56,11 +58,13 @@ scoop install hypercaps
 ### Common Issues
 
 1. **Installation Fails**
+
    - Ensure you have administrator privileges
    - Check Windows Defender or antivirus settings
    - Try running the installer as administrator
 
 2. **HyperCaps Won't Start**
+
    - Check the Windows Event Viewer for errors
    - Verify Windows Defender isn't blocking execution
    - Try reinstalling with administrator privileges
@@ -83,6 +87,7 @@ If you encounter any issues:
 If you need to remove HyperCaps:
 
 1. **Using Windows Settings**
+
    - Open Windows Settings
    - Go to Apps & Features
    - Search for "HyperCaps"

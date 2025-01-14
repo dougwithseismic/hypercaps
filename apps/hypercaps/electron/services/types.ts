@@ -2,10 +2,10 @@ export interface HyperKeyFeatureConfig {
   isHyperKeyEnabled: boolean;
   trigger: string;
   modifiers: string[];
-  capsLockBehavior?: "None" | "DoublePress" | "BlockToggle";
+  capsLockBehavior?: 'None' | 'DoublePress' | 'BlockToggle';
 }
 
-export type ActionType = "command" | "shortcut" | "script";
+export type ActionType = 'command' | 'shortcut' | 'script';
 
 export interface KeyMapping {
   id: string;

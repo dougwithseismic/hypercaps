@@ -1,15 +1,15 @@
-import type { IPCCommand, IPCResult } from "./types";
+import type { IPCCommand, IPCResult } from './types';
 import type {
   ServiceName,
   ServiceActions,
   ActionParams,
   IPC_SERVICES,
-} from "./contracts";
+} from './contracts';
 
-export * from "./types";
-export * from "./contracts";
-export * from "./ipc-service";
-export * from "./ipc-client";
+export * from './types';
+export * from './contracts';
+export * from './ipc-service';
+export * from './ipc-client';
 
 declare global {
   interface Window {
