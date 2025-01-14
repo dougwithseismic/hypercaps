@@ -1,5 +1,6 @@
 import { AppState } from "@electron/features/shortcut-manager/services/store/types/app-state";
 import { HyperKeyFeatureConfig } from "@electron/features/hyperkeys/types/hyperkey-feature";
+import { Shortcut } from "@electron/features/shortcut-manager/types/shortcut";
 
 interface StartupSettings {
   startupOnBoot: boolean;
@@ -34,6 +35,13 @@ declare global {
       onKeyboardEvent: (callback: (event: any) => void) => void;
       onKeyboardServiceState: (callback: (event: any) => void) => void;
       onHyperKeyState: (callback: (event: any) => void) => void;
+
+      // Shortcut manager
+      getShortcuts: () => Promise<Shortcut[]>;
+      addShortcut: (shortcut: Shortcut) => Promise<void>;
+      removeShortcut: (id: string) => Promise<void>;
+      updateShortcut: (id: string, shortcut: Shortcut) => Promise<void>;
+      toggleShortcut: (id: string) => Promise<void>;
     };
   }
 }

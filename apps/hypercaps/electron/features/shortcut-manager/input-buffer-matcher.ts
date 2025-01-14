@@ -1,184 +1,219 @@
 import {
   KeyEvent,
+  InputFrame,
   Command,
   CommandMatch,
-  CommandPattern,
+  KeyState,
 } from "./types/input-buffer";
 
 export class InputBufferMatcher {
-  private events: KeyEvent[] = [];
-  private maxSize: number;
-  private maxAge: number;
-  private readonly SIMULTANEOUS_WINDOW = 50; // Window for bundling simultaneous keys
+  private frames: InputFrame[] = [];
+  private keyStates: Map<string, KeyState> = new Map();
+  private nextFrameId = 0;
+  private readonly maxSize: number;
+  private readonly maxAge: number;
 
   constructor(maxSize: number, maxAge: number) {
     this.maxSize = maxSize;
     this.maxAge = maxAge;
+    console.log(
+      `[InputBufferMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
+    );
   }
 
-  addEvent(event: KeyEvent): void {
-    // Try to bundle with recent events if they're close in time
-    const recentEvents = this.events.filter(
-      (e) => Math.abs(e.timestamp - event.timestamp) <= this.SIMULTANEOUS_WINDOW
+  public addFrame(frame: InputFrame): void {
+    console.log(
+      `[InputBufferMatcher] Adding frame ${frame.id} with ${frame.justPressed.size} pressed, ${frame.heldKeys.size} held, ${frame.justReleased.size} released keys`
     );
 
-    // If we found recent events, adjust this event's timestamp to match
-    if (recentEvents.length > 0) {
-      event = { ...event, timestamp: recentEvents[0].timestamp };
+    // Update key states based on frame data
+    for (const key of frame.justPressed) {
+      this.keyStates.set(key, {
+        key,
+        state: "justPressed",
+        initialPressTime: frame.timestamp,
+        holdDuration: 0,
+        lastUpdateTime: frame.timestamp,
+      });
     }
 
-    this.events.push(event);
-    this.cleanOldEvents(event.timestamp);
+    for (const key of frame.heldKeys) {
+      const state = this.keyStates.get(key);
+      if (state) {
+        if (state.state === "justPressed") {
+          state.state = "held";
+        }
+        state.holdDuration = frame.holdDurations.get(key) || 0;
+        state.lastUpdateTime = frame.timestamp;
+      }
+    }
 
-    // Keep buffer size under limit
-    if (this.events.length > this.maxSize) {
-      this.events = this.events.slice(-this.maxSize);
+    for (const key of frame.justReleased) {
+      const state = this.keyStates.get(key);
+      if (state) {
+        state.state = "released";
+        state.lastUpdateTime = frame.timestamp;
+      }
+    }
+
+    // Clean up released keys after a frame
+    for (const [key, state] of this.keyStates.entries()) {
+      if (
+        state.state === "released" &&
+        frame.timestamp - state.lastUpdateTime > 16
+      ) {
+        this.keyStates.delete(key);
+      }
+    }
+
+    this.frames.push(frame);
+    this.cleanOldFrames(frame.timestamp);
+  }
+
+  private cleanOldFrames(currentTime: number): void {
+    // Remove frames older than maxAge or beyond maxSize
+    while (
+      this.frames.length > 0 &&
+      (this.frames.length > this.maxSize ||
+        currentTime - this.frames[0].timestamp > this.maxAge)
+    ) {
+      this.frames.shift();
     }
   }
 
-  private cleanOldEvents(currentTime: number): void {
-    this.events = this.events.filter((event) => {
-      return currentTime - event.timestamp <= this.maxAge;
-    });
-  }
-
-  findMatches(commands: Command[], currentTime: number): CommandMatch[] {
-    this.cleanOldEvents(currentTime);
+  public findMatches(commands: Command[]): CommandMatch[] {
     const matches: CommandMatch[] = [];
 
     for (const command of commands) {
-      const match = this.matchCommand(command, currentTime);
-      if (match) {
-        matches.push(match);
-        // Remove matched events to prevent double-matching
-        this.events = this.events.filter((e) => !match.events.includes(e));
+      for (let i = 0; i < this.frames.length; i++) {
+        const match = this.tryMatchAtIndex(command, i);
+        if (match) {
+          matches.push(match);
+        }
       }
     }
 
     return matches;
   }
 
-  private matchCommand(
+  private tryMatchAtIndex(
     command: Command,
-    currentTime: number
+    startIndex: number
   ): CommandMatch | null {
     const pattern = command.pattern;
-    const events = this.events;
-
-    // Group events by timestamp to handle simultaneous presses
-    const eventGroups = this.groupEventsByTimestamp(events);
-
-    // Check if we have enough event groups
-    if (eventGroups.length < pattern.sequence.length) {
-      return null;
-    }
-
-    // Try to match the pattern at each possible starting point
-    for (let i = 0; i <= eventGroups.length - pattern.sequence.length; i++) {
-      const match = this.tryMatchAtIndex(i, pattern, eventGroups, currentTime);
-      if (match) {
-        return {
-          command,
-          events: match.events,
-          startTime: match.startTime,
-          endTime: match.endTime,
-        };
-      }
-    }
-
-    return null;
-  }
-
-  private groupEventsByTimestamp(events: KeyEvent[]): KeyEvent[][] {
-    const groups: Map<number, KeyEvent[]> = new Map();
-
-    for (const event of events) {
-      const existing = Array.from(groups.entries()).find(
-        ([timestamp]) =>
-          Math.abs(timestamp - event.timestamp) <= this.SIMULTANEOUS_WINDOW
-      );
-
-      if (existing) {
-        existing[1].push(event);
-      } else {
-        groups.set(event.timestamp, [event]);
-      }
-    }
-
-    return Array.from(groups.values());
-  }
-
-  private tryMatchAtIndex(
-    startIndex: number,
-    pattern: CommandPattern,
-    eventGroups: KeyEvent[][],
-    currentTime: number
-  ): { events: KeyEvent[]; startTime: number; endTime: number } | null {
-    const sequence = pattern.sequence;
-    const matchedEvents: KeyEvent[] = [];
-    let lastMatchTime = eventGroups[startIndex][0].timestamp;
     let currentIndex = startIndex;
+    const events: KeyEvent[] = [];
+    const holdDurations = new Map<string, number>();
 
-    for (const step of sequence) {
-      // Find all events in this group that match this step's keys
-      const stepEvents = this.findStepEvents(
-        currentIndex,
-        step,
-        eventGroups,
-        lastMatchTime
-      );
+    for (const step of pattern.sequence) {
+      const frame = this.frames[currentIndex];
+      if (!frame) return null;
 
-      if (!stepEvents) {
-        return null;
+      switch (step.type) {
+        case "press":
+          if (!this.matchPressStep(step.keys, frame)) return null;
+          break;
+        case "hold":
+          if (
+            !this.matchHoldStep(
+              step.keys,
+              frame,
+              step.holdTime || 0,
+              holdDurations
+            )
+          )
+            return null;
+          break;
+        case "release":
+          if (!this.matchReleaseStep(step.keys, frame)) return null;
+          break;
+        case "combo":
+          if (!this.matchComboStep(step.keys, frame)) return null;
+          break;
       }
 
-      matchedEvents.push(...stepEvents.events);
-      lastMatchTime = stepEvents.endTime;
-      currentIndex = stepEvents.nextIndex;
+      // Add events from this frame
+      events.push(...this.getEventsFromFrame(frame));
+
+      // Move to next frame if not at end
+      if (currentIndex < this.frames.length - 1) {
+        currentIndex++;
+      }
     }
 
-    // Check total time window
-    const startTime = matchedEvents[0].timestamp;
-    const endTime = matchedEvents[matchedEvents.length - 1].timestamp;
+    const startTime = this.frames[startIndex].timestamp;
+    const endTime = this.frames[currentIndex].timestamp;
 
+    // Check if pattern completed within window
     if (endTime - startTime > pattern.window) {
       return null;
     }
 
     return {
-      events: matchedEvents,
+      command,
+      events,
       startTime,
       endTime,
+      holdDurations,
     };
   }
 
-  private findStepEvents(
-    startIndex: number,
-    step: { keys: string[]; window: number },
-    eventGroups: KeyEvent[][],
-    lastMatchTime: number
-  ): { events: KeyEvent[]; endTime: number; nextIndex: number } | null {
-    const requiredKeys = new Set(step.keys);
-    const matchedEvents: KeyEvent[] = [];
-    const currentGroup = eventGroups[startIndex];
+  private matchPressStep(keys: string[], frame: InputFrame): boolean {
+    return keys.every((key) => frame.justPressed.has(key));
+  }
 
-    // For simultaneous keys, all required keys must be in the current group
-    for (const event of currentGroup) {
-      if (requiredKeys.has(event.key)) {
-        matchedEvents.push(event);
-        requiredKeys.delete(event.key);
+  private matchHoldStep(
+    keys: string[],
+    frame: InputFrame,
+    requiredHoldTime: number,
+    holdDurations: Map<string, number>
+  ): boolean {
+    // All keys must be either held or just pressed
+    if (
+      !keys.every(
+        (key) => frame.heldKeys.has(key) || frame.justPressed.has(key)
+      )
+    ) {
+      return false;
+    }
+
+    // Check hold durations
+    for (const key of keys) {
+      const duration = frame.holdDurations.get(key) || 0;
+      if (duration < requiredHoldTime) {
+        return false;
       }
+      holdDurations.set(key, duration);
     }
 
-    // If we didn't find all required keys in this group, it's not a match
-    if (requiredKeys.size > 0) {
-      return null;
+    return true;
+  }
+
+  private matchReleaseStep(keys: string[], frame: InputFrame): boolean {
+    return keys.every((key) => frame.justReleased.has(key));
+  }
+
+  private matchComboStep(keys: string[], frame: InputFrame): boolean {
+    // For combos, we just care that all keys are active in this frame
+    // They can be either just pressed or held
+    return keys.every(
+      (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
+    );
+  }
+
+  private getEventsFromFrame(frame: InputFrame): KeyEvent[] {
+    const events: KeyEvent[] = [];
+
+    // Add press events
+    for (const key of frame.justPressed) {
+      events.push({ key, type: "press", timestamp: frame.timestamp });
     }
 
-    return {
-      events: matchedEvents,
-      endTime: currentGroup[currentGroup.length - 1].timestamp,
-      nextIndex: startIndex + 1,
-    };
+    // Add release events
+    for (const key of frame.justReleased) {
+      events.push({ key, type: "release", timestamp: frame.timestamp });
+    }
+
+    return events;
   }
 }

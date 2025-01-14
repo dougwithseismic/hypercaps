@@ -1,39 +1,143 @@
 import { Store } from "../../services/store";
-import { IPCService } from "../../services/ipc";
+
 import { KeyboardEvents } from "../hyperkeys/types/keyboard-ipc";
 import { AppState } from "../../services/store/types/app-state";
 import { exec } from "child_process";
 import { v4 as uuidv4 } from "uuid";
-import { InputBufferMatcher } from "./input-buffer-matcher";
+import { TriggerMatcher } from "./trigger-matcher";
+import { InputFrame, Command, CommandMatch } from "./types/input-buffer";
 import {
-  Command,
+  Shortcut,
   ShortcutState,
-  KeyEvent,
-  CommandMatch,
-  Action,
-} from "./types/input-buffer";
+  TriggerStep,
+  TriggerStepType,
+} from "./types/shortcut";
+
+import { IPCService } from "@hypercaps/ipc";
+
+// Add frame state type
+interface FrameState {
+  justPressed: string[];
+  held: string[];
+  justReleased: string[];
+  holdDurations: Record<string, number>;
+}
+
+// Helper function to map TriggerStepType to Command pattern type
+function mapStepType(
+  type: TriggerStepType
+): "press" | "hold" | "release" | "combo" {
+  switch (type) {
+    case "hold":
+      return "hold";
+    case "combo":
+      return "combo";
+    case "single":
+    default:
+      return "press";
+  }
+}
+
+// Helper function to convert Shortcut to Command
+function shortcutToCommand(shortcut: Shortcut): Command {
+  return {
+    id: shortcut.id,
+    cooldown: shortcut.cooldown || 500, // Use shortcut's cooldown or default to 500ms
+    pattern: {
+      sequence: shortcut.trigger.steps.map((step: TriggerStep) => ({
+        type: mapStepType(step.type),
+        keys: step.keys,
+        holdTime: step.holdTime,
+        window: step.window || shortcut.trigger.totalTimeWindow,
+      })),
+      window: shortcut.trigger.totalTimeWindow || 5000,
+    },
+  };
+}
 
 export class ShortcutService {
   private store: Store;
   private ipc: IPCService;
-  private matcher: InputBufferMatcher;
-  private relevantKeys: Set<string>;
+  private matcher: TriggerMatcher;
   private lastExecutions: Map<string, number>;
+  private name: string = "shortcut-manager";
 
   constructor() {
     this.store = Store.getInstance();
     this.ipc = IPCService.getInstance();
-    this.matcher = new InputBufferMatcher(8, 1000); // 8 events, 1 second
-    this.relevantKeys = new Set<string>();
+    this.matcher = new TriggerMatcher(32, 5000); // 32 frames, 5 seconds
     this.lastExecutions = new Map();
+
+    // Register the service first
+    this.ipc.registerService({
+      id: this.name,
+      priority: 1,
+    });
+
     this.setupIPCHandlers();
   }
 
   private setupIPCHandlers(): void {
-    this.ipc.registerHandler("keyboard", "keyPressed", async (data) => {
-      const keyboardEvent = data as KeyboardEvents["keyPressed"];
-      await this.handleKeyboardEvent(keyboardEvent);
+    // Handle keyboard frame events
+    this.ipc.registerHandler("keyboard", "frame", async (data) => {
+      const frameEvent = data as KeyboardEvents["frame"];
+      await this.handleFrameEvent(frameEvent);
     });
+
+    // Get shortcut manager config
+    this.ipc.registerHandler(this.name, "get-shortcut-config", async () => {
+      const state = (await this.store.getFeature("shortcutManager"))
+        ?.config as ShortcutState;
+      return state || { isEnabled: false, shortcuts: [] };
+    });
+
+    // Get all shortcuts
+    this.ipc.registerHandler(this.name, "get-shortcuts", async () => {
+      const state = (await this.store.getFeature("shortcutManager"))
+        ?.config as ShortcutState;
+      return state?.shortcuts || [];
+    });
+
+    // Add a new shortcut
+    this.ipc.registerHandler(
+      this.name,
+      "add-shortcut",
+      async (shortcut: Omit<Shortcut, "id">) => {
+        await this.addShortcut(shortcut);
+      }
+    );
+
+    // Remove a shortcut
+    this.ipc.registerHandler(
+      this.name,
+      "remove-shortcut",
+      async (id: string) => {
+        await this.removeShortcut(id);
+      }
+    );
+
+    // Update a shortcut
+    this.ipc.registerHandler(
+      this.name,
+      "update-shortcut",
+      async ({ id, shortcut }: { id: string; shortcut: Partial<Shortcut> }) => {
+        await this.updateShortcut(id, shortcut);
+      }
+    );
+
+    // Toggle a shortcut
+    this.ipc.registerHandler(
+      this.name,
+      "toggle-shortcut",
+      async (id: string) => {
+        const state = (await this.store.getFeature("shortcutManager"))
+          ?.config as ShortcutState;
+        const shortcut = state?.shortcuts.find((s) => s.id === id);
+        if (shortcut) {
+          await this.updateShortcut(id, { enabled: !shortcut.enabled });
+        }
+      }
+    );
   }
 
   async initialize(): Promise<void> {
@@ -58,54 +162,56 @@ export class ShortcutService {
         });
       }
 
-      // Initialize relevant keys from existing shortcuts
-      const state = (await this.store.getFeature("shortcutManager"))
-        ?.config as ShortcutState;
-      if (state?.shortcuts) {
-        state.shortcuts.forEach((shortcut) => {
-          if (shortcut.enabled) {
-            this.addRelevantKeys(shortcut.pattern.sequence);
-          }
-        });
-      }
-
-      console.log("[ShortcutService] Initialized with state:", state);
+      console.log("[ShortcutService] Initialized successfully");
     } catch (error) {
       console.error("[ShortcutService] Initialization error:", error);
     }
   }
 
-  private async handleKeyboardEvent(
-    data: KeyboardEvents["keyPressed"]
-  ): Promise<void> {
+  private async handleFrameEvent(data: KeyboardEvents["frame"]): Promise<void> {
     const state = (await this.store.getFeature("shortcutManager"))
       ?.config as ShortcutState;
     if (!state?.isEnabled) return;
 
-    const pressedKeys = new Set(data.pressedKeys);
-    console.log(
-      "[ShortcutService] Handling key event:",
-      Array.from(pressedKeys),
-      "at",
-      data.timestamp
-    );
+    // Extract frame data from the state property
+    const frameData = (data.state || {}) as FrameState;
+    const justPressed = Array.isArray(frameData.justPressed)
+      ? frameData.justPressed
+      : [];
+    const heldKeys = Array.isArray(frameData.held) ? frameData.held : [];
+    const justReleased = Array.isArray(frameData.justReleased)
+      ? frameData.justReleased
+      : [];
+    const holdDurations = frameData.holdDurations || {};
 
-    // Skip if no keys are pressed
-    if (pressedKeys.size === 0) return;
+    // Create a frame from the keyboard event with safe conversions
+    const frame: InputFrame = {
+      id: data.frame,
+      timestamp: data.timestamp,
+      justPressed: new Set(justPressed),
+      heldKeys: new Set(heldKeys),
+      justReleased: new Set(justReleased),
+      holdDurations: new Map(Object.entries(holdDurations)),
+    };
 
-    // Add events to buffer
-    for (const key of pressedKeys) {
-      const event: KeyEvent = {
-        key,
-        type: "press",
-        timestamp: data.timestamp,
-      };
-      this.matcher.addEvent(event);
-    }
+    console.log("[ShortcutService] Processing frame:", {
+      id: frame.id,
+      justPressed: Array.from(frame.justPressed),
+      held: Array.from(frame.heldKeys),
+      justReleased: Array.from(frame.justReleased),
+      holdDurations: Object.fromEntries(frame.holdDurations),
+      timestamp: frame.timestamp,
+    });
+
+    // Add frame to matcher
+    this.matcher.addFrame(frame);
 
     // Find and execute matches
-    const enabledShortcuts = state.shortcuts.filter((s) => s.enabled);
-    const matches = this.matcher.findMatches(enabledShortcuts, data.timestamp);
+    const enabledShortcuts = state.shortcuts
+      .filter((s: Shortcut) => s.enabled)
+      .map(shortcutToCommand);
+
+    const matches = this.matcher.findMatches(enabledShortcuts);
 
     // Execute matched shortcuts
     for (const match of matches) {
@@ -116,29 +222,41 @@ export class ShortcutService {
   private async executeShortcut(match: CommandMatch): Promise<void> {
     const now = Date.now();
     const lastExecution = this.lastExecutions.get(match.command.id) || 0;
-    const cooldown = match.command.cooldown || 500; // Default 500ms cooldown
+    const cooldown = match.command.cooldown || 500;
 
     if (now - lastExecution < cooldown) {
       console.log(
-        `[ShortcutService] Skipping execution of ${match.command.name} - in cooldown`
+        `[ShortcutService] Skipping execution of ${match.command.id} - in cooldown (${cooldown}ms)`
       );
       return;
     }
 
-    console.log(`[ShortcutService] Executing shortcut: ${match.command.name}`);
+    console.log(`[ShortcutService] Executing shortcut: ${match.command.id}`);
     this.lastExecutions.set(match.command.id, now);
 
     try {
-      if (match.command.action.type === "launch") {
-        exec(match.command.action.program, (error) => {
+      // Find the original shortcut from the store
+      const state = (await this.store.getFeature("shortcutManager"))
+        ?.config as ShortcutState;
+      const shortcut = state.shortcuts.find((s) => s.id === match.command.id);
+
+      if (!shortcut) {
+        console.error(
+          `[ShortcutService] Shortcut not found: ${match.command.id}`
+        );
+        return;
+      }
+
+      if (shortcut.action.type === "launch") {
+        exec(shortcut.action.program || "", (error) => {
           if (error) {
             console.error(
               `[ShortcutService] Error executing shortcut: ${error}`
             );
           }
         });
-      } else if (match.command.action.type === "command") {
-        exec(match.command.action.command, (error) => {
+      } else if (shortcut.action.type === "command") {
+        exec(shortcut.action.command || "", (error) => {
           if (error) {
             console.error(
               `[ShortcutService] Error executing command: ${error}`
@@ -151,47 +269,9 @@ export class ShortcutService {
     }
   }
 
-  private addRelevantKeys(sequence: (string | { keys: string[] })[]): void {
-    sequence.forEach((item) => {
-      if (typeof item === "string") {
-        this.relevantKeys.add(item);
-      } else {
-        item.keys.forEach((key) => this.relevantKeys.add(key));
-      }
-    });
-  }
-
-  private removeRelevantKeys(
-    sequence: (string | { keys: string[] })[],
-    id: string,
-    shortcuts: Command[]
-  ): void {
-    const allKeys = sequence.flatMap((item) =>
-      typeof item === "string" ? [item] : item.keys
-    );
-
-    allKeys.forEach((key) => {
-      let isUsedElsewhere = false;
-      for (const other of shortcuts) {
-        if (other.id !== id && other.enabled) {
-          const otherKeys = other.pattern.sequence.flatMap((seq) =>
-            typeof seq === "string" ? [seq] : seq.keys
-          );
-          if (otherKeys.includes(key)) {
-            isUsedElsewhere = true;
-            break;
-          }
-        }
-      }
-      if (!isUsedElsewhere) {
-        this.relevantKeys.delete(key);
-      }
-    });
-  }
-
-  async addShortcut(command: Omit<Command, "id">): Promise<void> {
-    const newShortcut: Command = {
-      ...command,
+  async addShortcut(shortcut: Omit<Shortcut, "id">): Promise<void> {
+    const newShortcut: Shortcut = {
+      ...shortcut,
       id: uuidv4(),
     };
 
@@ -201,21 +281,9 @@ export class ShortcutService {
         (feature.config as ShortcutState).shortcuts.push(newShortcut);
       }
     });
-
-    if (newShortcut.enabled) {
-      this.addRelevantKeys(newShortcut.pattern.sequence);
-    }
   }
 
   async removeShortcut(id: string): Promise<void> {
-    const state = (await this.store.getFeature("shortcutManager"))
-      ?.config as ShortcutState;
-    const shortcut = state.shortcuts.find((s) => s.id === id);
-
-    if (shortcut) {
-      this.removeRelevantKeys(shortcut.pattern.sequence, id, state.shortcuts);
-    }
-
     await this.store.update((draft: AppState) => {
       const feature = draft.features.find((f) => f.name === "shortcutManager");
       if (feature) {
@@ -225,31 +293,14 @@ export class ShortcutService {
     });
   }
 
-  async updateShortcut(id: string, update: Partial<Command>): Promise<void> {
+  async updateShortcut(id: string, update: Partial<Shortcut>): Promise<void> {
     await this.store.update((draft: AppState) => {
       const feature = draft.features.find((f) => f.name === "shortcutManager");
       if (feature) {
         const state = feature.config as ShortcutState;
         const index = state.shortcuts.findIndex((s) => s.id === id);
         if (index !== -1) {
-          const oldShortcut = state.shortcuts[index];
-          state.shortcuts[index] = { ...oldShortcut, ...update };
-
-          // Update relevant keys if pattern or enabled state changed
-          if (update.pattern || update.enabled !== undefined) {
-            // Remove old keys
-            this.removeRelevantKeys(
-              oldShortcut.pattern.sequence,
-              id,
-              state.shortcuts
-            );
-
-            // Add new keys
-            const updatedShortcut = state.shortcuts[index];
-            if (updatedShortcut.enabled) {
-              this.addRelevantKeys(updatedShortcut.pattern.sequence);
-            }
-          }
+          state.shortcuts[index] = { ...state.shortcuts[index], ...update };
         }
       }
     });

@@ -39,95 +39,158 @@ interface Migration {
   migrate: MigrationFunction;
 }
 
+interface OldPattern {
+  sequence: Array<{
+    type?: string;
+    keys: string[];
+    buffer?: {
+      holdTime?: number;
+    };
+    window?: number;
+  }>;
+  window: number;
+  defaultBuffer?: any;
+}
+
+interface OldShortcut {
+  pattern: OldPattern;
+  [key: string]: any;
+}
+
 const MIGRATIONS: Migration[] = [
-  {
-    version: "0.1.0",
-    schema: AppStateSchema.extend({
-      features: z.array(
-        z.object({
-          name: z.enum(["hyperKey", "shortcutManager"]),
-          isFeatureEnabled: z.boolean(),
-          // enableFeatureOnStartup might not exist yet
-          config: z.any(),
-        })
-      ),
-    }),
-    migrate: (state: AppState) => {
-      console.log("[Store] Migrating state to version 0.1.0");
-      return produce(state, (draft) => {
-        // Migrate features to include enableFeatureOnStartup
-        draft.features?.forEach((feature) => {
-          if (!("enableFeatureOnStartup" in feature)) {
-            feature.enableFeatureOnStartup = feature.isFeatureEnabled || false;
-          }
-        });
-
-        // Ensure settings object exists
-        if (!draft.settings) {
-          draft.settings = {
-            startupOnBoot: false,
-            startMinimized: false,
-          };
-        }
-      });
-    },
-  },
-  {
-    version: "0.2.0",
-    schema: AppStateSchema.extend({
-      features: z.array(
-        z.object({
-          name: z.enum(["hyperKey", "shortcutManager"]),
-          isFeatureEnabled: z.boolean(),
-          enableFeatureOnStartup: z.boolean(),
-          config: z.any(),
-        })
-      ),
-    }),
-    migrate: (state: AppState) => {
-      console.log("[Store] Migrating state to version 0.2.0");
-      return produce(state, (draft) => {
-        // Migrate shortcut manager shortcuts to use new trigger format
-        draft.features?.forEach((feature) => {
-          if (feature.name === "shortcutManager") {
-            const config = feature.config as any;
-            if (config?.shortcuts) {
-              config.shortcuts = config.shortcuts.map((shortcut: any) => {
-                if ("triggerKey" in shortcut) {
-                  // Get HyperKey config to include its modifiers
-                  const hyperKey = draft.features?.find(
-                    (f) => f.name === "hyperKey"
-                  )?.config;
-                  const keys = [
-                    ...(hyperKey?.modifiers || []),
-                    shortcut.triggerKey,
-                  ].filter(Boolean);
-
-                  // Convert old triggerKey to new trigger format
-                  const newShortcut = {
-                    ...shortcut,
-                    trigger: {
-                      steps: [
-                        {
-                          type: "combo" as const,
-                          keys,
-                          timeWindow: 200,
-                        },
-                      ],
-                      totalTimeWindow: 500,
-                    },
-                  };
-                  delete newShortcut.triggerKey;
-                  return newShortcut;
-                }
-                return shortcut;
-              });
-            }
-          }
-        });
-      });
-    },
-  },
+  // {
+  //   version: "0.1.0",
+  //   schema: AppStateSchema.extend({
+  //     features: z.array(
+  //       z.object({
+  //         name: z.enum(["hyperKey", "shortcutManager"]),
+  //         isFeatureEnabled: z.boolean(),
+  //         // enableFeatureOnStartup might not exist yet
+  //         config: z.any(),
+  //       })
+  //     ),
+  //   }),
+  //   migrate: (state: AppState) => {
+  //     console.log("[Store] Migrating state to version 0.1.0");
+  //     return produce(state, (draft) => {
+  //       // Migrate features to include enableFeatureOnStartup
+  //       draft.features?.forEach((feature) => {
+  //         if (!("enableFeatureOnStartup" in feature)) {
+  //           feature.enableFeatureOnStartup = feature.isFeatureEnabled || false;
+  //         }
+  //       });
+  //       // Ensure settings object exists
+  //       if (!draft.settings) {
+  //         draft.settings = {
+  //           startupOnBoot: false,
+  //           startMinimized: false,
+  //         };
+  //       }
+  //     });
+  //   },
+  // },
+  // {
+  //   version: "0.2.0",
+  //   schema: AppStateSchema.extend({
+  //     features: z.array(
+  //       z.object({
+  //         name: z.enum(["hyperKey", "shortcutManager"]),
+  //         isFeatureEnabled: z.boolean(),
+  //         enableFeatureOnStartup: z.boolean(),
+  //         config: z.any(),
+  //       })
+  //     ),
+  //   }),
+  //   migrate: (state: AppState) => {
+  //     console.log("[Store] Migrating state to version 0.2.0");
+  //     return produce(state, (draft) => {
+  //       // Migrate shortcut manager shortcuts to use new trigger format
+  //       draft.features?.forEach((feature) => {
+  //         if (feature.name === "shortcutManager") {
+  //           const config = feature.config as any;
+  //           if (config?.shortcuts) {
+  //             config.shortcuts = config.shortcuts.map((shortcut: any) => {
+  //               if ("triggerKey" in shortcut) {
+  //                 // Get HyperKey config to include its modifiers
+  //                 const hyperKey = draft.features?.find(
+  //                   (f) => f.name === "hyperKey"
+  //                 )?.config;
+  //                 const keys = [
+  //                   ...(hyperKey?.modifiers || []),
+  //                   shortcut.triggerKey,
+  //                 ].filter(Boolean);
+  //                 // Convert old triggerKey to new trigger format
+  //                 const newShortcut = {
+  //                   ...shortcut,
+  //                   trigger: {
+  //                     steps: [
+  //                       {
+  //                         type: "combo" as const,
+  //                         keys,
+  //                         timeWindow: 200,
+  //                       },
+  //                     ],
+  //                     totalTimeWindow: 500,
+  //                   },
+  //                 };
+  //                 delete newShortcut.triggerKey;
+  //                 return newShortcut;
+  //               }
+  //               return shortcut;
+  //             });
+  //           }
+  //         }
+  //       });
+  //     });
+  //   },
+  // },
+  // {
+  //   version: "0.3.0",
+  //   schema: AppStateSchema.extend({
+  //     features: z.array(
+  //       z.object({
+  //         name: z.enum(["hyperKey", "shortcutManager"]),
+  //         isFeatureEnabled: z.boolean(),
+  //         enableFeatureOnStartup: z.boolean(),
+  //         config: z.any(),
+  //       })
+  //     ),
+  //   }),
+  //   migrate: (state: AppState) => {
+  //     // Convert shortcuts from pattern to trigger format
+  //     const shortcutManager = state.features.find(
+  //       (f) => f.name === "shortcutManager"
+  //     );
+  //     if (shortcutManager?.config?.shortcuts) {
+  //       const shortcuts = shortcutManager.config.shortcuts as OldShortcut[];
+  //       shortcuts.forEach((shortcut) => {
+  //         if ("pattern" in shortcut) {
+  //           const oldPattern = shortcut.pattern;
+  //           // Convert to new trigger format
+  //           const trigger = {
+  //             steps: oldPattern.sequence.map((step) => {
+  //               // Extract holdTime from buffer if it exists
+  //               const holdTime = step.buffer?.holdTime;
+  //               return {
+  //                 type:
+  //                   step.type || (step.keys.length > 1 ? "combo" : "single"),
+  //                 keys: step.keys,
+  //                 holdTime: holdTime,
+  //                 window: step.window || oldPattern.window,
+  //               };
+  //             }),
+  //             totalTimeWindow: oldPattern.window,
+  //             defaultBuffer: oldPattern.defaultBuffer,
+  //           };
+  //           // Replace pattern with trigger
+  //           delete (shortcut as any).pattern;
+  //           (shortcut as any).trigger = trigger;
+  //         }
+  //       });
+  //     }
+  //     return state;
+  //   },
+  // },
 ];
 
 interface VersionedState {
