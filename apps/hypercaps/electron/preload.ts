@@ -1,12 +1,25 @@
-import { AppState } from '@electron/services/store/types/app-state';
-import { contextBridge, ipcRenderer } from 'electron';
-import { HyperKeyFeatureConfig } from './features/hyperkeys/types/hyperkey-feature';
 import { IPCCommand } from '@hypercaps/ipc';
+import { contextBridge, ipcRenderer } from 'electron';
 
-// Expose protected methods that allow the renderer process to use
-// the ipcRenderer without exposing the entire object
-contextBridge.exposeInMainWorld('api', {
-  // Window controls
+// Define the API interface
+interface PreloadAPI {
+  minimizeWindow: () => void;
+  closeWindow: () => void;
+  ipc: {
+    run: <TParams = unknown, TResult = unknown>(
+      command: IPCCommand<TParams>
+    ) => Promise<TResult>;
+    on: <TData = unknown>(
+      service: string,
+      event: string,
+      callback: (data: TData) => void
+    ) => () => void;
+  };
+}
+
+// Create the API implementation
+const api: PreloadAPI = {
+  // Window controls - keeping these simple operations direct
   minimizeWindow: () => {
     ipcRenderer.send('minimize-window');
   },
@@ -50,48 +63,7 @@ contextBridge.exposeInMainWorld('api', {
       };
     },
   },
+};
 
-  // HyperKey feature
-  getHyperKeyConfig: async () => {
-    return ipcRenderer.invoke('get-hyperkey-config');
-  },
-  setHyperKeyConfig: async (config: HyperKeyFeatureConfig) => {
-    return ipcRenderer.invoke('set-hyperkey-config', config);
-  },
-
-  // App settings
-  getStartupSettings: async () => {
-    return ipcRenderer.invoke('get-startup-settings');
-  },
-  setStartupOnBoot: async (enabled: boolean) => {
-    return ipcRenderer.invoke('set-startup-on-boot', enabled);
-  },
-  setStartMinimized: async (enabled: boolean) => {
-    return ipcRenderer.invoke('set-start-minimized', enabled);
-  },
-
-  // Store state
-  getFullState: async () => {
-    return ipcRenderer.invoke('get-full-state') as Promise<AppState>;
-  },
-
-  // Shortcut manager
-  getShortcutConfig: async () => {
-    return ipcRenderer.invoke('get-shortcut-config');
-  },
-  getShortcuts: async () => {
-    return ipcRenderer.invoke('get-shortcuts');
-  },
-  addShortcut: async (shortcut: unknown) => {
-    return ipcRenderer.invoke('add-shortcut', shortcut);
-  },
-  removeShortcut: async (id: string) => {
-    return ipcRenderer.invoke('remove-shortcut', id);
-  },
-  updateShortcut: async (id: string, shortcut: unknown) => {
-    return ipcRenderer.invoke('update-shortcut', shortcut);
-  },
-  toggleShortcut: async (id: string) => {
-    return ipcRenderer.invoke('toggle-shortcut', id);
-  },
-});
+// Expose the API to the renderer process
+contextBridge.exposeInMainWorld('api', api);

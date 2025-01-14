@@ -12,7 +12,7 @@
         "enableFeatureOnStartup": true,
         "config": {
           "capsLockBehavior": "BlockToggle",
-          "isHyperKeyEnabled": true,
+          "isHyperKeyEnabled": false,
           "modifiers": [],
           "trigger": "CapsLock"
         }

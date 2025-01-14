@@ -1,6 +1,8 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router';
 import { TanStackRouterDevtools } from '@tanstack/router-devtools';
 import { ShellLayout } from '../components/shell-layout';
+import { Toaster } from '@/components/ui/toaster';
+import React from 'react';
 
 function RootComponent() {
   return (
@@ -10,6 +12,7 @@ function RootComponent() {
           <Outlet />
         </main>
       </div>
+      <Toaster />
       {process.env.NODE_ENV === 'development' && <TanStackRouterDevtools />}
     </ShellLayout>
   );

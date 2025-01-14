@@ -1,7 +1,7 @@
 "use strict";
 const electron = require("electron");
-electron.contextBridge.exposeInMainWorld("api", {
-  // Window controls
+const api = {
+  // Window controls - keeping these simple operations direct
   minimizeWindow: () => {
     electron.ipcRenderer.send("minimize-window");
   },
@@ -33,46 +33,7 @@ electron.contextBridge.exposeInMainWorld("api", {
         electron.ipcRenderer.removeListener("ipc:event", handler);
       };
     }
-  },
-  // HyperKey feature
-  getHyperKeyConfig: async () => {
-    return electron.ipcRenderer.invoke("get-hyperkey-config");
-  },
-  setHyperKeyConfig: async (config) => {
-    return electron.ipcRenderer.invoke("set-hyperkey-config", config);
-  },
-  // App settings
-  getStartupSettings: async () => {
-    return electron.ipcRenderer.invoke("get-startup-settings");
-  },
-  setStartupOnBoot: async (enabled) => {
-    return electron.ipcRenderer.invoke("set-startup-on-boot", enabled);
-  },
-  setStartMinimized: async (enabled) => {
-    return electron.ipcRenderer.invoke("set-start-minimized", enabled);
-  },
-  // Store state
-  getFullState: async () => {
-    return electron.ipcRenderer.invoke("get-full-state");
-  },
-  // Shortcut manager
-  getShortcutConfig: async () => {
-    return electron.ipcRenderer.invoke("get-shortcut-config");
-  },
-  getShortcuts: async () => {
-    return electron.ipcRenderer.invoke("get-shortcuts");
-  },
-  addShortcut: async (shortcut) => {
-    return electron.ipcRenderer.invoke("add-shortcut", shortcut);
-  },
-  removeShortcut: async (id) => {
-    return electron.ipcRenderer.invoke("remove-shortcut", id);
-  },
-  updateShortcut: async (id, shortcut) => {
-    return electron.ipcRenderer.invoke("update-shortcut", shortcut);
-  },
-  toggleShortcut: async (id) => {
-    return electron.ipcRenderer.invoke("toggle-shortcut", id);
   }
-});
+};
+electron.contextBridge.exposeInMainWorld("api", api);
 //# sourceMappingURL=preload.js.map

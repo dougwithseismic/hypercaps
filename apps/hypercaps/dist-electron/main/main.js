@@ -5345,10 +5345,24 @@ const ipc = ipc$1;
 ipc.onEvent((event) => {
   const windows = electron.BrowserWindow.getAllWindows();
   windows.forEach((window) => {
-    console.log("[IPCService] Sending event to window:", window.id);
+    console.log("[IPCService] Sending event to window:", window.id, event);
     window.webContents.send("ipc:event", event);
   });
 });
+const IPCSERVICE_NAMES = {
+  KEYBOARD: "keyboard",
+  HYPERKEY: "hyperKey",
+  SHORTCUT_MANAGER: "shortcutManager"
+};
+const SERVICE_ACTIONS = {
+  START: "start",
+  STOP: "stop",
+  RESTART: "restart",
+  GET_STATE: "getState",
+  STATE_CHANGED: "stateChanged",
+  FRAME: "frame",
+  CONFIG_CHANGED: "configChanged"
+};
 class KeyboardService extends events.EventEmitter {
   constructor() {
     super();
@@ -5356,6 +5370,8 @@ class KeyboardService extends events.EventEmitter {
     __publicField(this, "keyboardProcess", null);
     __publicField(this, "store");
     __publicField(this, "startupTimeout", null);
+    __publicField(this, "bufferWindow", 3e3);
+    // Default 3 seconds
     __publicField(this, "state", {
       isListening: false,
       isLoading: false,
@@ -5388,8 +5404,8 @@ class KeyboardService extends events.EventEmitter {
             };
             (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-frame", keyboardState);
             ipc.emit({
-              service: "keyboard",
-              event: "frame",
+              service: IPCSERVICE_NAMES.KEYBOARD,
+              event: SERVICE_ACTIONS.FRAME,
               data: keyboardState
             });
           } catch (parseError) {
@@ -5413,28 +5429,40 @@ class KeyboardService extends events.EventEmitter {
   }
   setupIPCHandlers() {
     ipc.registerService({
-      id: "keyboard",
+      id: IPCSERVICE_NAMES.KEYBOARD,
       priority: 1
     });
-    ipc.registerHandler("keyboard", "start", async () => {
-      await this.startListening();
-      return this.getState();
-    });
-    ipc.registerHandler("keyboard", "stop", async () => {
-      await this.stopListening();
-      return this.getState();
-    });
     ipc.registerHandler(
-      "keyboard",
-      "restart",
+      IPCSERVICE_NAMES.KEYBOARD,
+      SERVICE_ACTIONS.START,
+      async () => {
+        await this.startListening();
+        return this.getState();
+      }
+    );
+    ipc.registerHandler(
+      IPCSERVICE_NAMES.KEYBOARD,
+      SERVICE_ACTIONS.STOP,
+      async () => {
+        await this.stopListening();
+        return this.getState();
+      }
+    );
+    ipc.registerHandler(
+      IPCSERVICE_NAMES.KEYBOARD,
+      SERVICE_ACTIONS.RESTART,
       async (params) => {
         await this.restartWithConfig(params.config);
         return this.getState();
       }
     );
-    ipc.registerHandler("keyboard", "getState", async () => {
-      return this.getState();
-    });
+    ipc.registerHandler(
+      IPCSERVICE_NAMES.KEYBOARD,
+      SERVICE_ACTIONS.GET_STATE,
+      async () => {
+        return this.getState();
+      }
+    );
   }
   setState(updates) {
     var _a;
@@ -5444,8 +5472,8 @@ class KeyboardService extends events.EventEmitter {
       isRunning: this.isRunning()
     });
     ipc.emit({
-      service: "keyboard",
-      event: "stateChanged",
+      service: IPCSERVICE_NAMES.KEYBOARD,
+      event: SERVICE_ACTIONS.STATE_CHANGED,
       data: {
         ...this.state,
         isRunning: this.isRunning()
@@ -5453,7 +5481,7 @@ class KeyboardService extends events.EventEmitter {
     });
   }
   getScriptPath() {
-    const scriptName = "keyboard-monitor.ps1";
+    const scriptName = "keyboard-monitor-polling.ps1";
     const scriptSubPath = path.join(
       "electron",
       "features",
@@ -5464,7 +5492,7 @@ class KeyboardService extends events.EventEmitter {
     return process.env.NODE_ENV === "development" ? path.join(electron.app.getAppPath(), scriptSubPath) : path.join(process.resourcesPath, scriptSubPath);
   }
   async getState() {
-    const hyperKey = await this.store.getFeature("hyperKey");
+    const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
     return {
       ...this.state,
       isHyperKeyEnabled: (hyperKey == null ? void 0 : hyperKey.config.isHyperKeyEnabled) ?? false
@@ -5473,7 +5501,7 @@ class KeyboardService extends events.EventEmitter {
   async init() {
     var _a;
     await this.store.load();
-    const hyperKey = await this.store.getFeature("hyperKey");
+    const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
     console.log("[KeyboardService] HyperKey feature state:", hyperKey);
     if (!hyperKey) {
       this.setState({
@@ -5493,14 +5521,47 @@ class KeyboardService extends events.EventEmitter {
       await this.startListening();
     }
   }
-  async startListening() {
+  /**
+   * Updates the buffer window based on the longest possible shortcut sequence
+   * This should be called whenever shortcuts are updated
+   */
+  async updateBufferWindow() {
     var _a;
+    const shortcutManager = await this.store.getFeature(
+      IPCSERVICE_NAMES.SHORTCUT_MANAGER
+    );
+    if ((_a = shortcutManager == null ? void 0 : shortcutManager.config) == null ? void 0 : _a.shortcuts) {
+      const shortcuts = shortcutManager.config.shortcuts;
+      this.bufferWindow = shortcuts.reduce((max, shortcut) => {
+        const triggerWindow = shortcut.trigger.totalTimeWindow || 0;
+        const holdTimes = shortcut.trigger.steps.reduce(
+          (maxHold, step) => {
+            const holdTime = step.holdTime || 0;
+            return Math.max(maxHold, holdTime);
+          },
+          0
+        ) || 0;
+        return Math.max(max, triggerWindow, holdTimes);
+      }, this.bufferWindow);
+      if (this.isRunning()) {
+        await this.restartListening();
+      }
+    }
+  }
+  /**
+   * Restarts the keyboard service with current configuration
+   */
+  async restartListening() {
+    await this.stopListening();
+    await this.startListening();
+  }
+  async startListening() {
     console.log("[KeyboardService] startListening() called");
     if (this.keyboardProcess) {
       console.log("[KeyboardService] Process already running");
       return;
     }
-    const hyperKey = await this.store.getFeature("hyperKey");
+    const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
     if (!(hyperKey == null ? void 0 : hyperKey.isFeatureEnabled)) {
       console.log("[KeyboardService] Feature is disabled, not starting");
       return;
@@ -5526,25 +5587,9 @@ class KeyboardService extends events.EventEmitter {
     });
     try {
       const scriptPath = this.getScriptPath();
-      const hyperKey2 = await this.store.getFeature("hyperKey");
-      const shortcutManager = await this.store.getFeature("shortcutManager");
+      const hyperKey2 = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
       if (!hyperKey2) {
         throw new Error("HyperKey feature not found");
-      }
-      let maxBufferWindow = 3e3;
-      if ((_a = shortcutManager == null ? void 0 : shortcutManager.config) == null ? void 0 : _a.shortcuts) {
-        const shortcuts = shortcutManager.config.shortcuts;
-        maxBufferWindow = shortcuts.reduce((max, shortcut) => {
-          const triggerWindow = shortcut.trigger.totalTimeWindow || 0;
-          const holdTimes = shortcut.trigger.steps.reduce(
-            (maxHold, step) => {
-              const holdTime = step.holdTime || 0;
-              return Math.max(maxHold, holdTime);
-            },
-            0
-          ) || 0;
-          return Math.max(max, triggerWindow, holdTimes);
-        }, maxBufferWindow);
       }
       const config = {
         isEnabled: hyperKey2.isFeatureEnabled,
@@ -5552,7 +5597,7 @@ class KeyboardService extends events.EventEmitter {
         trigger: hyperKey2.config.trigger,
         modifiers: hyperKey2.config.modifiers || [],
         capsLockBehavior: hyperKey2.config.capsLockBehavior || "BlockToggle",
-        bufferWindow: maxBufferWindow
+        bufferWindow: this.bufferWindow
       };
       const command = [
         // Enable debug output and set error preferences
@@ -5584,11 +5629,6 @@ class KeyboardService extends events.EventEmitter {
       console.log("[KeyboardService] Spawning process with command:", command);
       console.log("[KeyboardService] Script path:", scriptPath);
       console.log("[KeyboardService] Process env:", process.env.NODE_ENV);
-      const fs2 = require("fs");
-      if (!fs2.existsSync(scriptPath)) {
-        throw new Error(`Script not found at path: ${scriptPath}`);
-      }
-      console.log("[KeyboardService] Script exists at path");
       this.keyboardProcess = child_process.spawn("powershell.exe", [
         "-ExecutionPolicy",
         "Bypass",
@@ -5606,7 +5646,9 @@ class KeyboardService extends events.EventEmitter {
       );
       await this.setupProcessListeners();
       await this.store.update((draft) => {
-        const feature = draft.features.find((f) => f.name === "hyperKey");
+        const feature = draft.features.find(
+          (f) => f.name === IPCSERVICE_NAMES.HYPERKEY
+        );
         if (feature) {
           feature.isFeatureEnabled = true;
         }
@@ -5773,14 +5815,16 @@ class KeyboardService extends events.EventEmitter {
   async restartWithConfig(config) {
     var _a;
     await this.store.update((draft) => {
-      const feature = draft.features.find((f) => f.name === "hyperKey");
+      const feature = draft.features.find(
+        (f) => f.name === IPCSERVICE_NAMES.HYPERKEY
+      );
       if (feature) {
         feature.config = config;
       }
     });
     (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("ipc:event", {
-      service: "hyperKey",
-      event: "configChanged",
+      service: IPCSERVICE_NAMES.HYPERKEY,
+      event: SERVICE_ACTIONS.CONFIG_CHANGED,
       data: config
     });
     await this.stopListening();
@@ -5821,7 +5865,7 @@ function v4(options, buf, offset) {
   rnds[8] = rnds[8] & 63 | 128;
   return unsafeStringify(rnds);
 }
-class InputBufferMatcher {
+class KeyboardEventMatcher {
   constructor(maxSize, maxAge) {
     __publicField(this, "frames", []);
     __publicField(this, "keyStates", /* @__PURE__ */ new Map());
@@ -5831,13 +5875,10 @@ class InputBufferMatcher {
     this.maxSize = maxSize;
     this.maxAge = maxAge;
     console.log(
-      `[InputBufferMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
+      `[KeyboardEventMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
     );
   }
   addFrame(frame) {
-    console.log(
-      `[InputBufferMatcher] Adding frame ${frame.id} with ${frame.justPressed.size} pressed, ${frame.heldKeys.size} held, ${frame.justReleased.size} released keys`
-    );
     for (const key of frame.justPressed) {
       this.keyStates.set(key, {
         key,
@@ -5894,28 +5935,11 @@ class InputBufferMatcher {
     let currentIndex = startIndex;
     const events2 = [];
     const holdDurations = /* @__PURE__ */ new Map();
-    for (const step of pattern.sequence) {
+    for (const step of pattern.steps) {
       const frame = this.frames[currentIndex];
       if (!frame) return null;
-      switch (step.type) {
-        case "press":
-          if (!this.matchPressStep(step.keys, frame)) return null;
-          break;
-        case "hold":
-          if (!this.matchHoldStep(
-            step.keys,
-            frame,
-            step.holdTime || 0,
-            holdDurations
-          ))
-            return null;
-          break;
-        case "release":
-          if (!this.matchReleaseStep(step.keys, frame)) return null;
-          break;
-        case "combo":
-          if (!this.matchComboStep(step.keys, frame, step.strict)) return null;
-          break;
+      if (!this.isStepMatched(step, frame, holdDurations)) {
+        return null;
       }
       events2.push(...this.getEventsFromFrame(frame));
       if (currentIndex < this.frames.length - 1) {
@@ -5935,44 +5959,40 @@ class InputBufferMatcher {
       holdDurations
     };
   }
-  matchPressStep(keys, frame) {
-    return keys.every((key) => frame.justPressed.has(key));
-  }
-  matchHoldStep(keys, frame, requiredHoldTime, holdDurations) {
-    if (!keys.every(
-      (key) => frame.heldKeys.has(key) || frame.justPressed.has(key)
-    )) {
-      return false;
-    }
-    for (const key of keys) {
-      const duration = frame.holdDurations.get(key) || 0;
-      if (duration < requiredHoldTime) {
+  isStepMatched(step, frame, holdDurations) {
+    var _a, _b;
+    switch (step.type) {
+      case "hold":
+        if (!((_a = step.conditions) == null ? void 0 : _a.holdTime)) return false;
+        if (!step.keys.every(
+          (key) => frame.heldKeys.has(key) || frame.justPressed.has(key)
+        )) {
+          return false;
+        }
+        for (const key of step.keys) {
+          const duration = frame.holdDurations.get(key) || 0;
+          if (duration < step.conditions.holdTime) {
+            return false;
+          }
+          holdDurations.set(key, duration);
+        }
+        return true;
+      case "combo":
+        const allKeysActive = step.keys.every(
+          (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
+        );
+        const isStrict = ((_b = step.conditions) == null ? void 0 : _b.strict) ?? false;
+        if (isStrict) {
+          return step.keys.every((key) => frame.justPressed.has(key));
+        }
+        return allKeysActive;
+      case "press":
+        return step.keys.some((key) => frame.justPressed.has(key));
+      case "release":
+        return step.keys.every((key) => frame.justReleased.has(key));
+      default:
         return false;
-      }
-      holdDurations.set(key, duration);
     }
-    return true;
-  }
-  matchReleaseStep(keys, frame) {
-    return keys.every((key) => frame.justReleased.has(key));
-  }
-  matchComboStep(keys, frame, strict = false) {
-    console.log(`[InputBufferMatcher] Matching combo step:`, {
-      keys,
-      strict,
-      justPressed: Array.from(frame.justPressed),
-      heldKeys: Array.from(frame.heldKeys)
-    });
-    if (strict) {
-      const matched2 = keys.every((key) => frame.justPressed.has(key));
-      console.log(`[InputBufferMatcher] Strict combo match result: ${matched2}`);
-      return matched2;
-    }
-    const matched = keys.every(
-      (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
-    );
-    console.log(`[InputBufferMatcher] Normal combo match result: ${matched}`);
-    return matched;
   }
   getEventsFromFrame(frame) {
     const events2 = [];
@@ -5980,19 +6000,20 @@ class InputBufferMatcher {
       events2.push({ key, type: "press", timestamp: frame.timestamp });
     }
     for (const key of frame.justReleased) {
-      events2.push({ key, type: "release", timestamp: frame.timestamp });
+      events2.push({
+        key,
+        type: "release",
+        timestamp: frame.timestamp,
+        duration: frame.holdDurations.get(key)
+      });
     }
     return events2;
   }
   reset() {
-    console.log("[InputBufferMatcher] Resetting all state");
     this.frames = [];
     this.keyStates.clear();
   }
   clearFramesUpTo(timestamp) {
-    console.log(
-      `[InputBufferMatcher] Clearing frames up to timestamp ${timestamp}`
-    );
     const index = this.frames.findIndex((frame) => frame.timestamp > timestamp);
     if (index !== -1) {
       this.frames = this.frames.slice(index);
@@ -6006,114 +6027,28 @@ class InputBufferMatcher {
     }
   }
 }
-class TriggerMatcher {
-  constructor(maxSize, maxAge) {
-    __publicField(this, "inputBuffer");
-    __publicField(this, "lastMatchTime", 0);
-    __publicField(this, "maxAge");
-    this.inputBuffer = new InputBufferMatcher(maxSize, maxAge);
-    this.maxAge = maxAge;
-    console.log(
-      `[TriggerMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
-    );
-  }
-  addFrame(frame) {
-    console.log(
-      `[TriggerMatcher] Adding frame with ${frame.justPressed.size} pressed, ${frame.heldKeys.size} held, ${frame.justReleased.size} released keys`
-    );
-    this.inputBuffer.addFrame(frame);
-  }
-  findMatches(commands) {
-    return this.inputBuffer.findMatches(commands);
-  }
-  isStepMatched(step, frame) {
-    console.log(`[TriggerMatcher] Checking step match:`, {
-      type: step.type,
-      keys: step.keys,
-      holdTime: step.holdTime,
-      window: step.window
-    });
-    switch (step.type) {
-      case "hold":
-        if (!step.holdTime) {
-          console.log(`[TriggerMatcher] Hold step missing holdTime`);
-          return false;
-        }
-        if (!step.keys.every(
-          (key) => frame.heldKeys.has(key) || frame.justPressed.has(key)
-        )) {
-          console.log(`[TriggerMatcher] Not all keys are held/pressed`);
-          return false;
-        }
-        for (const key of step.keys) {
-          const duration = frame.holdDurations.get(key) || 0;
-          console.log(
-            `[TriggerMatcher] Key ${key} hold duration: ${duration}ms, required: ${step.holdTime}ms`
-          );
-          if (duration < step.holdTime) {
-            return false;
-          }
-        }
-        return true;
-      case "combo":
-        const allKeysActive = step.keys.every(
-          (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
-        );
-        console.log(`[TriggerMatcher] Combo step check:`, {
-          allKeysActive,
-          justPressed: Array.from(frame.justPressed),
-          heldKeys: Array.from(frame.heldKeys)
-        });
-        return allKeysActive;
-      case "single":
-        const isPressed = step.keys.some((key) => frame.justPressed.has(key));
-        console.log(
-          `[TriggerMatcher] Single step check: isPressed=${isPressed}`
-        );
-        return isPressed;
-      default:
-        console.log(`[TriggerMatcher] Unknown step type: ${step.type}`);
-        return false;
-    }
-  }
-  reset() {
-    console.log("[TriggerMatcher] Resetting state");
-    this.lastMatchTime = 0;
-    this.inputBuffer.reset();
-  }
-  clearFramesUpTo(timestamp) {
-    console.log(
-      `[TriggerMatcher] Clearing frames up to timestamp ${timestamp}`
-    );
-    this.inputBuffer.clearFramesUpTo(timestamp);
-  }
-}
-function mapStepType(type) {
-  switch (type) {
-    case "hold":
-      return "hold";
-    case "combo":
-      return "combo";
-    case "single":
-    default:
-      return "press";
-  }
-}
 function shortcutToCommand(shortcut) {
   return {
     id: shortcut.id,
-    cooldown: shortcut.cooldown || 500,
-    // Use shortcut's cooldown or default to 500ms
     pattern: {
-      sequence: shortcut.trigger.steps.map((step) => ({
-        type: mapStepType(step.type),
-        keys: step.keys,
-        holdTime: step.holdTime,
-        window: step.window || shortcut.trigger.totalTimeWindow,
-        strict: step.strict
-      })),
-      window: shortcut.trigger.totalTimeWindow || 5e3
-    }
+      steps: shortcut.trigger.steps.map((step) => {
+        var _a, _b, _c;
+        return {
+          type: step.type,
+          keys: step.keys,
+          conditions: {
+            holdTime: step.holdTime || ((_a = step.conditions) == null ? void 0 : _a.holdTime),
+            window: step.window || ((_b = step.conditions) == null ? void 0 : _b.window),
+            strict: step.strict || ((_c = step.conditions) == null ? void 0 : _c.strict)
+          }
+        };
+      }),
+      window: shortcut.trigger.window,
+      totalTimeWindow: shortcut.trigger.totalTimeWindow,
+      strict: shortcut.trigger.strict
+    },
+    cooldown: shortcut.cooldown || 500
+    // Default cooldown if not specified
   };
 }
 class ShortcutService {
@@ -6122,55 +6057,66 @@ class ShortcutService {
     __publicField(this, "ipc");
     __publicField(this, "matcher");
     __publicField(this, "lastExecutions");
-    __publicField(this, "name", "shortcut-manager");
     this.store = Store.getInstance();
     this.ipc = IPCService.getInstance();
-    this.matcher = new TriggerMatcher(32, 5e3);
+    this.matcher = new KeyboardEventMatcher(32, 5e3);
     this.lastExecutions = /* @__PURE__ */ new Map();
     this.ipc.registerService({
-      id: this.name,
+      id: IPCSERVICE_NAMES.SHORTCUT_MANAGER,
       priority: 1
     });
     this.setupIPCHandlers();
   }
   setupIPCHandlers() {
-    this.ipc.registerHandler("keyboard", "frame", async (data) => {
-      const frameEvent = data;
-      await this.handleFrameEvent(frameEvent);
-    });
-    this.ipc.registerHandler(this.name, "get-shortcut-config", async () => {
-      var _a;
-      const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
-      return state || { isEnabled: false, shortcuts: [] };
-    });
-    this.ipc.registerHandler(this.name, "get-shortcuts", async () => {
-      var _a;
-      const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
-      return (state == null ? void 0 : state.shortcuts) || [];
-    });
     this.ipc.registerHandler(
-      this.name,
+      IPCSERVICE_NAMES.KEYBOARD,
+      "frame",
+      async (data) => {
+        const frameEvent = data;
+        await this.handleFrameEvent(frameEvent);
+      }
+    );
+    this.ipc.registerHandler(
+      IPCSERVICE_NAMES.SHORTCUT_MANAGER,
+      "get-shortcut-config",
+      async () => {
+        var _a;
+        const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
+        return state || { isEnabled: false, shortcuts: [] };
+      }
+    );
+    this.ipc.registerHandler(
+      IPCSERVICE_NAMES.SHORTCUT_MANAGER,
+      "get-shortcuts",
+      async () => {
+        var _a;
+        const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
+        return (state == null ? void 0 : state.shortcuts) || [];
+      }
+    );
+    this.ipc.registerHandler(
+      IPCSERVICE_NAMES.SHORTCUT_MANAGER,
       "add-shortcut",
       async (shortcut) => {
         await this.addShortcut(shortcut);
       }
     );
     this.ipc.registerHandler(
-      this.name,
+      IPCSERVICE_NAMES.SHORTCUT_MANAGER,
       "remove-shortcut",
       async (id) => {
         await this.removeShortcut(id);
       }
     );
     this.ipc.registerHandler(
-      this.name,
+      IPCSERVICE_NAMES.SHORTCUT_MANAGER,
       "update-shortcut",
       async ({ id, shortcut }) => {
         await this.updateShortcut(id, shortcut);
       }
     );
     this.ipc.registerHandler(
-      this.name,
+      IPCSERVICE_NAMES.SHORTCUT_MANAGER,
       "toggle-shortcut",
       async (id) => {
         var _a;
@@ -6209,26 +6155,14 @@ class ShortcutService {
     const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
     if (!(state == null ? void 0 : state.isEnabled)) return;
     const frameData = data.state || {};
-    const justPressed = Array.isArray(frameData.justPressed) ? frameData.justPressed : [];
-    const heldKeys = Array.isArray(frameData.held) ? frameData.held : [];
-    const justReleased = Array.isArray(frameData.justReleased) ? frameData.justReleased : [];
-    const holdDurations = frameData.holdDurations || {};
     const frame = {
       id: data.frame,
       timestamp: data.timestamp,
-      justPressed: new Set(justPressed),
-      heldKeys: new Set(heldKeys),
-      justReleased: new Set(justReleased),
-      holdDurations: new Map(Object.entries(holdDurations))
+      justPressed: new Set(frameData.justPressed || []),
+      heldKeys: new Set(frameData.held || []),
+      justReleased: new Set(frameData.justReleased || []),
+      holdDurations: new Map(Object.entries(frameData.holdDurations || {}))
     };
-    console.log("[ShortcutService] Processing frame:", {
-      id: frame.id,
-      justPressed: Array.from(frame.justPressed),
-      held: Array.from(frame.heldKeys),
-      justReleased: Array.from(frame.justReleased),
-      holdDurations: Object.fromEntries(frame.holdDurations),
-      timestamp: frame.timestamp
-    });
     this.matcher.addFrame(frame);
     const enabledShortcuts = state.shortcuts.filter((s) => s.enabled).map(shortcutToCommand);
     const matches = this.matcher.findMatches(enabledShortcuts);
@@ -6251,7 +6185,9 @@ class ShortcutService {
     this.lastExecutions.set(match.command.id, now);
     try {
       const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
-      const shortcut = state.shortcuts.find((s) => s.id === match.command.id);
+      const shortcut = state.shortcuts.find(
+        (s) => s.id === match.command.id
+      );
       if (!shortcut) {
         console.error(
           `[ShortcutService] Shortcut not found: ${match.command.id}`

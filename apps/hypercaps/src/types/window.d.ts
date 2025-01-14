@@ -9,6 +9,15 @@ interface StartupSettings {
 
 declare global {
   interface Window {
+    ipc: {
+      run: (service: string, event: string, data: any) => void;
+      on: (
+        service: string,
+        event: string,
+        callback: (data: any) => void
+      ) => void;
+    };
+
     api: {
       // Window controls
       minimizeWindow: () => void;
