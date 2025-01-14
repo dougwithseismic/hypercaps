@@ -1,25 +1,25 @@
 import { z } from "zod";
 
-export type TriggerStepType = "combo" | "single";
+export type TriggerStepType = "single" | "combo" | "hold";
 
 export interface BufferConfig {
-  window: number; // How long the buffer lasts in ms
-  tapCount?: number; // How many taps needed (for single key steps)
-  tapWindow?: number; // Max time between taps in ms
-  holdTime?: number; // How long to hold for hold actions
+  window?: number;
+  tapCount?: number;
+  tapWindow?: number;
+  holdTime?: number;
 }
 
 export interface TriggerStep {
   type: TriggerStepType;
-  keys: string[]; // Keys that must be pressed (together for combo, in sequence for single)
-  timeWindow?: number; // Optional time window for this step in milliseconds
-  buffer?: BufferConfig; // Optional buffer configuration for this step
+  keys: string[];
+  holdTime?: number; // Duration in ms for hold-type steps
+  window?: number; // Time window in ms for this step
 }
 
 export interface ShortcutTrigger {
-  steps: TriggerStep[]; // Sequence of steps to complete
-  totalTimeWindow?: number; // Optional overall time limit in milliseconds
-  defaultBuffer?: BufferConfig; // Default buffer settings for all steps
+  steps: TriggerStep[];
+  totalTimeWindow?: number;
+  defaultBuffer?: BufferConfig;
 }
 
 export interface TriggerState {
@@ -28,6 +28,7 @@ export interface TriggerState {
   sequenceStartTime: number;
   pressedKeys: Set<string>;
   completedSteps: boolean[];
+  holdStartTimes: Map<string, number>;
 }
 
 export interface Shortcut {
@@ -36,6 +37,7 @@ export interface Shortcut {
   trigger: ShortcutTrigger;
   action: ShortcutAction;
   enabled: boolean;
+  cooldown?: number; // Optional cooldown in milliseconds
 }
 
 export type ShortcutActionType = "launch" | "command";
@@ -56,7 +58,7 @@ export const BufferConfigSchema = z.object({
 });
 
 export const TriggerStepSchema = z.object({
-  type: z.enum(["combo", "single"]),
+  type: z.enum(["combo", "single", "hold"]),
   keys: z.array(z.string()),
   timeWindow: z.number().optional(),
   buffer: BufferConfigSchema.optional(),

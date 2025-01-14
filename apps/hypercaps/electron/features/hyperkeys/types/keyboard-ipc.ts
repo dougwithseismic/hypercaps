@@ -24,6 +24,28 @@ export interface KeyboardEvents {
   keyPressed: {
     pressedKeys: string[];
     timestamp: number;
+    event?: {
+      type: "keydown" | "keyup";
+      key: string;
+    };
+    state?: {
+      held: string[];
+      holdDurations: Record<string, number>;
+    };
+  };
+  frame: {
+    frame: number;
+    timestamp: number;
+    event: {
+      type: "keydown" | "keyup";
+      key: string;
+    };
+    state: {
+      justPressed: string[];
+      held: string[];
+      justReleased: string[];
+      holdDurations: Record<string, number>;
+    };
   };
   stateChanged: {
     isListening: boolean;

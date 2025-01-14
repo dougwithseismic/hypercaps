@@ -4,17 +4,37 @@ export interface KeyEvent {
   timestamp: number;
 }
 
+export interface KeyState {
+  key: string;
+  state: "idle" | "justPressed" | "held" | "released";
+  initialPressTime: number;
+  holdDuration: number;
+  lastUpdateTime: number;
+}
+
+export interface InputFrame {
+  id: number;
+  timestamp: number;
+  justPressed: Set<string>;
+  heldKeys: Set<string>;
+  justReleased: Set<string>;
+  holdDurations: Map<string, number>;
+}
+
 export interface CommandPattern {
-  sequence: { keys: string[]; window: number }[];
+  sequence: Array<{
+    type: "press" | "hold" | "release" | "combo";
+    keys: string[];
+    holdTime?: number;
+    window?: number;
+  }>;
   window: number;
+  strict?: boolean;
 }
 
 export interface Command {
   id: string;
-  name: string;
-  enabled: boolean;
   pattern: CommandPattern;
-  action: Action;
   cooldown?: number;
 }
 
@@ -23,18 +43,5 @@ export interface CommandMatch {
   events: KeyEvent[];
   startTime: number;
   endTime: number;
+  holdDurations?: Map<string, number>;
 }
-
-export interface Action {
-  type: "launch" | "command";
-  program?: string;
-  command?: string;
-}
-
-export interface ShortcutState {
-  isEnabled: boolean;
-  shortcuts: Command[];
-}
-
-// Simple type for creating new shortcuts
-export type CreateShortcutParams = Omit<Command, "id">;

@@ -54,6 +54,25 @@ electron.contextBridge.exposeInMainWorld("api", {
   // Store state
   getFullState: async () => {
     return electron.ipcRenderer.invoke("get-full-state");
+  },
+  // Shortcut manager
+  getShortcutConfig: async () => {
+    return electron.ipcRenderer.invoke("get-shortcut-config");
+  },
+  getShortcuts: async () => {
+    return electron.ipcRenderer.invoke("get-shortcuts");
+  },
+  addShortcut: async (shortcut) => {
+    return electron.ipcRenderer.invoke("add-shortcut", shortcut);
+  },
+  removeShortcut: async (id) => {
+    return electron.ipcRenderer.invoke("remove-shortcut", id);
+  },
+  updateShortcut: async (id, shortcut) => {
+    return electron.ipcRenderer.invoke("update-shortcut", shortcut);
+  },
+  toggleShortcut: async (id) => {
+    return electron.ipcRenderer.invoke("toggle-shortcut", id);
   }
 });
 //# sourceMappingURL=preload.js.map
