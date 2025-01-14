@@ -1,0 +1,28 @@
+{
+  "author": "Doug Silkstone <doug@withseismic.com>",
+  "dependencies": {
+    "electron": "^33.3.1",
+    "zod": "^3.24.1"
+  },
+  "description": "Message queue implementation for IPC communication",
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "license": "ISC",
+  "main": "src/index.ts",
+  "name": "@hypercaps/message-queue",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist",
+    "dev": "tsx watch src/index.ts",
+    "lint": "eslint src/"
+  },
+  "type": "module",
+  "types": "",
+  "version": "0.1.0"
+}

@@ -5052,6 +5052,14 @@ const _Store = class _Store extends events.EventEmitter {
 };
 __publicField(_Store, "instance");
 let Store = _Store;
+const createResult = (data) => ({
+  success: true,
+  data
+});
+const createError = (code, message, details) => ({
+  success: false,
+  error: { code, message, details }
+});
 const DEFAULT_OPTIONS = {
   maxConcurrent: 1,
   maxRetries: 3,
@@ -5061,14 +5069,13 @@ const DEFAULT_OPTIONS = {
 function generateId() {
   return crypto$1.randomBytes(16).toString("hex");
 }
-const _MessageQueue = class _MessageQueue extends events.EventEmitter {
+class MessageQueue extends events.EventEmitter {
   constructor(options = {}) {
     super();
-    __publicField(this, "messages", []);
-    __publicField(this, "processing", /* @__PURE__ */ new Set());
-    __publicField(this, "handlers", /* @__PURE__ */ new Map());
-    __publicField(this, "options");
-    __publicField(this, "timeouts", /* @__PURE__ */ new Map());
+    this.messages = [];
+    this.processing = /* @__PURE__ */ new Set();
+    this.handlers = /* @__PURE__ */ new Map();
+    this.timeouts = /* @__PURE__ */ new Map();
     this.options = { ...DEFAULT_OPTIONS, ...options };
   }
   /**
@@ -5076,10 +5083,10 @@ const _MessageQueue = class _MessageQueue extends events.EventEmitter {
    * This is critical for maintaining event order and state consistency
    */
   static getInstance(options) {
-    if (!_MessageQueue.instance) {
-      _MessageQueue.instance = new _MessageQueue(options);
+    if (!MessageQueue.instance) {
+      MessageQueue.instance = new MessageQueue(options);
     }
-    return _MessageQueue.instance;
+    return MessageQueue.instance;
   }
   /**
    * Register a handler for a specific message type
@@ -5204,35 +5211,23 @@ const _MessageQueue = class _MessageQueue extends events.EventEmitter {
     this.timeouts.forEach((timeout) => clearTimeout(timeout));
     this.timeouts.clear();
   }
-};
-__publicField(_MessageQueue, "instance");
-let MessageQueue = _MessageQueue;
-const createResult = (data) => ({
-  success: true,
-  data
-});
-const createError = (code, message, details) => ({
-  success: false,
-  error: { code, message, details }
-});
-const _IPCService = class _IPCService {
+}
+class IPCService {
   constructor() {
-    __publicField(this, "services");
-    __publicField(this, "queue");
-    __publicField(this, "eventHandlers");
     this.services = /* @__PURE__ */ new Map();
     this.queue = MessageQueue.getInstance();
     this.eventHandlers = /* @__PURE__ */ new Map();
+    this.eventListeners = /* @__PURE__ */ new Set();
     this.setupIPC();
   }
   /**
    * Get the singleton instance
    */
   static getInstance() {
-    if (!_IPCService.instance) {
-      _IPCService.instance = new _IPCService();
+    if (!IPCService.instance) {
+      IPCService.instance = new IPCService();
     }
-    return _IPCService.instance;
+    return IPCService.instance;
   }
   /**
    * Register a service with the IPC system
@@ -5267,39 +5262,76 @@ const _IPCService = class _IPCService {
     serviceHandlers.get(action).add(handler);
   }
   /**
-   * Emit an event to all renderer processes and main process handlers
+   * Handle an incoming command from the IPC bridge
+   */
+  async handleCommand(command) {
+    const service = this.services.get(command.service);
+    if (!service) {
+      return createError(
+        "SERVICE_NOT_FOUND",
+        `Service ${command.service} not found`
+      );
+    }
+    const handler = service.handlers.get(command.action);
+    if (!handler) {
+      return createError(
+        "HANDLER_NOT_FOUND",
+        `Handler for ${command.service}:${command.action} not found`
+      );
+    }
+    try {
+      const result = await handler(command.params || {});
+      return createResult(result);
+    } catch (error) {
+      return createError(
+        "EXECUTION_ERROR",
+        error instanceof Error ? error.message : "Unknown error",
+        error
+      );
+    }
+  }
+  /**
+   * Register a global event listener
+   */
+  onEvent(listener) {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
+  }
+  /**
+   * Create a standardized error result
+   */
+  createError(code, message, details) {
+    return createError(code, message, details);
+  }
+  /**
+   * Emit an event to all listeners
    */
   emit(event) {
-    this.queue.enqueue(
-      "ipc:event",
-      async () => {
-        const windows = electron.BrowserWindow.getAllWindows();
-        windows.forEach((window) => {
-          console.log("[IPCService] Sending event to window:", window.id);
-          window.webContents.send("ipc:event", event);
-        });
-        const serviceHandlers = this.eventHandlers.get(event.service);
-        if (serviceHandlers) {
-          const handlers = serviceHandlers.get(event.event);
-          if (handlers) {
-            console.log(
-              `[IPCService] Found ${handlers.size} handlers for ${event.service}:${event.event}`
+    this.eventListeners.forEach((listener) => {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error("[IPCService] Event listener error:", error);
+      }
+    });
+    const serviceHandlers = this.eventHandlers.get(event.service);
+    if (serviceHandlers) {
+      const handlers = serviceHandlers.get(event.event);
+      if (handlers) {
+        handlers.forEach((handler) => {
+          try {
+            handler(event.data);
+          } catch (error) {
+            console.error(
+              `[IPCService] Handler error for ${event.service}:${event.event}:`,
+              error
             );
-            for (const handler of handlers) {
-              try {
-                await handler(event.data);
-              } catch (error) {
-                console.error(
-                  `[IPCService] Handler error for ${event.service}:${event.event}:`,
-                  error
-                );
-              }
-            }
           }
-        }
-      },
-      1
-    );
+        });
+      }
+    }
   }
   /**
    * Unregister a service
@@ -5335,39 +5367,16 @@ const _IPCService = class _IPCService {
       }
     );
   }
-  /**
-   * Handle an incoming command
-   */
-  async handleCommand(command) {
-    const service = this.services.get(command.service);
-    if (!service) {
-      return createError(
-        "SERVICE_NOT_FOUND",
-        `Service ${command.service} not found`
-      );
-    }
-    const handler = service.handlers.get(command.action);
-    if (!handler) {
-      return createError(
-        "HANDLER_NOT_FOUND",
-        `Handler for ${command.service}:${command.action} not found`
-      );
-    }
-    try {
-      const result = await handler(command.params || {});
-      return createResult(result);
-    } catch (error) {
-      return createError(
-        "EXECUTION_ERROR",
-        error instanceof Error ? error.message : "Unknown error",
-        error
-      );
-    }
-  }
-};
-__publicField(_IPCService, "instance");
-let IPCService = _IPCService;
-const ipc = IPCService.getInstance();
+}
+const ipc$1 = IPCService.getInstance();
+const ipc = ipc$1;
+ipc.onEvent((event) => {
+  const windows = electron.BrowserWindow.getAllWindows();
+  windows.forEach((window) => {
+    console.log("[IPCService] Sending event to window:", window.id);
+    window.webContents.send("ipc:event", event);
+  });
+});
 class KeyboardService extends events.EventEmitter {
   constructor() {
     super();
@@ -6110,6 +6119,49 @@ class ShortcutService {
       const frameEvent = data;
       await this.handleFrameEvent(frameEvent);
     });
+    this.ipc.registerHandler("get-shortcut-config", "get", async () => {
+      var _a;
+      const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
+      return state || { isEnabled: false, shortcuts: [] };
+    });
+    this.ipc.registerHandler("get-shortcuts", "get", async () => {
+      var _a;
+      const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
+      return (state == null ? void 0 : state.shortcuts) || [];
+    });
+    this.ipc.registerHandler(
+      "add-shortcut",
+      "add",
+      async (shortcut) => {
+        await this.addShortcut(shortcut);
+      }
+    );
+    this.ipc.registerHandler(
+      "remove-shortcut",
+      "remove",
+      async (id) => {
+        await this.removeShortcut(id);
+      }
+    );
+    this.ipc.registerHandler(
+      "update-shortcut",
+      "update",
+      async ({ id, shortcut }) => {
+        await this.updateShortcut(id, shortcut);
+      }
+    );
+    this.ipc.registerHandler(
+      "toggle-shortcut",
+      "toggle",
+      async (id) => {
+        var _a;
+        const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
+        const shortcut = state == null ? void 0 : state.shortcuts.find((s) => s.id === id);
+        if (shortcut) {
+          await this.updateShortcut(id, { enabled: !shortcut.enabled });
+        }
+      }
+    );
   }
   async initialize() {
     console.log("[ShortcutService] Initializing...");

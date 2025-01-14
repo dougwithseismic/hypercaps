@@ -1,5 +1,5 @@
 import { Store } from "../../services/store";
-import { IPCService } from "../../services/ipc";
+
 import { KeyboardEvents } from "../hyperkeys/types/keyboard-ipc";
 import { AppState } from "../../services/store/types/app-state";
 import { exec } from "child_process";
@@ -12,6 +12,8 @@ import {
   TriggerStep,
   TriggerStepType,
 } from "./types/shortcut";
+
+import { IPCService } from "@hypercaps/ipc";
 
 // Add frame state type
 interface FrameState {
