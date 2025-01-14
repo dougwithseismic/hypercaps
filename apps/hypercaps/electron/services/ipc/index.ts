@@ -19,10 +19,12 @@ export class IPCService {
   private static instance: IPCService;
   private services: Map<string, RegisteredService>;
   private queue: MessageQueue;
+  private eventHandlers: Map<string, Map<string, Set<IPCHandler>>>;
 
   private constructor() {
     this.services = new Map();
     this.queue = MessageQueue.getInstance();
+    this.eventHandlers = new Map();
     this.setupIPC();
   }
 
@@ -67,10 +69,20 @@ export class IPCService {
     }
 
     service.handlers.set(action, handler);
+
+    // Also register as an event handler
+    if (!this.eventHandlers.has(serviceId)) {
+      this.eventHandlers.set(serviceId, new Map());
+    }
+    const serviceHandlers = this.eventHandlers.get(serviceId)!;
+    if (!serviceHandlers.has(action)) {
+      serviceHandlers.set(action, new Set());
+    }
+    serviceHandlers.get(action)!.add(handler as IPCHandler);
   }
 
   /**
-   * Emit an event to all renderer processes
+   * Emit an event to all renderer processes and main process handlers
    */
   public emit<TData = unknown>(event: IPCEvent<TData>): void {
     console.log("[IPCService] Emitting event:", event);
@@ -79,11 +91,34 @@ export class IPCService {
       "ipc:event",
       async () => {
         console.log("[IPCService] Processing queued event:", event);
+
+        // Send to browser windows
         const windows = BrowserWindow.getAllWindows();
         windows.forEach((window) => {
           console.log("[IPCService] Sending event to window:", window.id);
           window.webContents.send("ipc:event", event);
         });
+
+        // Send to main process handlers
+        const serviceHandlers = this.eventHandlers.get(event.service);
+        if (serviceHandlers) {
+          const handlers = serviceHandlers.get(event.event);
+          if (handlers) {
+            console.log(
+              `[IPCService] Found ${handlers.size} handlers for ${event.service}:${event.event}`
+            );
+            for (const handler of handlers) {
+              try {
+                await handler(event.data);
+              } catch (error) {
+                console.error(
+                  `[IPCService] Handler error for ${event.service}:${event.event}:`,
+                  error
+                );
+              }
+            }
+          }
+        }
       },
       1
     ); // High priority for events
@@ -94,6 +129,7 @@ export class IPCService {
    */
   public unregisterService(serviceId: string): void {
     this.services.delete(serviceId);
+    this.eventHandlers.delete(serviceId);
   }
 
   /**

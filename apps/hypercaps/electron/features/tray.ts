@@ -6,7 +6,7 @@ import {
   globalShortcut,
 } from "electron";
 import { KeyboardService } from "./hyperkeys/keyboard-service";
-import { Store } from "../services/store";
+import { Store } from "@electron/services/store";
 
 export class TrayFeature {
   private tray: Tray | null = null;

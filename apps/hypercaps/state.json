@@ -11,10 +11,10 @@
         "isFeatureEnabled": true,
         "enableFeatureOnStartup": true,
         "config": {
+          "capsLockBehavior": "BlockToggle",
           "isHyperKeyEnabled": true,
-          "trigger": "CapsLock",
           "modifiers": [],
-          "capsLockBehavior": "BlockToggle"
+          "trigger": "CapsLock"
         }
       },
       {
@@ -22,7 +22,19 @@
         "isFeatureEnabled": false,
         "enableFeatureOnStartup": false,
         "config": {
-          "enabled": false
+          "isEnabled": true,
+          "shortcuts": [
+            {
+              "action": {
+                "program": "notepad.exe",
+                "type": "launch"
+              },
+              "enabled": true,
+              "id": "915b42fb-4890-4c40-9ad1-5b5bb21d7a2e",
+              "name": "Open Notepad",
+              "triggerKey": "N"
+            }
+          ]
         }
       }
     ]

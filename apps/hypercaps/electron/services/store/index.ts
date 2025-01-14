@@ -104,10 +104,11 @@ const DEFAULT_STATE: AppState = {
     },
     {
       name: "shortcutManager",
-      isFeatureEnabled: false,
-      enableFeatureOnStartup: false,
+      isFeatureEnabled: true,
+      enableFeatureOnStartup: true,
       config: {
-        enabled: false,
+        shortcuts: [],
+        isEnabled: true,
       },
     },
   ],

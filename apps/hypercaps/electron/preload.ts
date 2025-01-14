@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { AppState } from "./services/store/types/app-state";
+import { AppState } from "./features/shortcut-manager/services/store/types/app-state";
 import { HyperKeyFeatureConfig } from "./features/hyperkeys/types/hyperkey-feature";
-import type { IPCCommand } from "./services/ipc/types";
+import type { IPCCommand } from "./features/shortcut-manager/services/ipc/types";
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
