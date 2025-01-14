@@ -85,12 +85,12 @@ export class IPCService {
    * Emit an event to all renderer processes and main process handlers
    */
   public emit<TData = unknown>(event: IPCEvent<TData>): void {
-    console.log("[IPCService] Emitting event:", event);
+    // console.log("[IPCService] Emitting event:", event);
     // Queue the event emission to maintain ordering
     this.queue.enqueue(
       "ipc:event",
       async () => {
-        console.log("[IPCService] Processing queued event:", event);
+        // console.log("[IPCService] Processing queued event:", event);
 
         // Send to browser windows
         const windows = BrowserWindow.getAllWindows();

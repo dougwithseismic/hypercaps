@@ -32,7 +32,7 @@ public static class KeyboardMonitor {
     public const int WM_SYSKEYDOWN = 0x0104;
     public const int WM_SYSKEYUP = 0x0105;
 
-    public static bool IsDebugEnabled = true;
+    public static bool IsDebugEnabled = false;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct KBDLLHOOKSTRUCT {
@@ -68,7 +68,6 @@ public static class KeyboardMonitor {
     public const int KEYEVENTF_EXTENDEDKEY = 0x0001;
 
     public static bool IsKeyPressed(Keys key) {
-        // Check specific keys directly
         return (GetAsyncKeyState(key) & 0x8000) != 0;
     }
 
@@ -90,135 +89,9 @@ public static class KeyboardMonitor {
         }
     }
 
-    private class BufferedKeyEvent {
-        public Keys Key { get; set; }
-        public bool IsDown { get; set; }
-        public long Timestamp { get; set; }
+    private static InputBuffer inputBuffer;
 
-        public BufferedKeyEvent(Keys key, bool isDown, long timestamp) {
-            Key = key;
-            IsDown = isDown;
-            Timestamp = timestamp;
-        }
-    }
-
-    private static Queue<BufferedKeyEvent> pressBuffer = new Queue<BufferedKeyEvent>();
-    private static Queue<BufferedKeyEvent> releaseBuffer = new Queue<BufferedKeyEvent>();
-    private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
-    private static long KEY_BUFFER_WINDOW = 50; // 50ms window to collect simultaneous presses
-    private static System.Timers.Timer bufferTimer;
-
-    static KeyboardMonitor() {
-        bufferTimer = new System.Timers.Timer(KEY_BUFFER_WINDOW);
-        bufferTimer.Elapsed += (s, e) => FlushKeyBuffer();
-        bufferTimer.AutoReset = false;
-    }
-
-    private static void FlushKeyBuffer() {
-        // First flush any pending releases
-        FlushReleaseBuffer();
-
-        // Then handle grouped presses
-        bool stateChanged = false;
-        var pressEvents = new List<Keys>();
-
-        while (pressBuffer.Count > 0) {
-            var evt = pressBuffer.Dequeue();
-            if (!pressedKeys.Contains(evt.Key)) {
-                pressedKeys.Add(evt.Key);
-                pressEvents.Add(evt.Key);
-                stateChanged = true;
-            }
-        }
-
-        if (stateChanged) {
-            // Log the grouped events if debug is enabled
-            if (IsDebugEnabled && pressEvents.Count > 0) {
-                Console.WriteLine(string.Format("[DEBUG] Flushing press buffer - Pressed: {0}",
-                    string.Join(",", pressEvents)));
-            }
-            UpdateModifierState(true);
-        }
-    }
-
-    private static void FlushReleaseBuffer() {
-        bool stateChanged = false;
-        var releaseEvents = new List<Keys>();
-
-        while (releaseBuffer.Count > 0) {
-            var evt = releaseBuffer.Dequeue();
-            if (pressedKeys.Remove(evt.Key)) {
-                releaseEvents.Add(evt.Key);
-                stateChanged = true;
-            }
-        }
-
-        if (stateChanged) {
-            // Log the grouped events if debug is enabled
-            if (IsDebugEnabled && releaseEvents.Count > 0) {
-                Console.WriteLine(string.Format("[DEBUG] Flushing release buffer - Released: {0}",
-                    string.Join(",", releaseEvents)));
-            }
-            UpdateModifierState(true);
-        }
-    }
-
-    // Track last sent state for deduplication
-    private static string lastSentState = "";
-
-    // Map Windows Forms Keys to their display names - only special cases
-    private static Dictionary<Keys, string> keyDisplayNames = new Dictionary<Keys, string>() {
-        { Keys.CapsLock, "CapsLock" }
-    };
-
-    public static HashSet<Keys> GetPressedKeys() {
-        return pressedKeys;
-    }
-
-    public static Dictionary<string, string> GetPressedKeysWithRaw() {
-        var result = new Dictionary<string, string>();
-        foreach (var key in pressedKeys) {
-            result[key.ToString()] = GetKeyDisplayName(key);
-        }
-        return result;
-    }
-
-    public static string GetKeyDisplayName(Keys key) {
-        return keyDisplayNames.ContainsKey(key) ? keyDisplayNames[key] : key.ToString();
-    }
-
-    public static void AddPressedKey(Keys key) {
-        pressBuffer.Enqueue(new BufferedKeyEvent(
-            key, 
-            true, 
-            DateTimeOffset.Now.ToUnixTimeMilliseconds()
-        ));
-        bufferTimer.Stop();
-        bufferTimer.Start();
-    }
-
-    public static void RemovePressedKey(Keys key) {
-        releaseBuffer.Enqueue(new BufferedKeyEvent(
-            key, 
-            false, 
-            DateTimeOffset.Now.ToUnixTimeMilliseconds()
-        ));
-        FlushReleaseBuffer(); // Process releases immediately
-    }
-
-    public enum CapsLockBehavior {
-        None,           // Don't do anything special with CapsLock
-        DoublePress,    // Current behavior - press CapsLock again to untoggle
-        BlockToggle     // Just block the CapsLock toggle completely
-    }
-
-    public static bool IsEnabled = false;
-    public static bool IsHyperKeyEnabled = false;
-    public static Keys HyperKeyTrigger = Keys.CapsLock;
-    public static List<Keys> ModifierKeys = new List<Keys>();
-    public static CapsLockBehavior CapsLockHandling = CapsLockBehavior.BlockToggle;
-
-    public static void ConfigureHyperKey(bool isEnabled, bool isHyperKeyEnabled, string trigger, string[] modifiers, string capsLockBehavior = "BlockToggle") {
+    public static void ConfigureHyperKey(bool isEnabled, bool isHyperKeyEnabled, string trigger, string[] modifiers, string capsLockBehavior = "BlockToggle", long bufferWindow = 3000) {
         if (IsDebugEnabled) {
             Console.WriteLine(string.Format("[DEBUG] Configuring HyperKey - Previous State: IsEnabled={0}, IsHyperKeyEnabled={1}", 
                 IsEnabled, IsHyperKeyEnabled));
@@ -234,26 +107,36 @@ public static class KeyboardMonitor {
             ModifierKeys.Add((Keys)Enum.Parse(typeof(Keys), modifier, true));
         }
 
+        // Initialize input buffer with configured window
+        inputBuffer = new InputBuffer(bufferWindow);
+
         if (IsDebugEnabled) {
-            Console.WriteLine(string.Format("[DEBUG] HyperKey Configured - New State: IsEnabled={0}, IsHyperKeyEnabled={1}, Trigger={2}, Modifiers={3}",
-                IsEnabled, IsHyperKeyEnabled, HyperKeyTrigger, string.Join(",", ModifierKeys)));
+            Console.WriteLine(string.Format("[DEBUG] HyperKey Configured - New State: IsEnabled={0}, IsHyperKeyEnabled={1}, Trigger={2}, Modifiers={3}, BufferWindow={4}ms",
+                IsEnabled, IsHyperKeyEnabled, HyperKeyTrigger, string.Join(",", ModifierKeys), bufferWindow));
         }
     }
 
-    private static void UpdateState() {
-        if (!IsEnabled) {
-            pressedKeys.Clear();
-            pressBuffer.Clear();
-            releaseBuffer.Clear();
-            lastSentState = "";
-            if (IsDebugEnabled) {
-                Console.WriteLine("[DEBUG] Service disabled, cleared state");
-            }
-            return;
-        }
-
-        UpdateModifierState(false);
+    public static void AddPressedKey(Keys key) {
+        var timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+        inputBuffer.ProcessKeyEvent(key, true, timestamp);
     }
+
+    public static void RemovePressedKey(Keys key) {
+        var timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+        inputBuffer.ProcessKeyEvent(key, false, timestamp);
+    }
+
+    public enum CapsLockBehavior {
+        None,           // Don't do anything special with CapsLock
+        DoublePress,    // Current behavior - press CapsLock again to untoggle
+        BlockToggle     // Just block the CapsLock toggle completely
+    }
+
+    public static bool IsEnabled = false;
+    public static bool IsHyperKeyEnabled = false;
+    public static Keys HyperKeyTrigger = Keys.CapsLock;
+    public static List<Keys> ModifierKeys = new List<Keys>();
+    public static CapsLockBehavior CapsLockHandling = CapsLockBehavior.BlockToggle;
 
     public static void SendHyperKeyDown() {
         foreach (var key in ModifierKeys) {
@@ -267,41 +150,160 @@ public static class KeyboardMonitor {
             SendKeyUp(ModifierKeys[i]);
         }
     }
+}
 
-    public static void UpdateModifierState(bool forceUpdate = false) {
-        if (!IsEnabled) {
-            pressedKeys.Clear();
-            pressBuffer.Clear();
-            releaseBuffer.Clear();
-            lastSentState = "";
-            if (IsDebugEnabled) {
-                Console.WriteLine("[DEBUG] Service disabled, cleared state");
+public class InputFrame {
+    public HashSet<Keys> JustPressed;
+    public HashSet<Keys> HeldKeys;
+    public HashSet<Keys> JustReleased;
+    public Dictionary<Keys, long> HoldDurations;
+    public long Timestamp;
+    public int FrameNumber;
+
+    public InputFrame(long timestamp, int frameNumber) {
+        JustPressed = new HashSet<Keys>();
+        HeldKeys = new HashSet<Keys>();
+        JustReleased = new HashSet<Keys>();
+        HoldDurations = new Dictionary<Keys, long>();
+        Timestamp = timestamp;
+        FrameNumber = frameNumber;
+    }
+
+    public void UpdateState(Keys key, bool isPressed, long timestamp) {
+        if (isPressed) {
+            if (!HeldKeys.Contains(key)) {
+                JustPressed.Add(key);
+                HeldKeys.Add(key);
+                if (!HoldDurations.ContainsKey(key)) {
+                    HoldDurations[key] = 0;
+                }
             }
-            return;
-        }
-
-        // Convert HashSet to array directly
-        var keys = KeyboardMonitor.GetPressedKeys().ToArray();
-        var keyNames = new string[keys.Length];
-        for (int i = 0; i < keys.Length; i++) {
-            keyNames[i] = KeyboardMonitor.GetKeyDisplayName(keys[i]);
-        }
-
-        // Create JSON manually using string.Format
-        var quotedKeys = keyNames.Select(k => string.Format("\"{0}\"", k));
-        var json = string.Format("{{\"pressedKeys\":[{0}],\"timestamp\":{1}}}", string.Join(",", quotedKeys), DateTimeOffset.Now.ToUnixTimeMilliseconds());
-        
-        // Send immediately if it's a force update (key-up) or if enough time has passed
-        if (forceUpdate || 
-            (json != KeyboardMonitor.lastSentState && 
-             (DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastUpdateTime) > KEY_BUFFER_WINDOW)) {
-            KeyboardMonitor.lastSentState = json;
-            lastUpdateTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-            Console.WriteLine(json);
+        } else {
+            if (HeldKeys.Contains(key)) {
+                JustReleased.Add(key);
+                HeldKeys.Remove(key);
+            }
         }
     }
 
-    private static long lastUpdateTime = 0;
+    public void UpdateHoldDurations(long currentTime, Dictionary<Keys, long> pressStartTimes) {
+        foreach (var key in HeldKeys) {
+            if (pressStartTimes.ContainsKey(key)) {
+                HoldDurations[key] = currentTime - pressStartTimes[key];
+            }
+        }
+    }
+}
+
+public class InputBuffer {
+    private const long FRAME_TIME = 16;      // ~60fps in milliseconds
+    private long maxBufferWindow;            // Configured from shortcuts
+    private int maxBufferSize;               // Calculated from maxBufferWindow
+    
+    public InputBuffer(long bufferWindow) {
+        maxBufferWindow = bufferWindow;
+        // Calculate buffer size based on window and frame rate
+        // Add 60 frames (1 second) margin for safety
+        maxBufferSize = (int)((maxBufferWindow / FRAME_TIME) + 60);
+        if (KeyboardMonitor.IsDebugEnabled) {
+            Console.WriteLine(string.Format("[DEBUG] InputBuffer initialized with window: {0}ms, size: {1} frames", maxBufferWindow, maxBufferSize));
+        }
+    }
+
+    private Queue<InputFrame> frames = new Queue<InputFrame>();
+    private Dictionary<Keys, long> keyPressStartTimes = new Dictionary<Keys, long>();
+    private HashSet<Keys> currentlyHeldKeys = new HashSet<Keys>();
+    private int currentFrame = 0;
+    private long lastFrameTime = 0;
+
+    public void ProcessKeyEvent(Keys key, bool isDown, long timestamp) {
+        // Create new frame if enough time has passed
+        if (timestamp - lastFrameTime >= FRAME_TIME) {
+            CreateNewFrame(timestamp);
+        }
+
+        if (frames.Count == 0) {
+            CreateNewFrame(timestamp);
+        }
+
+        var currentFrame = frames.Last();
+
+        if (isDown) {
+            // Only add to justPressed if it wasn't already held
+            if (!currentlyHeldKeys.Contains(key)) {
+                currentFrame.JustPressed.Add(key);
+                keyPressStartTimes[key] = timestamp;
+                currentlyHeldKeys.Add(key);
+                currentFrame.HeldKeys.Add(key);
+            }
+            
+            // Update hold duration for the key
+            if (keyPressStartTimes.ContainsKey(key)) {
+                currentFrame.HoldDurations[key] = timestamp - keyPressStartTimes[key];
+            }
+        } else {
+            // Key is being released
+            if (currentlyHeldKeys.Contains(key)) {
+                currentFrame.JustReleased.Add(key);
+                currentFrame.HeldKeys.Remove(key);  // Remove from held keys when released
+                currentlyHeldKeys.Remove(key);
+                keyPressStartTimes.Remove(key);
+            }
+        }
+
+        // Output the frame state
+        OutputFrameState(currentFrame, key, isDown);
+    }
+
+    private void CreateNewFrame(long timestamp) {
+        while (frames.Count >= maxBufferSize) {
+            frames.Dequeue();
+        }
+
+        var frame = new InputFrame(timestamp, currentFrame++);
+        
+        // Copy only currently held keys from previous frame
+        if (frames.Count > 0) {
+            var prevFrame = frames.Last();
+            foreach (var key in currentlyHeldKeys) {  // Use currentlyHeldKeys instead of prevFrame.HeldKeys
+                frame.HeldKeys.Add(key);
+                if (keyPressStartTimes.ContainsKey(key)) {
+                    frame.HoldDurations[key] = timestamp - keyPressStartTimes[key];
+                }
+            }
+        }
+
+        frames.Enqueue(frame);
+        lastFrameTime = timestamp;
+    }
+
+    private void OutputFrameState(InputFrame frame, Keys triggerKey, bool isDown) {
+        var quotedPressed = frame.JustPressed.Select(k => string.Format("\"{0}\"", k)).ToArray();
+        var quotedHeld = frame.HeldKeys.Select(k => string.Format("\"{0}\"", k)).ToArray();
+        var quotedReleased = frame.JustReleased.Select(k => string.Format("\"{0}\"", k)).ToArray();
+        
+        // Format hold durations
+        var holdDurations = frame.HoldDurations.Select(kvp => 
+            string.Format("\"{0}\":{1}", kvp.Key, kvp.Value)).ToArray();
+
+        var json = string.Format(
+            "{{\"frame\":{0},\"timestamp\":{1},\"event\":{{\"type\":\"{2}\",\"key\":\"{3}\"}},\"state\":{{\"justPressed\":[{4}],\"held\":[{5}],\"justReleased\":[{6}],\"holdDurations\":{{{7}}}}}}}",
+            frame.FrameNumber,
+            frame.Timestamp,
+            isDown ? "keydown" : "keyup",
+            triggerKey,
+            string.Join(",", quotedPressed),
+            string.Join(",", quotedHeld),
+            string.Join(",", quotedReleased),
+            string.Join(",", holdDurations)
+        );
+
+        Console.WriteLine(json);
+    }
+
+    public long GetHoldDuration(Keys key, long currentTime) {
+        return keyPressStartTimes.ContainsKey(key) ? currentTime - keyPressStartTimes[key] : 0;
+    }
 }
 
 public class KeyboardHook {
@@ -341,14 +343,12 @@ public class KeyboardHook {
 
             // Only process keys if the service is enabled
             if (KeyboardMonitor.IsEnabled) {
-                // Track key states and update output
+                // Track key states using the frame-based input system
                 if (isKeyDown) {
                     KeyboardMonitor.AddPressedKey(key);
-                    KeyboardMonitor.UpdateModifierState(false); // Debounce key-down events
                 }
                 else if (isKeyUp) {
                     KeyboardMonitor.RemovePressedKey(key);
-                    KeyboardMonitor.UpdateModifierState(true); // Force update on key-up
                 }
 
                 // If this is our trigger key and HyperKey is enabled
@@ -468,7 +468,8 @@ public class KeyboardHook {
             [bool]$Config.isHyperKeyEnabled,
             [string]$Config.trigger,
             [string[]]@($modifiersArray),
-            [string]$capsLockBehavior
+            [string]$capsLockBehavior,
+            [long]$Config.bufferWindow
         )
         Write-Debug-Message "HyperKey configured successfully"
     } catch {
@@ -490,16 +491,14 @@ public class KeyboardHook {
         while (-not $done) {
             Start-Sleep -Seconds 1
         }
-    }
-    finally {
+    } finally {
         # Cleanup when the script exits
         Write-Debug-Message "Starting cleanup process..."
         [KeyboardHook]::Cleanup()
         Write-Debug-Message "Keyboard hook cleaned up"
         Write-Debug-Message "Process terminating..."
     }
-}
-catch {
+} catch {
     Write-Debug-Message "Fatal error occurred: $_"
     Write-Debug-Message "Stack trace: $($_.ScriptStackTrace)"
     Write-Error "Error in keyboard monitor: $_"

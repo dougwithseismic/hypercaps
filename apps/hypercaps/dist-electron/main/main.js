@@ -4772,90 +4772,139 @@ const AppStateSchema = z.object({
 const pkg = require(path.join(electron.app.getAppPath(), "package.json"));
 const CURRENT_STATE_VERSION = pkg.version;
 const MIGRATIONS = [
-  {
-    version: "0.1.0",
-    schema: AppStateSchema.extend({
-      features: z.array(
-        z.object({
-          name: z.enum(["hyperKey", "shortcutManager"]),
-          isFeatureEnabled: z.boolean(),
-          // enableFeatureOnStartup might not exist yet
-          config: z.any()
-        })
-      )
-    }),
-    migrate: (state) => {
-      console.log("[Store] Migrating state to version 0.1.0");
-      return produce(state, (draft) => {
-        var _a;
-        (_a = draft.features) == null ? void 0 : _a.forEach((feature) => {
-          if (!("enableFeatureOnStartup" in feature)) {
-            feature.enableFeatureOnStartup = feature.isFeatureEnabled || false;
-          }
-        });
-        if (!draft.settings) {
-          draft.settings = {
-            startupOnBoot: false,
-            startMinimized: false
-          };
-        }
-      });
-    }
-  },
-  {
-    version: "0.2.0",
-    schema: AppStateSchema.extend({
-      features: z.array(
-        z.object({
-          name: z.enum(["hyperKey", "shortcutManager"]),
-          isFeatureEnabled: z.boolean(),
-          enableFeatureOnStartup: z.boolean(),
-          config: z.any()
-        })
-      )
-    }),
-    migrate: (state) => {
-      console.log("[Store] Migrating state to version 0.2.0");
-      return produce(state, (draft) => {
-        var _a;
-        (_a = draft.features) == null ? void 0 : _a.forEach((feature) => {
-          if (feature.name === "shortcutManager") {
-            const config = feature.config;
-            if (config == null ? void 0 : config.shortcuts) {
-              config.shortcuts = config.shortcuts.map((shortcut) => {
-                var _a2, _b;
-                if ("triggerKey" in shortcut) {
-                  const hyperKey = (_b = (_a2 = draft.features) == null ? void 0 : _a2.find(
-                    (f) => f.name === "hyperKey"
-                  )) == null ? void 0 : _b.config;
-                  const keys = [
-                    ...(hyperKey == null ? void 0 : hyperKey.modifiers) || [],
-                    shortcut.triggerKey
-                  ].filter(Boolean);
-                  const newShortcut = {
-                    ...shortcut,
-                    trigger: {
-                      steps: [
-                        {
-                          type: "combo",
-                          keys,
-                          timeWindow: 200
-                        }
-                      ],
-                      totalTimeWindow: 500
-                    }
-                  };
-                  delete newShortcut.triggerKey;
-                  return newShortcut;
-                }
-                return shortcut;
-              });
-            }
-          }
-        });
-      });
-    }
-  }
+  // {
+  //   version: "0.1.0",
+  //   schema: AppStateSchema.extend({
+  //     features: z.array(
+  //       z.object({
+  //         name: z.enum(["hyperKey", "shortcutManager"]),
+  //         isFeatureEnabled: z.boolean(),
+  //         // enableFeatureOnStartup might not exist yet
+  //         config: z.any(),
+  //       })
+  //     ),
+  //   }),
+  //   migrate: (state: AppState) => {
+  //     console.log("[Store] Migrating state to version 0.1.0");
+  //     return produce(state, (draft) => {
+  //       // Migrate features to include enableFeatureOnStartup
+  //       draft.features?.forEach((feature) => {
+  //         if (!("enableFeatureOnStartup" in feature)) {
+  //           feature.enableFeatureOnStartup = feature.isFeatureEnabled || false;
+  //         }
+  //       });
+  //       // Ensure settings object exists
+  //       if (!draft.settings) {
+  //         draft.settings = {
+  //           startupOnBoot: false,
+  //           startMinimized: false,
+  //         };
+  //       }
+  //     });
+  //   },
+  // },
+  // {
+  //   version: "0.2.0",
+  //   schema: AppStateSchema.extend({
+  //     features: z.array(
+  //       z.object({
+  //         name: z.enum(["hyperKey", "shortcutManager"]),
+  //         isFeatureEnabled: z.boolean(),
+  //         enableFeatureOnStartup: z.boolean(),
+  //         config: z.any(),
+  //       })
+  //     ),
+  //   }),
+  //   migrate: (state: AppState) => {
+  //     console.log("[Store] Migrating state to version 0.2.0");
+  //     return produce(state, (draft) => {
+  //       // Migrate shortcut manager shortcuts to use new trigger format
+  //       draft.features?.forEach((feature) => {
+  //         if (feature.name === "shortcutManager") {
+  //           const config = feature.config as any;
+  //           if (config?.shortcuts) {
+  //             config.shortcuts = config.shortcuts.map((shortcut: any) => {
+  //               if ("triggerKey" in shortcut) {
+  //                 // Get HyperKey config to include its modifiers
+  //                 const hyperKey = draft.features?.find(
+  //                   (f) => f.name === "hyperKey"
+  //                 )?.config;
+  //                 const keys = [
+  //                   ...(hyperKey?.modifiers || []),
+  //                   shortcut.triggerKey,
+  //                 ].filter(Boolean);
+  //                 // Convert old triggerKey to new trigger format
+  //                 const newShortcut = {
+  //                   ...shortcut,
+  //                   trigger: {
+  //                     steps: [
+  //                       {
+  //                         type: "combo" as const,
+  //                         keys,
+  //                         timeWindow: 200,
+  //                       },
+  //                     ],
+  //                     totalTimeWindow: 500,
+  //                   },
+  //                 };
+  //                 delete newShortcut.triggerKey;
+  //                 return newShortcut;
+  //               }
+  //               return shortcut;
+  //             });
+  //           }
+  //         }
+  //       });
+  //     });
+  //   },
+  // },
+  // {
+  //   version: "0.3.0",
+  //   schema: AppStateSchema.extend({
+  //     features: z.array(
+  //       z.object({
+  //         name: z.enum(["hyperKey", "shortcutManager"]),
+  //         isFeatureEnabled: z.boolean(),
+  //         enableFeatureOnStartup: z.boolean(),
+  //         config: z.any(),
+  //       })
+  //     ),
+  //   }),
+  //   migrate: (state: AppState) => {
+  //     // Convert shortcuts from pattern to trigger format
+  //     const shortcutManager = state.features.find(
+  //       (f) => f.name === "shortcutManager"
+  //     );
+  //     if (shortcutManager?.config?.shortcuts) {
+  //       const shortcuts = shortcutManager.config.shortcuts as OldShortcut[];
+  //       shortcuts.forEach((shortcut) => {
+  //         if ("pattern" in shortcut) {
+  //           const oldPattern = shortcut.pattern;
+  //           // Convert to new trigger format
+  //           const trigger = {
+  //             steps: oldPattern.sequence.map((step) => {
+  //               // Extract holdTime from buffer if it exists
+  //               const holdTime = step.buffer?.holdTime;
+  //               return {
+  //                 type:
+  //                   step.type || (step.keys.length > 1 ? "combo" : "single"),
+  //                 keys: step.keys,
+  //                 holdTime: holdTime,
+  //                 window: step.window || oldPattern.window,
+  //               };
+  //             }),
+  //             totalTimeWindow: oldPattern.window,
+  //             defaultBuffer: oldPattern.defaultBuffer,
+  //           };
+  //           // Replace pattern with trigger
+  //           delete (shortcut as any).pattern;
+  //           (shortcut as any).trigger = trigger;
+  //         }
+  //       });
+  //     }
+  //     return state;
+  //   },
+  // },
 ];
 const DEFAULT_STATE = {
   settings: {
@@ -5221,11 +5270,9 @@ const _IPCService = class _IPCService {
    * Emit an event to all renderer processes and main process handlers
    */
   emit(event) {
-    console.log("[IPCService] Emitting event:", event);
     this.queue.enqueue(
       "ipc:event",
       async () => {
-        console.log("[IPCService] Processing queued event:", event);
         const windows = electron.BrowserWindow.getAllWindows();
         windows.forEach((window) => {
           console.log("[IPCService] Sending event to window:", window.id);
@@ -5327,7 +5374,6 @@ class KeyboardService extends events.EventEmitter {
     __publicField(this, "mainWindow", null);
     __publicField(this, "keyboardProcess", null);
     __publicField(this, "store");
-    __publicField(this, "queue");
     __publicField(this, "startupTimeout", null);
     __publicField(this, "state", {
       isListening: false,
@@ -5336,45 +5382,58 @@ class KeyboardService extends events.EventEmitter {
       isHyperKeyEnabled: false
     });
     __publicField(this, "handleKeyboardOutput", (data) => {
+      var _a;
       try {
         const lines = data.toString().split("\n");
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
           if (trimmed.startsWith("[DEBUG]")) {
-            console.log(trimmed);
             continue;
           }
           try {
             const state = JSON.parse(trimmed);
+            if (!state.frame || !state.state) continue;
             const keyboardState = {
-              pressedKeys: Array.isArray(state.pressedKeys) ? state.pressedKeys : [],
-              timestamp: Date.now()
+              frame: state.frame,
+              timestamp: state.timestamp || Date.now(),
+              event: state.event,
+              state: {
+                justPressed: state.state.justPressed || [],
+                held: state.state.held || [],
+                justReleased: state.state.justReleased || [],
+                holdDurations: state.state.holdDurations || {}
+              }
             };
-            this.queue.enqueue("keyboardEvent", keyboardState);
+            (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-frame", keyboardState);
+            ipc.emit({
+              service: "keyboard",
+              event: "frame",
+              data: keyboardState
+            });
           } catch (parseError) {
             if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-              console.error("Error parsing keyboard state:", parseError);
+              console.error(
+                "[KeyboardService] Error parsing keyboard state:",
+                parseError
+              );
             }
           }
         }
       } catch (error) {
-        console.error("Error handling keyboard output:", error);
+        console.error("[KeyboardService] Error handling keyboard output:", error);
       }
     });
     this.store = Store.getInstance();
-    this.queue = MessageQueue.getInstance();
-    this.setupQueueHandlers();
     this.setupIPCHandlers();
   }
-  /**
-   * Set up IPC service handlers
-   */
+  setMainWindow(window) {
+    this.mainWindow = window;
+  }
   setupIPCHandlers() {
     ipc.registerService({
       id: "keyboard",
       priority: 1
-      // High priority for keyboard events
     });
     ipc.registerHandler("keyboard", "start", async () => {
       await this.startListening();
@@ -5396,52 +5455,21 @@ class KeyboardService extends events.EventEmitter {
       return this.getState();
     });
   }
-  setupQueueHandlers() {
-    this.queue.registerHandler("setState", async (message) => {
-      var _a;
-      console.log("[KeyboardService] Handling setState:", message.payload);
-      const updates = message.payload;
-      this.state = { ...this.state, ...updates };
-      (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", {
+  setState(updates) {
+    var _a;
+    this.state = { ...this.state, ...updates };
+    (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-service-state", {
+      ...this.state,
+      isRunning: this.isRunning()
+    });
+    ipc.emit({
+      service: "keyboard",
+      event: "stateChanged",
+      data: {
         ...this.state,
         isRunning: this.isRunning()
-      });
-      console.log("[KeyboardService] Emitting state changed event:", {
-        ...this.state,
-        isRunning: this.isRunning()
-      });
-      ipc.emit({
-        service: "keyboard",
-        event: "stateChanged",
-        data: {
-          ...this.state,
-          isRunning: this.isRunning()
-        }
-      });
-      this.emit("state-change", this.state);
-    });
-    this.queue.registerHandler("keyboardEvent", async (message) => {
-      var _a;
-      (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("keyboard-event", message.payload);
-      ipc.emit({
-        service: "keyboard",
-        event: "keyPressed",
-        data: message.payload
-      });
-    });
-    this.queue.on("message:failed", (message) => {
-      var _a;
-      console.error(`[KeyboardService] Message failed:`, message);
-      if (message.type === "setState") {
-        electron.dialog.showErrorBox(
-          "Keyboard Service Error",
-          `Failed to update service state: ${(_a = message.error) == null ? void 0 : _a.message}`
-        );
       }
     });
-  }
-  setState(updates) {
-    this.queue.enqueue("setState", updates, 1);
   }
   getScriptPath() {
     const scriptName = "keyboard-monitor.ps1";
@@ -5484,20 +5512,8 @@ class KeyboardService extends events.EventEmitter {
       await this.startListening();
     }
   }
-  setMainWindow(window) {
-    this.mainWindow = window;
-  }
-  async notifyStateUpdate() {
-    var _a;
-    const hyperKeyFeature = await this.store.getFeature("hyperKey");
-    if (hyperKeyFeature) {
-      (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("hyperkey-state", {
-        ...hyperKeyFeature.config,
-        enabled: hyperKeyFeature.isFeatureEnabled
-      });
-    }
-  }
   async startListening() {
+    var _a;
     console.log("[KeyboardService] startListening() called");
     if (this.keyboardProcess) {
       console.log("[KeyboardService] Process already running");
@@ -5530,15 +5546,32 @@ class KeyboardService extends events.EventEmitter {
     try {
       const scriptPath = this.getScriptPath();
       const hyperKey2 = await this.store.getFeature("hyperKey");
+      const shortcutManager = await this.store.getFeature("shortcutManager");
       if (!hyperKey2) {
         throw new Error("HyperKey feature not found");
+      }
+      let maxBufferWindow = 3e3;
+      if ((_a = shortcutManager == null ? void 0 : shortcutManager.config) == null ? void 0 : _a.shortcuts) {
+        const shortcuts = shortcutManager.config.shortcuts;
+        maxBufferWindow = shortcuts.reduce((max, shortcut) => {
+          const triggerWindow = shortcut.trigger.totalTimeWindow || 0;
+          const holdTimes = shortcut.trigger.steps.reduce(
+            (maxHold, step) => {
+              const holdTime = step.holdTime || 0;
+              return Math.max(maxHold, holdTime);
+            },
+            0
+          ) || 0;
+          return Math.max(max, triggerWindow, holdTimes);
+        }, maxBufferWindow);
       }
       const config = {
         isEnabled: hyperKey2.isFeatureEnabled,
         isHyperKeyEnabled: hyperKey2.config.isHyperKeyEnabled,
         trigger: hyperKey2.config.trigger,
         modifiers: hyperKey2.config.modifiers || [],
-        capsLockBehavior: hyperKey2.config.capsLockBehavior || "BlockToggle"
+        capsLockBehavior: hyperKey2.config.capsLockBehavior || "BlockToggle",
+        bufferWindow: maxBufferWindow
       };
       const command = [
         // Enable debug output and set error preferences
@@ -5552,6 +5585,7 @@ class KeyboardService extends events.EventEmitter {
         `  trigger='${config.trigger}';`,
         `  modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(",") || "@()"});`,
         `  capsLockBehavior='${config.capsLockBehavior}';`,
+        `  bufferWindow=${config.bufferWindow};`,
         "};",
         // Debug output config
         "Write-Host '[DEBUG] Config:' ($Config | ConvertTo-Json -Depth 10);",
@@ -5748,6 +5782,13 @@ class KeyboardService extends events.EventEmitter {
     });
     console.log("[KeyboardService] Service stopped");
   }
+  isRunning() {
+    return this.keyboardProcess !== null;
+  }
+  dispose() {
+    this.stopListening();
+    this.mainWindow = null;
+  }
   async restartWithConfig(config) {
     var _a;
     await this.store.update((draft) => {
@@ -5763,13 +5804,6 @@ class KeyboardService extends events.EventEmitter {
     });
     await this.stopListening();
     await this.startListening();
-  }
-  isRunning() {
-    return this.keyboardProcess !== null;
-  }
-  dispose() {
-    this.stopListening();
-    this.mainWindow = null;
   }
 }
 const byteToHex = [];
@@ -5808,131 +5842,276 @@ function v4(options, buf, offset) {
 }
 class InputBufferMatcher {
   constructor(maxSize, maxAge) {
-    __publicField(this, "events", []);
+    __publicField(this, "frames", []);
+    __publicField(this, "keyStates", /* @__PURE__ */ new Map());
+    __publicField(this, "nextFrameId", 0);
     __publicField(this, "maxSize");
     __publicField(this, "maxAge");
     this.maxSize = maxSize;
     this.maxAge = maxAge;
+    console.log(
+      `[InputBufferMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
+    );
   }
-  addEvent(event) {
-    this.events.push(event);
-    this.cleanOldEvents(event.timestamp);
-    if (this.events.length > this.maxSize) {
-      this.events = this.events.slice(-this.maxSize);
+  addFrame(frame) {
+    console.log(
+      `[InputBufferMatcher] Adding frame ${frame.id} with ${frame.justPressed.size} pressed, ${frame.heldKeys.size} held, ${frame.justReleased.size} released keys`
+    );
+    for (const key of frame.justPressed) {
+      this.keyStates.set(key, {
+        key,
+        state: "justPressed",
+        initialPressTime: frame.timestamp,
+        holdDuration: 0,
+        lastUpdateTime: frame.timestamp
+      });
+    }
+    for (const key of frame.heldKeys) {
+      const state = this.keyStates.get(key);
+      if (state) {
+        if (state.state === "justPressed") {
+          state.state = "held";
+        }
+        state.holdDuration = frame.holdDurations.get(key) || 0;
+        state.lastUpdateTime = frame.timestamp;
+      }
+    }
+    for (const key of frame.justReleased) {
+      const state = this.keyStates.get(key);
+      if (state) {
+        state.state = "released";
+        state.lastUpdateTime = frame.timestamp;
+      }
+    }
+    for (const [key, state] of this.keyStates.entries()) {
+      if (state.state === "released" && frame.timestamp - state.lastUpdateTime > 16) {
+        this.keyStates.delete(key);
+      }
+    }
+    this.frames.push(frame);
+    this.cleanOldFrames(frame.timestamp);
+  }
+  cleanOldFrames(currentTime) {
+    while (this.frames.length > 0 && (this.frames.length > this.maxSize || currentTime - this.frames[0].timestamp > this.maxAge)) {
+      this.frames.shift();
     }
   }
-  cleanOldEvents(currentTime) {
-    this.events = this.events.filter((event) => {
-      return currentTime - event.timestamp <= this.maxAge;
-    });
-  }
-  findMatches(commands, currentTime) {
-    this.cleanOldEvents(currentTime);
+  findMatches(commands) {
     const matches = [];
     for (const command of commands) {
-      const match = this.matchCommand(command, currentTime);
-      if (match) {
-        matches.push(match);
+      for (let i = 0; i < this.frames.length; i++) {
+        const match = this.tryMatchAtIndex(command, i);
+        if (match) {
+          matches.push(match);
+        }
       }
     }
     return matches;
   }
-  matchCommand(command, currentTime) {
+  tryMatchAtIndex(command, startIndex) {
     const pattern = command.pattern;
-    const events2 = this.events;
-    if (events2.length < pattern.sequence.length) {
-      return null;
-    }
-    for (let i = 0; i <= events2.length - pattern.sequence.length; i++) {
-      const match = this.tryMatchAtIndex(i, pattern, events2, currentTime);
-      if (match) {
-        return {
-          command,
-          events: match.events,
-          startTime: match.startTime,
-          endTime: match.endTime
-        };
-      }
-    }
-    return null;
-  }
-  tryMatchAtIndex(startIndex, pattern, events2, currentTime) {
-    const sequence = pattern.sequence;
-    const matchedEvents = [];
-    let lastMatchTime = events2[startIndex].timestamp;
     let currentIndex = startIndex;
-    for (const step of sequence) {
-      const stepEvents = this.findStepEvents(
-        currentIndex,
-        step,
-        events2,
-        lastMatchTime
-      );
-      if (!stepEvents) {
-        return null;
+    const events2 = [];
+    const holdDurations = /* @__PURE__ */ new Map();
+    for (const step of pattern.sequence) {
+      const frame = this.frames[currentIndex];
+      if (!frame) return null;
+      switch (step.type) {
+        case "press":
+          if (!this.matchPressStep(step.keys, frame)) return null;
+          break;
+        case "hold":
+          if (!this.matchHoldStep(
+            step.keys,
+            frame,
+            step.holdTime || 0,
+            holdDurations
+          ))
+            return null;
+          break;
+        case "release":
+          if (!this.matchReleaseStep(step.keys, frame)) return null;
+          break;
+        case "combo":
+          if (!this.matchComboStep(step.keys, frame)) return null;
+          break;
       }
-      matchedEvents.push(...stepEvents.events);
-      lastMatchTime = stepEvents.endTime;
-      currentIndex = stepEvents.nextIndex;
+      events2.push(...this.getEventsFromFrame(frame));
+      if (currentIndex < this.frames.length - 1) {
+        currentIndex++;
+      }
     }
-    const startTime = matchedEvents[0].timestamp;
-    const endTime = matchedEvents[matchedEvents.length - 1].timestamp;
+    const startTime = this.frames[startIndex].timestamp;
+    const endTime = this.frames[currentIndex].timestamp;
     if (endTime - startTime > pattern.window) {
       return null;
     }
     return {
-      events: matchedEvents,
+      command,
+      events: events2,
       startTime,
-      endTime
+      endTime,
+      holdDurations
     };
   }
-  findStepEvents(startIndex, step, events2, lastMatchTime) {
-    const requiredKeys = new Set(step.keys);
-    const matchedEvents = [];
-    let currentIndex = startIndex;
-    while (requiredKeys.size > 0 && currentIndex < events2.length) {
-      const event = events2[currentIndex];
-      if (event.timestamp - lastMatchTime > step.window) {
-        break;
-      }
-      if (requiredKeys.has(event.key)) {
-        matchedEvents.push(event);
-        requiredKeys.delete(event.key);
-      }
-      currentIndex++;
-    }
-    if (requiredKeys.size > 0) {
-      return null;
-    }
-    return {
-      events: matchedEvents,
-      endTime: matchedEvents[matchedEvents.length - 1].timestamp,
-      nextIndex: currentIndex
-    };
+  matchPressStep(keys, frame) {
+    return keys.every((key) => frame.justPressed.has(key));
   }
+  matchHoldStep(keys, frame, requiredHoldTime, holdDurations) {
+    if (!keys.every(
+      (key) => frame.heldKeys.has(key) || frame.justPressed.has(key)
+    )) {
+      return false;
+    }
+    for (const key of keys) {
+      const duration = frame.holdDurations.get(key) || 0;
+      if (duration < requiredHoldTime) {
+        return false;
+      }
+      holdDurations.set(key, duration);
+    }
+    return true;
+  }
+  matchReleaseStep(keys, frame) {
+    return keys.every((key) => frame.justReleased.has(key));
+  }
+  matchComboStep(keys, frame) {
+    return keys.every(
+      (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
+    );
+  }
+  getEventsFromFrame(frame) {
+    const events2 = [];
+    for (const key of frame.justPressed) {
+      events2.push({ key, type: "press", timestamp: frame.timestamp });
+    }
+    for (const key of frame.justReleased) {
+      events2.push({ key, type: "release", timestamp: frame.timestamp });
+    }
+    return events2;
+  }
+}
+class TriggerMatcher {
+  constructor(maxSize, maxAge) {
+    __publicField(this, "inputBuffer");
+    __publicField(this, "lastMatchTime", 0);
+    __publicField(this, "maxAge");
+    this.inputBuffer = new InputBufferMatcher(maxSize, maxAge);
+    this.maxAge = maxAge;
+    console.log(
+      `[TriggerMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
+    );
+  }
+  addFrame(frame) {
+    console.log(
+      `[TriggerMatcher] Adding frame with ${frame.justPressed.size} pressed, ${frame.heldKeys.size} held, ${frame.justReleased.size} released keys`
+    );
+    this.inputBuffer.addFrame(frame);
+  }
+  findMatches(commands) {
+    return this.inputBuffer.findMatches(commands);
+  }
+  isStepMatched(step, frame) {
+    console.log(`[TriggerMatcher] Checking step match:`, {
+      type: step.type,
+      keys: step.keys,
+      holdTime: step.holdTime,
+      window: step.window
+    });
+    switch (step.type) {
+      case "hold":
+        if (!step.holdTime) {
+          console.log(`[TriggerMatcher] Hold step missing holdTime`);
+          return false;
+        }
+        if (!step.keys.every(
+          (key) => frame.heldKeys.has(key) || frame.justPressed.has(key)
+        )) {
+          console.log(`[TriggerMatcher] Not all keys are held/pressed`);
+          return false;
+        }
+        for (const key of step.keys) {
+          const duration = frame.holdDurations.get(key) || 0;
+          console.log(
+            `[TriggerMatcher] Key ${key} hold duration: ${duration}ms, required: ${step.holdTime}ms`
+          );
+          if (duration < step.holdTime) {
+            return false;
+          }
+        }
+        return true;
+      case "combo":
+        const allKeysActive = step.keys.every(
+          (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
+        );
+        console.log(`[TriggerMatcher] Combo step check:`, {
+          allKeysActive,
+          justPressed: Array.from(frame.justPressed),
+          heldKeys: Array.from(frame.heldKeys)
+        });
+        return allKeysActive;
+      case "single":
+        const isPressed = step.keys.some((key) => frame.justPressed.has(key));
+        console.log(
+          `[TriggerMatcher] Single step check: isPressed=${isPressed}`
+        );
+        return isPressed;
+      default:
+        console.log(`[TriggerMatcher] Unknown step type: ${step.type}`);
+        return false;
+    }
+  }
+  reset() {
+    console.log("[TriggerMatcher] Resetting state");
+    this.lastMatchTime = 0;
+  }
+}
+function mapStepType(type) {
+  switch (type) {
+    case "hold":
+      return "hold";
+    case "combo":
+      return "combo";
+    case "single":
+    default:
+      return "press";
+  }
+}
+function shortcutToCommand(shortcut) {
+  return {
+    id: shortcut.id,
+    cooldown: shortcut.cooldown || 500,
+    // Use shortcut's cooldown or default to 500ms
+    pattern: {
+      sequence: shortcut.trigger.steps.map((step) => ({
+        type: mapStepType(step.type),
+        keys: step.keys,
+        holdTime: step.holdTime,
+        window: step.window || shortcut.trigger.totalTimeWindow
+      })),
+      window: shortcut.trigger.totalTimeWindow || 5e3
+    }
+  };
 }
 class ShortcutService {
   constructor() {
     __publicField(this, "store");
     __publicField(this, "ipc");
     __publicField(this, "matcher");
-    __publicField(this, "relevantKeys");
     __publicField(this, "lastExecutions");
     this.store = Store.getInstance();
     this.ipc = IPCService.getInstance();
-    this.matcher = new InputBufferMatcher(8, 1e3);
-    this.relevantKeys = /* @__PURE__ */ new Set();
+    this.matcher = new TriggerMatcher(32, 5e3);
     this.lastExecutions = /* @__PURE__ */ new Map();
     this.setupIPCHandlers();
   }
   setupIPCHandlers() {
-    this.ipc.registerHandler("keyboard", "keyPressed", async (data) => {
-      const keyboardEvent = data;
-      await this.handleKeyboardEvent(keyboardEvent);
+    this.ipc.registerHandler("keyboard", "frame", async (data) => {
+      const frameEvent = data;
+      await this.handleFrameEvent(frameEvent);
     });
   }
   async initialize() {
-    var _a;
     console.log("[ShortcutService] Initializing...");
     try {
       const feature = await this.store.getFeature("shortcutManager");
@@ -5949,68 +6128,75 @@ class ShortcutService {
           });
         });
       }
-      const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
-      if (state == null ? void 0 : state.shortcuts) {
-        state.shortcuts.forEach((shortcut) => {
-          if (shortcut.enabled) {
-            this.addRelevantKeys(shortcut.pattern.sequence);
-          }
-        });
-      }
-      console.log("[ShortcutService] Initialized with state:", state);
+      console.log("[ShortcutService] Initialized successfully");
     } catch (error) {
       console.error("[ShortcutService] Initialization error:", error);
     }
   }
-  async handleKeyboardEvent(data) {
+  async handleFrameEvent(data) {
     var _a;
     const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
     if (!(state == null ? void 0 : state.isEnabled)) return;
-    const pressedKeys = new Set(data.pressedKeys);
-    console.log(
-      "[ShortcutService] Handling key event:",
-      Array.from(pressedKeys),
-      "at",
-      data.timestamp
-    );
-    if (pressedKeys.size === 0) return;
-    for (const key of pressedKeys) {
-      const event = {
-        key,
-        type: "press",
-        timestamp: data.timestamp
-      };
-      this.matcher.addEvent(event);
-    }
-    const enabledShortcuts = state.shortcuts.filter((s) => s.enabled);
-    const matches = this.matcher.findMatches(enabledShortcuts, data.timestamp);
+    const frameData = data.state || {};
+    const justPressed = Array.isArray(frameData.justPressed) ? frameData.justPressed : [];
+    const heldKeys = Array.isArray(frameData.held) ? frameData.held : [];
+    const justReleased = Array.isArray(frameData.justReleased) ? frameData.justReleased : [];
+    const holdDurations = frameData.holdDurations || {};
+    const frame = {
+      id: data.frame,
+      timestamp: data.timestamp,
+      justPressed: new Set(justPressed),
+      heldKeys: new Set(heldKeys),
+      justReleased: new Set(justReleased),
+      holdDurations: new Map(Object.entries(holdDurations))
+    };
+    console.log("[ShortcutService] Processing frame:", {
+      id: frame.id,
+      justPressed: Array.from(frame.justPressed),
+      held: Array.from(frame.heldKeys),
+      justReleased: Array.from(frame.justReleased),
+      holdDurations: Object.fromEntries(frame.holdDurations),
+      timestamp: frame.timestamp
+    });
+    this.matcher.addFrame(frame);
+    const enabledShortcuts = state.shortcuts.filter((s) => s.enabled).map(shortcutToCommand);
+    const matches = this.matcher.findMatches(enabledShortcuts);
     for (const match of matches) {
       await this.executeShortcut(match);
     }
   }
   async executeShortcut(match) {
+    var _a;
     const now = Date.now();
     const lastExecution = this.lastExecutions.get(match.command.id) || 0;
     const cooldown = match.command.cooldown || 500;
     if (now - lastExecution < cooldown) {
       console.log(
-        `[ShortcutService] Skipping execution of ${match.command.name} - in cooldown`
+        `[ShortcutService] Skipping execution of ${match.command.id} - in cooldown (${cooldown}ms)`
       );
       return;
     }
-    console.log(`[ShortcutService] Executing shortcut: ${match.command.name}`);
+    console.log(`[ShortcutService] Executing shortcut: ${match.command.id}`);
     this.lastExecutions.set(match.command.id, now);
     try {
-      if (match.command.action.type === "launch") {
-        child_process.exec(match.command.action.program, (error) => {
+      const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
+      const shortcut = state.shortcuts.find((s) => s.id === match.command.id);
+      if (!shortcut) {
+        console.error(
+          `[ShortcutService] Shortcut not found: ${match.command.id}`
+        );
+        return;
+      }
+      if (shortcut.action.type === "launch") {
+        child_process.exec(shortcut.action.program || "", (error) => {
           if (error) {
             console.error(
               `[ShortcutService] Error executing shortcut: ${error}`
             );
           }
         });
-      } else if (match.command.action.type === "command") {
-        child_process.exec(match.command.action.command, (error) => {
+      } else if (shortcut.action.type === "command") {
+        child_process.exec(shortcut.action.command || "", (error) => {
           if (error) {
             console.error(
               `[ShortcutService] Error executing command: ${error}`
@@ -6022,40 +6208,9 @@ class ShortcutService {
       console.error("[ShortcutService] Error executing shortcut:", error);
     }
   }
-  addRelevantKeys(sequence) {
-    sequence.forEach((item) => {
-      if (typeof item === "string") {
-        this.relevantKeys.add(item);
-      } else {
-        item.keys.forEach((key) => this.relevantKeys.add(key));
-      }
-    });
-  }
-  removeRelevantKeys(sequence, id, shortcuts) {
-    const allKeys = sequence.flatMap(
-      (item) => typeof item === "string" ? [item] : item.keys
-    );
-    allKeys.forEach((key) => {
-      let isUsedElsewhere = false;
-      for (const other of shortcuts) {
-        if (other.id !== id && other.enabled) {
-          const otherKeys = other.pattern.sequence.flatMap(
-            (seq) => typeof seq === "string" ? [seq] : seq.keys
-          );
-          if (otherKeys.includes(key)) {
-            isUsedElsewhere = true;
-            break;
-          }
-        }
-      }
-      if (!isUsedElsewhere) {
-        this.relevantKeys.delete(key);
-      }
-    });
-  }
-  async addShortcut(command) {
+  async addShortcut(shortcut) {
     const newShortcut = {
-      ...command,
+      ...shortcut,
       id: v4()
     };
     await this.store.update((draft) => {
@@ -6064,22 +6219,13 @@ class ShortcutService {
         feature.config.shortcuts.push(newShortcut);
       }
     });
-    if (newShortcut.enabled) {
-      this.addRelevantKeys(newShortcut.pattern.sequence);
-    }
   }
   async removeShortcut(id) {
-    var _a;
-    const state = (_a = await this.store.getFeature("shortcutManager")) == null ? void 0 : _a.config;
-    const shortcut = state.shortcuts.find((s) => s.id === id);
-    if (shortcut) {
-      this.removeRelevantKeys(shortcut.pattern.sequence, id, state.shortcuts);
-    }
     await this.store.update((draft) => {
       const feature = draft.features.find((f) => f.name === "shortcutManager");
       if (feature) {
-        const state2 = feature.config;
-        state2.shortcuts = state2.shortcuts.filter((s) => s.id !== id);
+        const state = feature.config;
+        state.shortcuts = state.shortcuts.filter((s) => s.id !== id);
       }
     });
   }
@@ -6090,19 +6236,7 @@ class ShortcutService {
         const state = feature.config;
         const index = state.shortcuts.findIndex((s) => s.id === id);
         if (index !== -1) {
-          const oldShortcut = state.shortcuts[index];
-          state.shortcuts[index] = { ...oldShortcut, ...update };
-          if (update.pattern || update.enabled !== void 0) {
-            this.removeRelevantKeys(
-              oldShortcut.pattern.sequence,
-              id,
-              state.shortcuts
-            );
-            const updatedShortcut = state.shortcuts[index];
-            if (updatedShortcut.enabled) {
-              this.addRelevantKeys(updatedShortcut.pattern.sequence);
-            }
-          }
+          state.shortcuts[index] = { ...state.shortcuts[index], ...update };
         }
       }
     });
@@ -6324,8 +6458,8 @@ const initializeServices = async (window) => {
 const createWindow = async () => {
   console.log("Environment:", process.env.NODE_ENV);
   mainWindow = new electron.BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 300,
+    height: 300,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

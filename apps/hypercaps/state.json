@@ -33,9 +33,10 @@
               "enabled": true,
               "id": "915b42fb-4890-4c40-9ad1-5b5bb21d7a2e",
               "name": "Open Notepad",
-              "pattern": {
-                "sequence": [
+              "trigger": {
+                "steps": [
                   {
+                    "type": "combo",
                     "keys": [
                       "LShiftKey",
                       "LControlKey",
@@ -44,8 +45,7 @@
                     "window": 200
                   }
                 ],
-                "strict": true,
-                "window": 500
+                "totalTimeWindow": 500
               }
             },
             {
@@ -57,9 +57,10 @@
               "enabled": true,
               "id": "2f7b42fb-4890-4c40-9ad1-5b5bb21d7a2f",
               "name": "Double H+G",
-              "pattern": {
-                "sequence": [
+              "trigger": {
+                "steps": [
                   {
+                    "type": "combo",
                     "keys": [
                       "H",
                       "G"
@@ -67,6 +68,7 @@
                     "window": 200
                   },
                   {
+                    "type": "combo",
                     "keys": [
                       "H",
                       "G"
@@ -74,8 +76,38 @@
                     "window": 200
                   }
                 ],
-                "strict": true,
-                "window": 1000
+                "totalTimeWindow": 1000
+              }
+            },
+            {
+              "action": {
+                "program": "notepad.exe",
+                "type": "launch"
+              },
+              "cooldown": 500,
+              "enabled": true,
+              "id": "3f7b42fb-4890-4c40-9ad1-5b5bb21d7a2f",
+              "name": "Hold Shift + A",
+              "trigger": {
+                "steps": [
+                  {
+                    "type": "hold",
+                    "keys": [
+                      "LShiftKey"
+                    ],
+                    "holdTime": 2000,
+                    "window": 1000
+                  },
+                  {
+                    "type": "combo",
+                    "keys": [
+                      "LShiftKey",
+                      "A"
+                    ],
+                    "window": 200
+                  }
+                ],
+                "totalTimeWindow": 2000
               }
             }
           ]
