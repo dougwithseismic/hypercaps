@@ -9,7 +9,6 @@ export class InputBufferMatcher {
   private events: KeyEvent[] = [];
   private maxSize: number;
   private maxAge: number;
-  private readonly SIMULTANEOUS_WINDOW = 50; // Window for bundling simultaneous keys
 
   constructor(maxSize: number, maxAge: number) {
     this.maxSize = maxSize;
@@ -17,16 +16,6 @@ export class InputBufferMatcher {
   }
 
   addEvent(event: KeyEvent): void {
-    // Try to bundle with recent events if they're close in time
-    const recentEvents = this.events.filter(
-      (e) => Math.abs(e.timestamp - event.timestamp) <= this.SIMULTANEOUS_WINDOW
-    );
-
-    // If we found recent events, adjust this event's timestamp to match
-    if (recentEvents.length > 0) {
-      event = { ...event, timestamp: recentEvents[0].timestamp };
-    }
-
     this.events.push(event);
     this.cleanOldEvents(event.timestamp);
 
@@ -50,8 +39,6 @@ export class InputBufferMatcher {
       const match = this.matchCommand(command, currentTime);
       if (match) {
         matches.push(match);
-        // Remove matched events to prevent double-matching
-        this.events = this.events.filter((e) => !match.events.includes(e));
       }
     }
 
@@ -65,17 +52,14 @@ export class InputBufferMatcher {
     const pattern = command.pattern;
     const events = this.events;
 
-    // Group events by timestamp to handle simultaneous presses
-    const eventGroups = this.groupEventsByTimestamp(events);
-
-    // Check if we have enough event groups
-    if (eventGroups.length < pattern.sequence.length) {
+    // Check if we have enough events
+    if (events.length < pattern.sequence.length) {
       return null;
     }
 
     // Try to match the pattern at each possible starting point
-    for (let i = 0; i <= eventGroups.length - pattern.sequence.length; i++) {
-      const match = this.tryMatchAtIndex(i, pattern, eventGroups, currentTime);
+    for (let i = 0; i <= events.length - pattern.sequence.length; i++) {
+      const match = this.tryMatchAtIndex(i, pattern, events, currentTime);
       if (match) {
         return {
           command,
@@ -89,42 +73,23 @@ export class InputBufferMatcher {
     return null;
   }
 
-  private groupEventsByTimestamp(events: KeyEvent[]): KeyEvent[][] {
-    const groups: Map<number, KeyEvent[]> = new Map();
-
-    for (const event of events) {
-      const existing = Array.from(groups.entries()).find(
-        ([timestamp]) =>
-          Math.abs(timestamp - event.timestamp) <= this.SIMULTANEOUS_WINDOW
-      );
-
-      if (existing) {
-        existing[1].push(event);
-      } else {
-        groups.set(event.timestamp, [event]);
-      }
-    }
-
-    return Array.from(groups.values());
-  }
-
   private tryMatchAtIndex(
     startIndex: number,
     pattern: CommandPattern,
-    eventGroups: KeyEvent[][],
+    events: KeyEvent[],
     currentTime: number
   ): { events: KeyEvent[]; startTime: number; endTime: number } | null {
     const sequence = pattern.sequence;
     const matchedEvents: KeyEvent[] = [];
-    let lastMatchTime = eventGroups[startIndex][0].timestamp;
+    let lastMatchTime = events[startIndex].timestamp;
     let currentIndex = startIndex;
 
     for (const step of sequence) {
-      // Find all events in this group that match this step's keys
+      // Find all events that match this step's keys
       const stepEvents = this.findStepEvents(
         currentIndex,
         step,
-        eventGroups,
+        events,
         lastMatchTime
       );
 
@@ -155,30 +120,40 @@ export class InputBufferMatcher {
   private findStepEvents(
     startIndex: number,
     step: { keys: string[]; window: number },
-    eventGroups: KeyEvent[][],
+    events: KeyEvent[],
     lastMatchTime: number
   ): { events: KeyEvent[]; endTime: number; nextIndex: number } | null {
     const requiredKeys = new Set(step.keys);
     const matchedEvents: KeyEvent[] = [];
-    const currentGroup = eventGroups[startIndex];
+    let currentIndex = startIndex;
 
-    // For simultaneous keys, all required keys must be in the current group
-    for (const event of currentGroup) {
+    // Try to find all required keys within the time window
+    while (requiredKeys.size > 0 && currentIndex < events.length) {
+      const event = events[currentIndex];
+
+      // Check if this event is within the time window
+      if (event.timestamp - lastMatchTime > step.window) {
+        break;
+      }
+
+      // If this is a key we're looking for, add it to matched events
       if (requiredKeys.has(event.key)) {
         matchedEvents.push(event);
         requiredKeys.delete(event.key);
       }
+
+      currentIndex++;
     }
 
-    // If we didn't find all required keys in this group, it's not a match
+    // If we didn't find all required keys, this is not a match
     if (requiredKeys.size > 0) {
       return null;
     }
 
     return {
       events: matchedEvents,
-      endTime: currentGroup[currentGroup.length - 1].timestamp,
-      nextIndex: startIndex + 1,
+      endTime: matchedEvents[matchedEvents.length - 1].timestamp,
+      nextIndex: currentIndex,
     };
   }
 }
