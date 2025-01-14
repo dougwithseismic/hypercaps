@@ -102,8 +102,9 @@ public static class KeyboardMonitor {
         }
     }
 
+    private static Queue<BufferedKeyEvent> pressBuffer = new Queue<BufferedKeyEvent>();
+    private static Queue<BufferedKeyEvent> releaseBuffer = new Queue<BufferedKeyEvent>();
     private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
-    private static Queue<BufferedKeyEvent> keyBuffer = new Queue<BufferedKeyEvent>();
     private static long KEY_BUFFER_WINDOW = 50; // 50ms window to collect simultaneous presses
     private static System.Timers.Timer bufferTimer;
 
@@ -114,33 +115,51 @@ public static class KeyboardMonitor {
     }
 
     private static void FlushKeyBuffer() {
+        // First flush any pending releases
+        FlushReleaseBuffer();
+
+        // Then handle grouped presses
         bool stateChanged = false;
         var pressEvents = new List<Keys>();
-        var releaseEvents = new List<Keys>();
 
-        while (keyBuffer.Count > 0) {
-            var evt = keyBuffer.Dequeue();
-            if (evt.IsDown) {
-                if (!pressedKeys.Contains(evt.Key)) {
-                    pressedKeys.Add(evt.Key);
-                    pressEvents.Add(evt.Key);
-                    stateChanged = true;
-                }
-            } else {
-                if (pressedKeys.Remove(evt.Key)) {
-                    releaseEvents.Add(evt.Key);
-                    stateChanged = true;
-                }
+        while (pressBuffer.Count > 0) {
+            var evt = pressBuffer.Dequeue();
+            if (!pressedKeys.Contains(evt.Key)) {
+                pressedKeys.Add(evt.Key);
+                pressEvents.Add(evt.Key);
+                stateChanged = true;
             }
         }
 
         if (stateChanged) {
             // Log the grouped events if debug is enabled
-            if (IsDebugEnabled && (pressEvents.Count > 0 || releaseEvents.Count > 0)) {
-                Console.WriteLine(string.Format("[DEBUG] Flushing buffer - Pressed: {0}, Released: {1}",
-                    string.Join(",", pressEvents), string.Join(",", releaseEvents)));
+            if (IsDebugEnabled && pressEvents.Count > 0) {
+                Console.WriteLine(string.Format("[DEBUG] Flushing press buffer - Pressed: {0}",
+                    string.Join(",", pressEvents)));
             }
-            UpdateModifierState(true); // Force update when flushing buffer
+            UpdateModifierState(true);
+        }
+    }
+
+    private static void FlushReleaseBuffer() {
+        bool stateChanged = false;
+        var releaseEvents = new List<Keys>();
+
+        while (releaseBuffer.Count > 0) {
+            var evt = releaseBuffer.Dequeue();
+            if (pressedKeys.Remove(evt.Key)) {
+                releaseEvents.Add(evt.Key);
+                stateChanged = true;
+            }
+        }
+
+        if (stateChanged) {
+            // Log the grouped events if debug is enabled
+            if (IsDebugEnabled && releaseEvents.Count > 0) {
+                Console.WriteLine(string.Format("[DEBUG] Flushing release buffer - Released: {0}",
+                    string.Join(",", releaseEvents)));
+            }
+            UpdateModifierState(true);
         }
     }
 
@@ -169,7 +188,7 @@ public static class KeyboardMonitor {
     }
 
     public static void AddPressedKey(Keys key) {
-        keyBuffer.Enqueue(new BufferedKeyEvent(
+        pressBuffer.Enqueue(new BufferedKeyEvent(
             key, 
             true, 
             DateTimeOffset.Now.ToUnixTimeMilliseconds()
@@ -179,13 +198,12 @@ public static class KeyboardMonitor {
     }
 
     public static void RemovePressedKey(Keys key) {
-        keyBuffer.Enqueue(new BufferedKeyEvent(
+        releaseBuffer.Enqueue(new BufferedKeyEvent(
             key, 
             false, 
             DateTimeOffset.Now.ToUnixTimeMilliseconds()
         ));
-        bufferTimer.Stop();
-        bufferTimer.Start();
+        FlushReleaseBuffer(); // Process releases immediately
     }
 
     public enum CapsLockBehavior {
@@ -225,7 +243,8 @@ public static class KeyboardMonitor {
     private static void UpdateState() {
         if (!IsEnabled) {
             pressedKeys.Clear();
-            keyBuffer.Clear();
+            pressBuffer.Clear();
+            releaseBuffer.Clear();
             lastSentState = "";
             if (IsDebugEnabled) {
                 Console.WriteLine("[DEBUG] Service disabled, cleared state");
@@ -252,7 +271,8 @@ public static class KeyboardMonitor {
     public static void UpdateModifierState(bool forceUpdate = false) {
         if (!IsEnabled) {
             pressedKeys.Clear();
-            keyBuffer.Clear();
+            pressBuffer.Clear();
+            releaseBuffer.Clear();
             lastSentState = "";
             if (IsDebugEnabled) {
                 Console.WriteLine("[DEBUG] Service disabled, cleared state");

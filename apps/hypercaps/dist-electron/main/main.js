@@ -5807,22 +5807,14 @@ function v4(options, buf, offset) {
   return unsafeStringify(rnds);
 }
 class InputBufferMatcher {
-  // Window for bundling simultaneous keys
   constructor(maxSize, maxAge) {
     __publicField(this, "events", []);
     __publicField(this, "maxSize");
     __publicField(this, "maxAge");
-    __publicField(this, "SIMULTANEOUS_WINDOW", 50);
     this.maxSize = maxSize;
     this.maxAge = maxAge;
   }
   addEvent(event) {
-    const recentEvents = this.events.filter(
-      (e) => Math.abs(e.timestamp - event.timestamp) <= this.SIMULTANEOUS_WINDOW
-    );
-    if (recentEvents.length > 0) {
-      event = { ...event, timestamp: recentEvents[0].timestamp };
-    }
     this.events.push(event);
     this.cleanOldEvents(event.timestamp);
     if (this.events.length > this.maxSize) {
@@ -5841,7 +5833,6 @@ class InputBufferMatcher {
       const match = this.matchCommand(command, currentTime);
       if (match) {
         matches.push(match);
-        this.events = this.events.filter((e) => !match.events.includes(e));
       }
     }
     return matches;
@@ -5849,12 +5840,11 @@ class InputBufferMatcher {
   matchCommand(command, currentTime) {
     const pattern = command.pattern;
     const events2 = this.events;
-    const eventGroups = this.groupEventsByTimestamp(events2);
-    if (eventGroups.length < pattern.sequence.length) {
+    if (events2.length < pattern.sequence.length) {
       return null;
     }
-    for (let i = 0; i <= eventGroups.length - pattern.sequence.length; i++) {
-      const match = this.tryMatchAtIndex(i, pattern, eventGroups, currentTime);
+    for (let i = 0; i <= events2.length - pattern.sequence.length; i++) {
+      const match = this.tryMatchAtIndex(i, pattern, events2, currentTime);
       if (match) {
         return {
           command,
@@ -5866,30 +5856,16 @@ class InputBufferMatcher {
     }
     return null;
   }
-  groupEventsByTimestamp(events2) {
-    const groups = /* @__PURE__ */ new Map();
-    for (const event of events2) {
-      const existing = Array.from(groups.entries()).find(
-        ([timestamp]) => Math.abs(timestamp - event.timestamp) <= this.SIMULTANEOUS_WINDOW
-      );
-      if (existing) {
-        existing[1].push(event);
-      } else {
-        groups.set(event.timestamp, [event]);
-      }
-    }
-    return Array.from(groups.values());
-  }
-  tryMatchAtIndex(startIndex, pattern, eventGroups, currentTime) {
+  tryMatchAtIndex(startIndex, pattern, events2, currentTime) {
     const sequence = pattern.sequence;
     const matchedEvents = [];
-    let lastMatchTime = eventGroups[startIndex][0].timestamp;
+    let lastMatchTime = events2[startIndex].timestamp;
     let currentIndex = startIndex;
     for (const step of sequence) {
       const stepEvents = this.findStepEvents(
         currentIndex,
         step,
-        eventGroups,
+        events2,
         lastMatchTime
       );
       if (!stepEvents) {
@@ -5910,23 +5886,28 @@ class InputBufferMatcher {
       endTime
     };
   }
-  findStepEvents(startIndex, step, eventGroups, lastMatchTime) {
+  findStepEvents(startIndex, step, events2, lastMatchTime) {
     const requiredKeys = new Set(step.keys);
     const matchedEvents = [];
-    const currentGroup = eventGroups[startIndex];
-    for (const event of currentGroup) {
+    let currentIndex = startIndex;
+    while (requiredKeys.size > 0 && currentIndex < events2.length) {
+      const event = events2[currentIndex];
+      if (event.timestamp - lastMatchTime > step.window) {
+        break;
+      }
       if (requiredKeys.has(event.key)) {
         matchedEvents.push(event);
         requiredKeys.delete(event.key);
       }
+      currentIndex++;
     }
     if (requiredKeys.size > 0) {
       return null;
     }
     return {
       events: matchedEvents,
-      endTime: currentGroup[currentGroup.length - 1].timestamp,
-      nextIndex: startIndex + 1
+      endTime: matchedEvents[matchedEvents.length - 1].timestamp,
+      nextIndex: currentIndex
     };
   }
 }
