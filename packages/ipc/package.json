@@ -1,0 +1,33 @@
+{
+  "author": "Doug Silkstone <doug@withseismic.com>",
+  "dependencies": {
+    "@hypercaps/message-queue": "workspace:*",
+    "electron": "^33.3.1",
+    "zod": "^3.24.1"
+  },
+  "description": "IPC communication layer for HyperCaps",
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "keywords": [
+    "ipc",
+    "electron",
+    "communication"
+  ],
+  "license": "ISC",
+  "main": "src/index.ts",
+  "name": "@hypercaps/ipc",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist",
+    "dev": "tsx watch src/index.ts",
+    "lint": "eslint src/"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}
