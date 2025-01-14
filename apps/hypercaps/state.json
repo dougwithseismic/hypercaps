@@ -65,7 +65,8 @@
                       "H",
                       "G"
                     ],
-                    "window": 200
+                    "window": 200,
+                    "strict": true
                   },
                   {
                     "type": "combo",
@@ -73,7 +74,8 @@
                       "H",
                       "G"
                     ],
-                    "window": 200
+                    "window": 200,
+                    "strict": true
                   }
                 ],
                 "totalTimeWindow": 1000

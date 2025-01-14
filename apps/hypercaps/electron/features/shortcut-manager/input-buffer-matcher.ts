@@ -128,7 +128,7 @@ export class InputBufferMatcher {
           if (!this.matchReleaseStep(step.keys, frame)) return null;
           break;
         case 'combo':
-          if (!this.matchComboStep(step.keys, frame)) return null;
+          if (!this.matchComboStep(step.keys, frame, step.strict)) return null;
           break;
       }
 
@@ -193,12 +193,31 @@ export class InputBufferMatcher {
     return keys.every((key) => frame.justReleased.has(key));
   }
 
-  private matchComboStep(keys: string[], frame: InputFrame): boolean {
-    // For combos, we just care that all keys are active in this frame
-    // They can be either just pressed or held
-    return keys.every(
+  private matchComboStep(
+    keys: string[],
+    frame: InputFrame,
+    strict: boolean = false
+  ): boolean {
+    console.log(`[InputBufferMatcher] Matching combo step:`, {
+      keys,
+      strict,
+      justPressed: Array.from(frame.justPressed),
+      heldKeys: Array.from(frame.heldKeys),
+    });
+
+    if (strict) {
+      // In strict mode, all keys must be just pressed in this frame
+      const matched = keys.every((key) => frame.justPressed.has(key));
+      console.log(`[InputBufferMatcher] Strict combo match result: ${matched}`);
+      return matched;
+    }
+
+    // In normal mode, keys can be either just pressed or held
+    const matched = keys.every(
       (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
     );
+    console.log(`[InputBufferMatcher] Normal combo match result: ${matched}`);
+    return matched;
   }
 
   private getEventsFromFrame(frame: InputFrame): KeyEvent[] {
@@ -215,5 +234,29 @@ export class InputBufferMatcher {
     }
 
     return events;
+  }
+
+  public reset(): void {
+    console.log('[InputBufferMatcher] Resetting all state');
+    this.frames = [];
+    this.keyStates.clear();
+  }
+
+  public clearFramesUpTo(timestamp: number): void {
+    console.log(
+      `[InputBufferMatcher] Clearing frames up to timestamp ${timestamp}`
+    );
+    const index = this.frames.findIndex((frame) => frame.timestamp > timestamp);
+    if (index !== -1) {
+      this.frames = this.frames.slice(index);
+      // Clean up key states for keys that were last seen in cleared frames
+      for (const [key, state] of this.keyStates.entries()) {
+        if (state.lastUpdateTime <= timestamp) {
+          this.keyStates.delete(key);
+        }
+      }
+    } else {
+      this.reset();
+    }
   }
 }

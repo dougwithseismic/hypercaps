@@ -96,5 +96,13 @@ export class TriggerMatcher {
   public reset(): void {
     console.log('[TriggerMatcher] Resetting state');
     this.lastMatchTime = 0;
+    this.inputBuffer.reset();
+  }
+
+  public clearFramesUpTo(timestamp: number): void {
+    console.log(
+      `[TriggerMatcher] Clearing frames up to timestamp ${timestamp}`
+    );
+    this.inputBuffer.clearFramesUpTo(timestamp);
   }
 }

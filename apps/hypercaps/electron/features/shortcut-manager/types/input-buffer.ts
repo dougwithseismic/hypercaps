@@ -27,6 +27,7 @@ export interface CommandPattern {
     keys: string[];
     holdTime?: number;
     window?: number;
+    strict?: boolean;
   }>;
   window: number;
   strict?: boolean;
