@@ -72,12 +72,62 @@ const MIGRATIONS: Migration[] = [
       });
     },
   },
-  // Add future migrations here
-  // {
-  //   version: "0.2.0",
-  //   schema: AppStateSchema.extend({ /* expected schema before migration */ }),
-  //   migrate: (state) => { /* migration logic */ }
-  // }
+  {
+    version: "0.2.0",
+    schema: AppStateSchema.extend({
+      features: z.array(
+        z.object({
+          name: z.enum(["hyperKey", "shortcutManager"]),
+          isFeatureEnabled: z.boolean(),
+          enableFeatureOnStartup: z.boolean(),
+          config: z.any(),
+        })
+      ),
+    }),
+    migrate: (state: AppState) => {
+      console.log("[Store] Migrating state to version 0.2.0");
+      return produce(state, (draft) => {
+        // Migrate shortcut manager shortcuts to use new trigger format
+        draft.features?.forEach((feature) => {
+          if (feature.name === "shortcutManager") {
+            const config = feature.config as any;
+            if (config?.shortcuts) {
+              config.shortcuts = config.shortcuts.map((shortcut: any) => {
+                if ("triggerKey" in shortcut) {
+                  // Get HyperKey config to include its modifiers
+                  const hyperKey = draft.features?.find(
+                    (f) => f.name === "hyperKey"
+                  )?.config;
+                  const keys = [
+                    ...(hyperKey?.modifiers || []),
+                    shortcut.triggerKey,
+                  ].filter(Boolean);
+
+                  // Convert old triggerKey to new trigger format
+                  const newShortcut = {
+                    ...shortcut,
+                    trigger: {
+                      steps: [
+                        {
+                          type: "combo" as const,
+                          keys,
+                          timeWindow: 200,
+                        },
+                      ],
+                      totalTimeWindow: 500,
+                    },
+                  };
+                  delete newShortcut.triggerKey;
+                  return newShortcut;
+                }
+                return shortcut;
+              });
+            }
+          }
+        });
+      });
+    },
+  },
 ];
 
 interface VersionedState {

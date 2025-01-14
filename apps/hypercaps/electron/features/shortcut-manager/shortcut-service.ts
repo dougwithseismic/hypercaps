@@ -1,262 +1,268 @@
-import { EventEmitter } from "events";
-import { BrowserWindow } from "electron";
-import { spawn } from "child_process";
-import { v4 as uuidv4 } from "uuid";
 import { Store } from "../../services/store";
-import { MessageQueue } from "../../services/queue";
 import { IPCService } from "../../services/ipc";
-import type { Shortcut, ShortcutState } from "./types/shortcut";
-import type { HyperKeyFeatureConfig } from "../../services/types";
+import { KeyboardEvents } from "../hyperkeys/types/keyboard-ipc";
+import { AppState } from "../../services/store/types/app-state";
+import { exec } from "child_process";
+import { v4 as uuidv4 } from "uuid";
+import { InputBufferMatcher } from "./input-buffer-matcher";
+import {
+  Command,
+  ShortcutState,
+  KeyEvent,
+  CommandMatch,
+  Action,
+} from "./types/input-buffer";
 
-const ipc = IPCService.getInstance();
-
-export class ShortcutService extends EventEmitter {
+export class ShortcutService {
   private store: Store;
-  private queue: MessageQueue;
-  private state: ShortcutState = {
-    shortcuts: [],
-    isEnabled: true,
-  };
+  private ipc: IPCService;
+  private matcher: InputBufferMatcher;
+  private relevantKeys: Set<string>;
+  private lastExecutions: Map<string, number>;
 
   constructor() {
-    super();
     this.store = Store.getInstance();
-    this.queue = MessageQueue.getInstance();
-    this.setupQueueHandlers();
+    this.ipc = IPCService.getInstance();
+    this.matcher = new InputBufferMatcher(8, 1000); // 8 events, 1 second
+    this.relevantKeys = new Set<string>();
+    this.lastExecutions = new Map();
     this.setupIPCHandlers();
-
-    console.log("[ShortcutService] Initialized", ipc);
-  }
-
-  private setupQueueHandlers(): void {
-    this.queue.registerHandler("shortcut:execute", async (event) => {
-      console.log("[ShortcutService] Executing shortcut:", event);
-      await this.executeShortcut(event as unknown as Shortcut);
-    });
   }
 
   private setupIPCHandlers(): void {
-    ipc.registerService({
-      id: "shortcuts",
-      priority: 2,
-    });
-
-    // Listen for keyboard events
-    ipc.registerHandler(
-      "keyboard",
-      "keyPressed",
-      async (data: { pressedKeys: string[] }) => {
-        console.log("[ShortcutService] Handling key pressed event:", data);
-        await this.handleKeyboardEvent(data);
-      }
-    );
-
-    ipc.registerHandler("shortcuts", "addShortcut", async ({ shortcut }) => {
-      console.log("[ShortcutService] Adding shortcut:", shortcut);
-      const newShortcut: Shortcut = {
-        ...shortcut,
-        id: uuidv4(),
-      };
-      await this.store.update((draft) => {
-        const feature = draft.features.find(
-          (f) => f.name === "shortcutManager"
-        );
-        if (feature) {
-          (feature.config as ShortcutState).shortcuts.push(newShortcut);
-        }
-      });
-      return this.getState();
-    });
-
-    ipc.registerHandler("shortcuts", "removeShortcut", async ({ id }) => {
-      await this.store.update((draft) => {
-        const feature = draft.features.find(
-          (f) => f.name === "shortcutManager"
-        );
-        if (feature) {
-          const state = feature.config as ShortcutState;
-          state.shortcuts = state.shortcuts.filter((s) => s.id !== id);
-        }
-      });
-      return this.getState();
-    });
-
-    ipc.registerHandler(
-      "shortcuts",
-      "updateShortcut",
-      async ({ id, shortcut }) => {
-        await this.store.update((draft) => {
-          const feature = draft.features.find(
-            (f) => f.name === "shortcutManager"
-          );
-          if (feature) {
-            const state = feature.config as ShortcutState;
-            const index = state.shortcuts.findIndex((s) => s.id === id);
-            if (index !== -1) {
-              state.shortcuts[index] = {
-                ...state.shortcuts[index],
-                ...shortcut,
-              };
-            }
-          }
-        });
-        return this.getState();
-      }
-    );
-
-    ipc.registerHandler("shortcuts", "toggleEnabled", async ({ enabled }) => {
-      console.log("[ShortcutService] Toggling enabled:", enabled);
-      await this.store.update((draft) => {
-        const feature = draft.features.find(
-          (f) => f.name === "shortcutManager"
-        );
-        if (feature) {
-          (feature.config as ShortcutState).isEnabled = enabled;
-        }
-      });
-      return this.getState();
-    });
-
-    ipc.registerHandler("shortcuts", "getState", async () => {
-      return this.getState();
+    this.ipc.registerHandler("keyboard", "keyPressed", async (data) => {
+      const keyboardEvent = data as KeyboardEvents["keyPressed"];
+      await this.handleKeyboardEvent(keyboardEvent);
     });
   }
 
-  public async handleKeyboardEvent(data: {
-    pressedKeys: string[];
-  }): Promise<void> {
-    const state = await this.getState();
+  async initialize(): Promise<void> {
+    console.log("[ShortcutService] Initializing...");
 
-    if (!state.isEnabled) {
-      console.log("[ShortcutService] Service disabled, ignoring keys");
-      return;
-    }
-
-    console.log("[ShortcutService] Pressed keys:", data.pressedKeys);
-
-    // Get HyperKey config
-    const hyperKeyFeature = await this.store.getFeature("hyperKey");
-    if (!hyperKeyFeature?.config) {
-      console.log("[ShortcutService] No HyperKey config found");
-      return;
-    }
-
-    const hyperKeyConfig = hyperKeyFeature.config as HyperKeyFeatureConfig;
-    if (!hyperKeyConfig.isHyperKeyEnabled) {
-      console.log("[ShortcutService] HyperKey is disabled");
-      return;
-    }
-
-    console.log("[ShortcutService] HyperKey config:", hyperKeyConfig);
-
-    // Check if HyperKey trigger is pressed
-    if (!data.pressedKeys.includes(hyperKeyConfig.trigger)) {
-      console.log("[ShortcutService] HyperKey trigger not pressed");
-      return;
-    }
-
-    // Check if all modifiers are pressed
-    const allModifiersPressed = hyperKeyConfig.modifiers.every((modifier) =>
-      data.pressedKeys.includes(modifier)
-    );
-    if (!allModifiersPressed) {
-      console.log("[ShortcutService] Not all modifiers are pressed");
-      return;
-    }
-
-    console.log("[ShortcutService] HyperKey combination active!");
-
-    // Check each shortcut
-    for (const shortcut of state.shortcuts) {
-      if (!shortcut.enabled) continue;
-
-      // Check if trigger key is pressed
-      if (data.pressedKeys.includes(shortcut.triggerKey)) {
-        console.log("[ShortcutService] Executing shortcut:", shortcut);
-        await this.executeShortcut(shortcut);
-      }
-    }
-  }
-
-  private async executeShortcut(shortcut: Shortcut): Promise<void> {
     try {
-      if (shortcut.action.type === "launch") {
-        console.log(
-          "[ShortcutService] Launching program:",
-          shortcut.action.program
-        );
-        spawn(shortcut.action.program, [], { detached: true });
-      }
+      // Get current state
+      const feature = await this.store.getFeature("shortcutManager");
 
-      ipc.emit({
-        service: "shortcuts",
-        event: "shortcutTriggered",
-        data: {
-          shortcut,
-          timestamp: Date.now(),
-        },
-      });
-    } catch (error) {
-      console.error("[ShortcutService] Error executing shortcut:", error);
-    }
-  }
-
-  private getState(): ShortcutState {
-    const feature = this.store
-      .getState()
-      .features.find((f) => f.name === "shortcutManager");
-    return (feature?.config as ShortcutState) || this.state;
-  }
-
-  public async initialize(): Promise<void> {
-    try {
-      // Initialize the feature in the store if it doesn't exist
-      await this.store.update((draft) => {
-        const feature = draft.features.find(
-          (f) => f.name === "shortcutManager"
-        );
-        if (!feature) {
-          console.log("[ShortcutService] Creating shortcut manager feature");
+      // Initialize feature in store if it doesn't exist
+      if (!feature) {
+        await this.store.update((draft: AppState) => {
           draft.features.push({
             name: "shortcutManager",
             isFeatureEnabled: true,
             enableFeatureOnStartup: true,
             config: {
-              shortcuts: [],
               isEnabled: true,
+              shortcuts: [],
             },
           });
-        }
-      });
+        });
+      }
 
-      // Add test shortcut if none exist
-      const state = this.getState();
-      if (!state.shortcuts || state.shortcuts.length === 0) {
-        console.log("[ShortcutService] Adding test Notepad shortcut");
-        await this.store.update((draft) => {
-          const feature = draft.features.find(
-            (f) => f.name === "shortcutManager"
-          );
-          if (feature) {
-            (feature.config as ShortcutState).shortcuts = [
-              {
-                id: uuidv4(),
-                name: "Test Notepad",
-                triggerKey: "N",
-                action: {
-                  type: "launch",
-                  program: "notepad.exe",
-                },
-                enabled: true,
-              },
-            ];
+      // Initialize relevant keys from existing shortcuts
+      const state = (await this.store.getFeature("shortcutManager"))
+        ?.config as ShortcutState;
+      if (state?.shortcuts) {
+        state.shortcuts.forEach((shortcut) => {
+          if (shortcut.enabled) {
+            this.addRelevantKeys(shortcut.pattern.sequence);
           }
         });
       }
 
-      console.log("[ShortcutService] Initialized with state:", this.getState());
+      console.log("[ShortcutService] Initialized with state:", state);
     } catch (error) {
-      console.error("[ShortcutService] Error initializing:", error);
+      console.error("[ShortcutService] Initialization error:", error);
     }
+  }
+
+  private async handleKeyboardEvent(
+    data: KeyboardEvents["keyPressed"]
+  ): Promise<void> {
+    const state = (await this.store.getFeature("shortcutManager"))
+      ?.config as ShortcutState;
+    if (!state?.isEnabled) return;
+
+    const pressedKeys = new Set(data.pressedKeys);
+    console.log(
+      "[ShortcutService] Handling key event:",
+      Array.from(pressedKeys),
+      "at",
+      data.timestamp
+    );
+
+    // Skip if no keys are pressed
+    if (pressedKeys.size === 0) return;
+
+    // Add events to buffer
+    for (const key of pressedKeys) {
+      const event: KeyEvent = {
+        key,
+        type: "press",
+        timestamp: data.timestamp,
+      };
+      this.matcher.addEvent(event);
+    }
+
+    // Find and execute matches
+    const enabledShortcuts = state.shortcuts.filter((s) => s.enabled);
+    const matches = this.matcher.findMatches(enabledShortcuts, data.timestamp);
+
+    // Execute matched shortcuts
+    for (const match of matches) {
+      await this.executeShortcut(match);
+    }
+  }
+
+  private async executeShortcut(match: CommandMatch): Promise<void> {
+    const now = Date.now();
+    const lastExecution = this.lastExecutions.get(match.command.id) || 0;
+    const cooldown = match.command.cooldown || 500; // Default 500ms cooldown
+
+    if (now - lastExecution < cooldown) {
+      console.log(
+        `[ShortcutService] Skipping execution of ${match.command.name} - in cooldown`
+      );
+      return;
+    }
+
+    console.log(`[ShortcutService] Executing shortcut: ${match.command.name}`);
+    this.lastExecutions.set(match.command.id, now);
+
+    try {
+      if (match.command.action.type === "launch") {
+        exec(match.command.action.program, (error) => {
+          if (error) {
+            console.error(
+              `[ShortcutService] Error executing shortcut: ${error}`
+            );
+          }
+        });
+      } else if (match.command.action.type === "command") {
+        exec(match.command.action.command, (error) => {
+          if (error) {
+            console.error(
+              `[ShortcutService] Error executing command: ${error}`
+            );
+          }
+        });
+      }
+    } catch (error) {
+      console.error("[ShortcutService] Error executing shortcut:", error);
+    }
+  }
+
+  private addRelevantKeys(sequence: (string | { keys: string[] })[]): void {
+    sequence.forEach((item) => {
+      if (typeof item === "string") {
+        this.relevantKeys.add(item);
+      } else {
+        item.keys.forEach((key) => this.relevantKeys.add(key));
+      }
+    });
+  }
+
+  private removeRelevantKeys(
+    sequence: (string | { keys: string[] })[],
+    id: string,
+    shortcuts: Command[]
+  ): void {
+    const allKeys = sequence.flatMap((item) =>
+      typeof item === "string" ? [item] : item.keys
+    );
+
+    allKeys.forEach((key) => {
+      let isUsedElsewhere = false;
+      for (const other of shortcuts) {
+        if (other.id !== id && other.enabled) {
+          const otherKeys = other.pattern.sequence.flatMap((seq) =>
+            typeof seq === "string" ? [seq] : seq.keys
+          );
+          if (otherKeys.includes(key)) {
+            isUsedElsewhere = true;
+            break;
+          }
+        }
+      }
+      if (!isUsedElsewhere) {
+        this.relevantKeys.delete(key);
+      }
+    });
+  }
+
+  async addShortcut(command: Omit<Command, "id">): Promise<void> {
+    const newShortcut: Command = {
+      ...command,
+      id: uuidv4(),
+    };
+
+    await this.store.update((draft: AppState) => {
+      const feature = draft.features.find((f) => f.name === "shortcutManager");
+      if (feature) {
+        (feature.config as ShortcutState).shortcuts.push(newShortcut);
+      }
+    });
+
+    if (newShortcut.enabled) {
+      this.addRelevantKeys(newShortcut.pattern.sequence);
+    }
+  }
+
+  async removeShortcut(id: string): Promise<void> {
+    const state = (await this.store.getFeature("shortcutManager"))
+      ?.config as ShortcutState;
+    const shortcut = state.shortcuts.find((s) => s.id === id);
+
+    if (shortcut) {
+      this.removeRelevantKeys(shortcut.pattern.sequence, id, state.shortcuts);
+    }
+
+    await this.store.update((draft: AppState) => {
+      const feature = draft.features.find((f) => f.name === "shortcutManager");
+      if (feature) {
+        const state = feature.config as ShortcutState;
+        state.shortcuts = state.shortcuts.filter((s) => s.id !== id);
+      }
+    });
+  }
+
+  async updateShortcut(id: string, update: Partial<Command>): Promise<void> {
+    await this.store.update((draft: AppState) => {
+      const feature = draft.features.find((f) => f.name === "shortcutManager");
+      if (feature) {
+        const state = feature.config as ShortcutState;
+        const index = state.shortcuts.findIndex((s) => s.id === id);
+        if (index !== -1) {
+          const oldShortcut = state.shortcuts[index];
+          state.shortcuts[index] = { ...oldShortcut, ...update };
+
+          // Update relevant keys if pattern or enabled state changed
+          if (update.pattern || update.enabled !== undefined) {
+            // Remove old keys
+            this.removeRelevantKeys(
+              oldShortcut.pattern.sequence,
+              id,
+              state.shortcuts
+            );
+
+            // Add new keys
+            const updatedShortcut = state.shortcuts[index];
+            if (updatedShortcut.enabled) {
+              this.addRelevantKeys(updatedShortcut.pattern.sequence);
+            }
+          }
+        }
+      }
+    });
+  }
+
+  async toggleEnabled(): Promise<void> {
+    await this.store.update((draft: AppState) => {
+      const feature = draft.features.find((f) => f.name === "shortcutManager");
+      if (feature) {
+        (feature.config as ShortcutState).isEnabled = !(
+          feature.config as ShortcutState
+        ).isEnabled;
+      }
+    });
   }
 }

@@ -90,7 +90,59 @@ public static class KeyboardMonitor {
         }
     }
 
+    private class BufferedKeyEvent {
+        public Keys Key { get; set; }
+        public bool IsDown { get; set; }
+        public long Timestamp { get; set; }
+
+        public BufferedKeyEvent(Keys key, bool isDown, long timestamp) {
+            Key = key;
+            IsDown = isDown;
+            Timestamp = timestamp;
+        }
+    }
+
     private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
+    private static Queue<BufferedKeyEvent> keyBuffer = new Queue<BufferedKeyEvent>();
+    private static long KEY_BUFFER_WINDOW = 50; // 50ms window to collect simultaneous presses
+    private static System.Timers.Timer bufferTimer;
+
+    static KeyboardMonitor() {
+        bufferTimer = new System.Timers.Timer(KEY_BUFFER_WINDOW);
+        bufferTimer.Elapsed += (s, e) => FlushKeyBuffer();
+        bufferTimer.AutoReset = false;
+    }
+
+    private static void FlushKeyBuffer() {
+        bool stateChanged = false;
+        var pressEvents = new List<Keys>();
+        var releaseEvents = new List<Keys>();
+
+        while (keyBuffer.Count > 0) {
+            var evt = keyBuffer.Dequeue();
+            if (evt.IsDown) {
+                if (!pressedKeys.Contains(evt.Key)) {
+                    pressedKeys.Add(evt.Key);
+                    pressEvents.Add(evt.Key);
+                    stateChanged = true;
+                }
+            } else {
+                if (pressedKeys.Remove(evt.Key)) {
+                    releaseEvents.Add(evt.Key);
+                    stateChanged = true;
+                }
+            }
+        }
+
+        if (stateChanged) {
+            // Log the grouped events if debug is enabled
+            if (IsDebugEnabled && (pressEvents.Count > 0 || releaseEvents.Count > 0)) {
+                Console.WriteLine(string.Format("[DEBUG] Flushing buffer - Pressed: {0}, Released: {1}",
+                    string.Join(",", pressEvents), string.Join(",", releaseEvents)));
+            }
+            UpdateModifierState(true); // Force update when flushing buffer
+        }
+    }
 
     // Track last sent state for deduplication
     private static string lastSentState = "";
@@ -117,11 +169,23 @@ public static class KeyboardMonitor {
     }
 
     public static void AddPressedKey(Keys key) {
-        pressedKeys.Add(key);
+        keyBuffer.Enqueue(new BufferedKeyEvent(
+            key, 
+            true, 
+            DateTimeOffset.Now.ToUnixTimeMilliseconds()
+        ));
+        bufferTimer.Stop();
+        bufferTimer.Start();
     }
 
     public static void RemovePressedKey(Keys key) {
-        pressedKeys.Remove(key);
+        keyBuffer.Enqueue(new BufferedKeyEvent(
+            key, 
+            false, 
+            DateTimeOffset.Now.ToUnixTimeMilliseconds()
+        ));
+        bufferTimer.Stop();
+        bufferTimer.Start();
     }
 
     public enum CapsLockBehavior {
@@ -161,6 +225,7 @@ public static class KeyboardMonitor {
     private static void UpdateState() {
         if (!IsEnabled) {
             pressedKeys.Clear();
+            keyBuffer.Clear();
             lastSentState = "";
             if (IsDebugEnabled) {
                 Console.WriteLine("[DEBUG] Service disabled, cleared state");
@@ -185,6 +250,16 @@ public static class KeyboardMonitor {
     }
 
     public static void UpdateModifierState(bool forceUpdate = false) {
+        if (!IsEnabled) {
+            pressedKeys.Clear();
+            keyBuffer.Clear();
+            lastSentState = "";
+            if (IsDebugEnabled) {
+                Console.WriteLine("[DEBUG] Service disabled, cleared state");
+            }
+            return;
+        }
+
         // Convert HashSet to array directly
         var keys = KeyboardMonitor.GetPressedKeys().ToArray();
         var keyNames = new string[keys.Length];
@@ -199,7 +274,7 @@ public static class KeyboardMonitor {
         // Send immediately if it's a force update (key-up) or if enough time has passed
         if (forceUpdate || 
             (json != KeyboardMonitor.lastSentState && 
-             (DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastUpdateTime) > 50)) {
+             (DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastUpdateTime) > KEY_BUFFER_WINDOW)) {
             KeyboardMonitor.lastSentState = json;
             lastUpdateTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             Console.WriteLine(json);
