@@ -1,5 +1,5 @@
 {
-  "version": "0.0.1",
+  "version": "0.2.0",
   "state": {
     "settings": {
       "startupOnBoot": false,
@@ -19,8 +19,8 @@
       },
       {
         "name": "shortcutManager",
-        "isFeatureEnabled": false,
-        "enableFeatureOnStartup": false,
+        "isFeatureEnabled": true,
+        "enableFeatureOnStartup": true,
         "config": {
           "isEnabled": true,
           "shortcuts": [
@@ -32,7 +32,49 @@
               "enabled": true,
               "id": "915b42fb-4890-4c40-9ad1-5b5bb21d7a2e",
               "name": "Open Notepad",
-              "triggerKey": "N"
+              "trigger": {
+                "steps": [
+                  {
+                    "keys": [
+                      "LShiftKey",
+                      "LControlKey",
+                      "N"
+                    ],
+                    "timeWindow": 200,
+                    "type": "combo"
+                  }
+                ],
+                "totalTimeWindow": 500
+              }
+            },
+            {
+              "action": {
+                "program": "notepad.exe",
+                "type": "launch"
+              },
+              "enabled": true,
+              "id": "2f7b42fb-4890-4c40-9ad1-5b5bb21d7a2f",
+              "name": "Double-tap H Test",
+              "trigger": {
+                "defaultBuffer": {
+                  "tapWindow": 300,
+                  "window": 500
+                },
+                "steps": [
+                  {
+                    "buffer": {
+                      "tapCount": 2,
+                      "tapWindow": 1000,
+                      "window": 1000
+                    },
+                    "keys": [
+                      "H"
+                    ],
+                    "type": "single"
+                  }
+                ],
+                "totalTimeWindow": 1000
+              }
             }
           ]
         }

@@ -199,7 +199,7 @@ public static class KeyboardMonitor {
         // Send immediately if it's a force update (key-up) or if enough time has passed
         if (forceUpdate || 
             (json != KeyboardMonitor.lastSentState && 
-             (DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastUpdateTime) > 50)) {
+             (DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastUpdateTime) > 16)) {
             KeyboardMonitor.lastSentState = json;
             lastUpdateTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             Console.WriteLine(json);
