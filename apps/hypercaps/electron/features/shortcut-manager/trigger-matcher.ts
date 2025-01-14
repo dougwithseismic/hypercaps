@@ -1,143 +1,100 @@
-import {
-  TriggerState,
-  TriggerStep,
-  ShortcutTrigger,
-  BufferConfig,
-} from "./types/shortcut";
-import { KeyBuffer } from "./types/key-buffer";
+import { InputBufferMatcher } from "./input-buffer-matcher";
+import { Command, CommandMatch, InputFrame } from "./types/input-buffer";
+import { TriggerStep, TriggerStepType } from "./types/shortcut";
 
 export class TriggerMatcher {
-  private state: TriggerState;
-  private trigger: ShortcutTrigger;
+  private inputBuffer: InputBufferMatcher;
+  private lastMatchTime = 0;
+  private readonly maxAge: number;
 
-  constructor(trigger: ShortcutTrigger) {
-    this.trigger = trigger;
-    this.resetState(Date.now());
-  }
-
-  private resetState(timestamp: number): void {
-    this.state = {
-      currentStep: 0,
-      stepStartTime: timestamp,
-      sequenceStartTime: timestamp,
-      pressedKeys: new Set<string>(),
-      completedSteps: new Array(this.trigger.steps.length).fill(false),
-    };
-  }
-
-  private isStepTimedOut(step: TriggerStep, timestamp: number): boolean {
-    if (!step.timeWindow) return false;
-    return timestamp - this.state.stepStartTime > step.timeWindow;
-  }
-
-  private isSequenceTimedOut(timestamp: number): boolean {
-    if (!this.trigger.totalTimeWindow) return false;
-    return (
-      timestamp - this.state.sequenceStartTime > this.trigger.totalTimeWindow
+  constructor(maxSize: number, maxAge: number) {
+    this.inputBuffer = new InputBufferMatcher(maxSize, maxAge);
+    this.maxAge = maxAge;
+    console.log(
+      `[TriggerMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
     );
   }
 
-  private isComboMatched(step: TriggerStep): boolean {
-    return step.keys.every((key) => this.state.pressedKeys.has(key));
+  public addFrame(frame: InputFrame): void {
+    console.log(
+      `[TriggerMatcher] Adding frame with ${frame.justPressed.size} pressed, ${frame.heldKeys.size} held, ${frame.justReleased.size} released keys`
+    );
+    this.inputBuffer.addFrame(frame);
   }
 
-  private isSingleMatched(
-    step: TriggerStep,
-    buffers: Map<string, KeyBuffer>
-  ): boolean {
-    // For single key steps, check if any of the expected keys has a completed buffer
-    return step.keys.some((key) => {
-      const buffer = buffers.get(key);
-      const bufferConfig = this.getStepBuffer(step);
-      return buffer && buffer.tapCount >= (bufferConfig.tapCount || 1);
+  public findMatches(commands: Command[]): CommandMatch[] {
+    return this.inputBuffer.findMatches(commands);
+  }
+
+  public isStepMatched(step: TriggerStep, frame: InputFrame): boolean {
+    console.log(`[TriggerMatcher] Checking step match:`, {
+      type: step.type,
+      keys: step.keys,
+      holdTime: step.holdTime,
+      window: step.window,
     });
-  }
 
-  public getStepBuffer(step: TriggerStep): BufferConfig {
-    return {
-      window: step.buffer?.window ?? this.trigger.defaultBuffer?.window ?? 200,
-      tapCount:
-        step.buffer?.tapCount ?? this.trigger.defaultBuffer?.tapCount ?? 1,
-      tapWindow:
-        step.buffer?.tapWindow ?? this.trigger.defaultBuffer?.tapWindow ?? 100,
-      holdTime: step.buffer?.holdTime ?? this.trigger.defaultBuffer?.holdTime,
-    };
-  }
+    switch (step.type) {
+      case "hold":
+        // For hold steps, check if all keys are held and meet the hold duration
+        if (!step.holdTime) {
+          console.log(`[TriggerMatcher] Hold step missing holdTime`);
+          return false;
+        }
 
-  private isStepMatched(
-    step: TriggerStep,
-    buffers: Map<string, KeyBuffer>
-  ): boolean {
-    if (step.type === "combo") {
-      return this.isComboMatched(step);
-    } else {
-      return this.isSingleMatched(step, buffers);
-    }
-  }
+        // All keys must be either held or just pressed
+        if (
+          !step.keys.every(
+            (key) => frame.heldKeys.has(key) || frame.justPressed.has(key)
+          )
+        ) {
+          console.log(`[TriggerMatcher] Not all keys are held/pressed`);
+          return false;
+        }
 
-  public updateState(
-    pressedKeys: Set<string>,
-    buffers: Map<string, KeyBuffer>,
-    timestamp: number
-  ): boolean {
-    // Check for timeouts
-    if (this.isSequenceTimedOut(timestamp)) {
-      this.resetState(timestamp);
-      return false;
-    }
-
-    const currentStep = this.trigger.steps[this.state.currentStep];
-    if (this.isStepTimedOut(currentStep, timestamp)) {
-      this.resetState(timestamp);
-      return false;
-    }
-
-    // Update pressed keys
-    this.state.pressedKeys = pressedKeys;
-
-    // Check if current step is matched
-    if (this.isStepMatched(currentStep, buffers)) {
-      this.state.completedSteps[this.state.currentStep] = true;
-
-      // Move to next step
-      if (this.state.currentStep < this.trigger.steps.length - 1) {
-        this.state.currentStep++;
-        this.state.stepStartTime = timestamp;
-        return false;
-      }
-
-      // All steps completed
-      const completed = this.state.completedSteps.every((step) => step);
-      if (completed) {
-        this.resetState(timestamp);
+        // Check hold durations for each key
+        for (const key of step.keys) {
+          const duration = frame.holdDurations.get(key) || 0;
+          console.log(
+            `[TriggerMatcher] Key ${key} hold duration: ${duration}ms, required: ${step.holdTime}ms`
+          );
+          if (duration < step.holdTime) {
+            return false;
+          }
+        }
         return true;
-      }
+
+      case "combo":
+        // For combo steps, we just care that all keys are active in this frame
+        // They can be either just pressed or held
+        const allKeysActive = step.keys.every(
+          (key) => frame.justPressed.has(key) || frame.heldKeys.has(key)
+        );
+
+        console.log(`[TriggerMatcher] Combo step check:`, {
+          allKeysActive,
+          justPressed: Array.from(frame.justPressed),
+          heldKeys: Array.from(frame.heldKeys),
+        });
+
+        return allKeysActive;
+
+      case "single":
+        // For single steps, at least one key must be just pressed
+        const isPressed = step.keys.some((key) => frame.justPressed.has(key));
+        console.log(
+          `[TriggerMatcher] Single step check: isPressed=${isPressed}`
+        );
+        return isPressed;
+
+      default:
+        console.log(`[TriggerMatcher] Unknown step type: ${step.type}`);
+        return false;
     }
-
-    return false;
   }
 
-  public getCurrentProgress(): {
-    currentStep: number;
-    totalSteps: number;
-    completedSteps: boolean[];
-  } {
-    return {
-      currentStep: this.state.currentStep,
-      totalSteps: this.trigger.steps.length,
-      completedSteps: [...this.state.completedSteps],
-    };
-  }
-
-  public getRequiredKeys(): Set<string> {
-    const keys = new Set<string>();
-    this.trigger.steps.forEach((step) => {
-      step.keys.forEach((key) => keys.add(key));
-    });
-    return keys;
-  }
-
-  public getStepForKey(key: string): TriggerStep | null {
-    return this.trigger.steps.find((step) => step.keys.includes(key)) || null;
+  public reset(): void {
+    console.log("[TriggerMatcher] Resetting state");
+    this.lastMatchTime = 0;
   }
 }

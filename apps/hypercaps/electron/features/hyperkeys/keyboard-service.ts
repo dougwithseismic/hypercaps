@@ -20,14 +20,23 @@ import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import path from "path";
 import { Store } from "@electron/services/store";
-import { MessageQueue } from "@electron/services/queue";
 import { ipc } from "@electron/services/ipc";
 import { HyperKeyFeatureConfig } from "./types/hyperkey-feature";
-import { KeyboardService as KeyboardServiceType } from "./types/keyboard-ipc";
+import { Shortcut, TriggerStep } from "../shortcut-manager/types/shortcut";
 
 interface KeyboardState {
-  pressedKeys: string[];
+  frame: number;
   timestamp: number;
+  event: {
+    type: "keydown" | "keyup";
+    key: string;
+  };
+  state: {
+    justPressed: string[];
+    held: string[];
+    justReleased: string[];
+    holdDurations: { [key: string]: number };
+  };
 }
 
 interface ServiceState {
@@ -46,7 +55,6 @@ export class KeyboardService extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
   private keyboardProcess: ChildProcess | null = null;
   private store: Store;
-  private queue: MessageQueue;
   private startupTimeout: NodeJS.Timeout | null = null;
   private state: ServiceState = {
     isListening: false,
@@ -58,22 +66,19 @@ export class KeyboardService extends EventEmitter {
   constructor() {
     super();
     this.store = Store.getInstance();
-    this.queue = MessageQueue.getInstance();
-    this.setupQueueHandlers();
     this.setupIPCHandlers();
   }
 
-  /**
-   * Set up IPC service handlers
-   */
+  public setMainWindow(window: BrowserWindow): void {
+    this.mainWindow = window;
+  }
+
   private setupIPCHandlers(): void {
-    // Register keyboard service
     ipc.registerService({
       id: "keyboard",
-      priority: 1, // High priority for keyboard events
+      priority: 1,
     });
 
-    // Register command handlers
     ipc.registerHandler("keyboard", "start", async () => {
       await this.startListening();
       return this.getState();
@@ -87,7 +92,7 @@ export class KeyboardService extends EventEmitter {
     ipc.registerHandler(
       "keyboard",
       "restart",
-      async (params: KeyboardServiceType["commands"]["restart"]) => {
+      async (params: { config: HyperKeyFeatureConfig }) => {
         await this.restartWithConfig(params.config);
         return this.getState();
       }
@@ -98,60 +103,23 @@ export class KeyboardService extends EventEmitter {
     });
   }
 
-  private setupQueueHandlers(): void {
-    this.queue.registerHandler("setState", async (message) => {
-      console.log("[KeyboardService] Handling setState:", message.payload);
-      const updates = message.payload as Partial<ServiceState>;
-      this.state = { ...this.state, ...updates };
-      this.mainWindow?.webContents.send("keyboard-service-state", {
-        ...this.state,
-        isRunning: this.isRunning(),
-      });
-      console.log("[KeyboardService] Emitting state changed event:", {
-        ...this.state,
-        isRunning: this.isRunning(),
-      });
-      ipc.emit({
-        service: "keyboard",
-        event: "stateChanged",
-        data: {
-          ...this.state,
-          isRunning: this.isRunning(),
-        },
-      });
-      this.emit("state-change", this.state);
-    });
-
-    this.queue.registerHandler("keyboardEvent", async (message) => {
-      // console.log(
-      //   "[KeyboardService] Handling keyboard event:",
-      //   message.payload
-      // );
-      this.mainWindow?.webContents.send("keyboard-event", message.payload);
-      // console.log(
-      //   "[KeyboardService] Emitting keyPressed event:",
-      //   message.payload
-      // );
-      ipc.emit({
-        service: "keyboard",
-        event: "keyPressed",
-        data: message.payload,
-      });
-    });
-
-    this.queue.on("message:failed", (message) => {
-      console.error(`[KeyboardService] Message failed:`, message);
-      if (message.type === "setState") {
-        dialog.showErrorBox(
-          "Keyboard Service Error",
-          `Failed to update service state: ${message.error?.message}`
-        );
-      }
-    });
-  }
-
   private setState(updates: Partial<ServiceState>): void {
-    this.queue.enqueue("setState", updates, 1);
+    this.state = { ...this.state, ...updates };
+
+    // Emit state change
+    this.mainWindow?.webContents.send("keyboard-service-state", {
+      ...this.state,
+      isRunning: this.isRunning(),
+    });
+
+    ipc.emit({
+      service: "keyboard",
+      event: "stateChanged",
+      data: {
+        ...this.state,
+        isRunning: this.isRunning(),
+      },
+    });
   }
 
   private getScriptPath(): string {
@@ -179,8 +147,6 @@ export class KeyboardService extends EventEmitter {
 
   public async init(): Promise<void> {
     await this.store.load();
-
-    // Get HyperKey feature state
     const hyperKey = await this.store.getFeature("hyperKey");
     console.log("[KeyboardService] HyperKey feature state:", hyperKey);
 
@@ -207,19 +173,64 @@ export class KeyboardService extends EventEmitter {
     }
   }
 
-  public setMainWindow(window: BrowserWindow): void {
-    this.mainWindow = window;
-  }
+  private handleKeyboardOutput = (data: Buffer) => {
+    try {
+      const lines = data.toString().split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
 
-  private async notifyStateUpdate(): Promise<void> {
-    const hyperKeyFeature = await this.store.getFeature("hyperKey");
-    if (hyperKeyFeature) {
-      this.mainWindow?.webContents.send("hyperkey-state", {
-        ...hyperKeyFeature.config,
-        enabled: hyperKeyFeature.isFeatureEnabled,
-      });
+        if (trimmed.startsWith("[DEBUG]")) {
+          // console.log("[KeyboardService]", trimmed);
+          continue;
+        }
+
+        try {
+          const state = JSON.parse(trimmed);
+          // Skip if not a frame event
+          if (!state.frame || !state.state) continue;
+
+          const keyboardState: KeyboardState = {
+            frame: state.frame,
+            timestamp: state.timestamp || Date.now(),
+            event: state.event,
+            state: {
+              justPressed: state.state.justPressed || [],
+              held: state.state.held || [],
+              justReleased: state.state.justReleased || [],
+              holdDurations: state.state.holdDurations || {},
+            },
+          };
+
+          // Log frame state for debugging
+          // console.log(`[KeyboardService] Frame ${keyboardState.frame}:`, {
+          //   event: keyboardState.event,
+          //   justPressed: keyboardState.state.justPressed,
+          //   held: keyboardState.state.held,
+          //   justReleased: keyboardState.state.justReleased,
+          //   holdDurations: keyboardState.state.holdDurations,
+          // });
+
+          // Send frame state directly to renderer and emit IPC event
+          this.mainWindow?.webContents.send("keyboard-frame", keyboardState);
+          ipc.emit({
+            service: "keyboard",
+            event: "frame",
+            data: keyboardState,
+          });
+        } catch (parseError) {
+          if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            console.error(
+              "[KeyboardService] Error parsing keyboard state:",
+              parseError
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[KeyboardService] Error handling keyboard output:", error);
     }
-  }
+  };
 
   public async startListening(): Promise<void> {
     console.log("[KeyboardService] startListening() called");
@@ -259,9 +270,30 @@ export class KeyboardService extends EventEmitter {
     try {
       const scriptPath = this.getScriptPath();
       const hyperKey = await this.store.getFeature("hyperKey");
+      const shortcutManager = await this.store.getFeature("shortcutManager");
 
       if (!hyperKey) {
         throw new Error("HyperKey feature not found");
+      }
+
+      // Calculate max buffer window from shortcuts
+      let maxBufferWindow = 3000; // Default 3 seconds
+      if (shortcutManager?.config?.shortcuts) {
+        const shortcuts = shortcutManager.config.shortcuts as Shortcut[];
+        maxBufferWindow = shortcuts.reduce((max, shortcut) => {
+          // Check trigger window
+          const triggerWindow = shortcut.trigger.totalTimeWindow || 0;
+          // Check hold times in sequence
+          const holdTimes =
+            shortcut.trigger.steps.reduce(
+              (maxHold: number, step: TriggerStep) => {
+                const holdTime = step.holdTime || 0;
+                return Math.max(maxHold, holdTime);
+              },
+              0
+            ) || 0;
+          return Math.max(max, triggerWindow, holdTimes);
+        }, maxBufferWindow);
       }
 
       const config = {
@@ -270,6 +302,7 @@ export class KeyboardService extends EventEmitter {
         trigger: hyperKey.config.trigger,
         modifiers: hyperKey.config.modifiers || [],
         capsLockBehavior: hyperKey.config.capsLockBehavior || "BlockToggle",
+        bufferWindow: maxBufferWindow,
       };
 
       const command = [
@@ -285,6 +318,7 @@ export class KeyboardService extends EventEmitter {
         `  trigger='${config.trigger}';`,
         `  modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(",") || "@()"});`,
         `  capsLockBehavior='${config.capsLockBehavior}';`,
+        `  bufferWindow=${config.bufferWindow};`,
         "};",
 
         // Debug output config
@@ -518,45 +552,14 @@ export class KeyboardService extends EventEmitter {
     console.log("[KeyboardService] Service stopped");
   }
 
-  private handleKeyboardOutput = (data: Buffer) => {
-    try {
-      const lines = data.toString().split("\n");
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+  public isRunning(): boolean {
+    return this.keyboardProcess !== null;
+  }
 
-        if (trimmed.startsWith("[DEBUG]")) {
-          console.log(trimmed);
-          continue;
-        }
-
-        try {
-          const state = JSON.parse(trimmed);
-          // console.log("[KeyboardService] Parsed keyboard state:", state);
-
-          const keyboardState: KeyboardState = {
-            pressedKeys: Array.isArray(state.pressedKeys)
-              ? state.pressedKeys
-              : [],
-            timestamp: Date.now(),
-          };
-
-          // console.log(
-          //   "[KeyboardService] Enqueueing keyboard event:",
-          //   keyboardState
-          // );
-          // Queue keyboard events instead of sending directly
-          this.queue.enqueue("keyboardEvent", keyboardState);
-        } catch (parseError) {
-          if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-            console.error("Error parsing keyboard state:", parseError);
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Error handling keyboard output:", error);
-    }
-  };
+  public dispose(): void {
+    this.stopListening();
+    this.mainWindow = null;
+  }
 
   public async restartWithConfig(config: HyperKeyFeatureConfig): Promise<void> {
     await this.store.update((draft) => {
@@ -575,14 +578,5 @@ export class KeyboardService extends EventEmitter {
 
     await this.stopListening();
     await this.startListening();
-  }
-
-  public isRunning(): boolean {
-    return this.keyboardProcess !== null;
-  }
-
-  public dispose(): void {
-    this.stopListening();
-    this.mainWindow = null;
   }
 }
