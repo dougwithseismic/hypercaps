@@ -1,5 +1,5 @@
 {
-  "version": "0.0.1",
+  "version": "0.2.0",
   "state": {
     "settings": {
       "startupOnBoot": false,
@@ -19,8 +19,8 @@
       },
       {
         "name": "shortcutManager",
-        "isFeatureEnabled": false,
-        "enableFeatureOnStartup": false,
+        "isFeatureEnabled": true,
+        "enableFeatureOnStartup": true,
         "config": {
           "isEnabled": true,
           "shortcuts": [
@@ -29,10 +29,54 @@
                 "program": "notepad.exe",
                 "type": "launch"
               },
+              "cooldown": 500,
               "enabled": true,
               "id": "915b42fb-4890-4c40-9ad1-5b5bb21d7a2e",
               "name": "Open Notepad",
-              "triggerKey": "N"
+              "pattern": {
+                "sequence": [
+                  {
+                    "keys": [
+                      "LShiftKey",
+                      "LControlKey",
+                      "N"
+                    ],
+                    "window": 200
+                  }
+                ],
+                "strict": true,
+                "window": 500
+              }
+            },
+            {
+              "action": {
+                "program": "notepad.exe",
+                "type": "launch"
+              },
+              "cooldown": 1000,
+              "enabled": true,
+              "id": "2f7b42fb-4890-4c40-9ad1-5b5bb21d7a2f",
+              "name": "Double H+G",
+              "pattern": {
+                "sequence": [
+                  {
+                    "keys": [
+                      "H",
+                      "G"
+                    ],
+                    "window": 200
+                  },
+                  {
+                    "keys": [
+                      "H",
+                      "G"
+                    ],
+                    "window": 200
+                  }
+                ],
+                "strict": true,
+                "window": 1000
+              }
             }
           ]
         }
