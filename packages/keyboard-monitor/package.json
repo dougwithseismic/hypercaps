@@ -1,0 +1,25 @@
+{
+  "dependencies": {
+    "bindings": "^1.5.0",
+    "node-addon-api": "^7.0.0"
+  },
+  "description": "Native keyboard monitoring module for HyperCaps",
+  "devDependencies": {
+    "@types/bindings": "^1.5.5",
+    "@types/node": "^20.0.0",
+    "node-gyp": "^10.0.0",
+    "rimraf": "^5.0.0",
+    "typescript": "^5.0.0"
+  },
+  "main": "lib/index.js",
+  "name": "@hypercaps/keyboard-monitor",
+  "private": true,
+  "scripts": {
+    "build": "node-gyp rebuild && tsc",
+    "clean": "node-gyp clean && rimraf lib",
+    "dev": "tsc --watch",
+    "install": "node-gyp rebuild"
+  },
+  "types": "lib/index.d.ts",
+  "version": "1.0.0"
+}
