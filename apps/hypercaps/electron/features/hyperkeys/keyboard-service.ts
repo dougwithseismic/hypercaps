@@ -158,12 +158,13 @@ export class KeyboardService extends EventEmitter {
 
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
     // Send frame state directly to renderer and emit IPC event
+    console.log('[KeyboardService] data SHITTTTj', data);
     const keyboardState: KeyboardState = {
       frame: data.frame,
       timestamp: data.timestamp,
       event: {
-        type: 'keydown',
-        key: String(data.state.justPressed[0] || ''), // Use first pressed key if available
+        type: data.event.type,
+        key: String(data.event.key), // Use first pressed key if available
       },
       state: {
         justPressed: data.state.justPressed.map(String),

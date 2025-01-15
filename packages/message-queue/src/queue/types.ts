@@ -1,4 +1,4 @@
-export interface QueuedMessage<T = any> {
+export interface QueuedMessage<T = unknown> {
   id: string;
   type: string;
   payload: T;
@@ -17,16 +17,16 @@ export interface MessageQueueOptions {
   timeout?: number;
 }
 
-export type MessageHandler<T = any> = (
+export type MessageHandler<T = unknown> = (
   message: QueuedMessage<T>
 ) => Promise<void>;
 
 export interface MessageQueueEvents {
-  'message:added': (message: QueuedMessage) => void;
-  'message:started': (message: QueuedMessage) => void;
-  'message:completed': (message: QueuedMessage) => void;
-  'message:failed': (message: QueuedMessage) => void;
-  'message:retrying': (message: QueuedMessage) => void;
+  'message:added': (message: QueuedMessage<unknown>) => void;
+  'message:started': (message: QueuedMessage<unknown>) => void;
+  'message:completed': (message: QueuedMessage<unknown>) => void;
+  'message:failed': (message: QueuedMessage<unknown>) => void;
+  'message:retrying': (message: QueuedMessage<unknown>) => void;
   'queue:empty': () => void;
   'queue:error': (error: Error) => void;
 }

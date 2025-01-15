@@ -1,5 +1,5 @@
 /** @type {import("eslint").Linter.Config} */
-export default {
+module.exports = {
   root: true,
   extends: ['@repo/eslint-config/base'],
   parser: '@typescript-eslint/parser',
@@ -7,4 +7,13 @@ export default {
     ecmaVersion: 'latest',
     sourceType: 'module',
   },
+  ignorePatterns: [
+    'node_modules/',
+    'dist/',
+    '*.md',
+    '*.mdx',
+    '*.json',
+    '.turbo',
+    'coverage',
+  ],
 };

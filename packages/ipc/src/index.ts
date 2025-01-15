@@ -23,14 +23,6 @@ declare global {
           callback: (data: TData) => void
         ) => () => void;
       };
-      getHyperKeyConfig: () => Promise<any>;
-      setHyperKeyConfig: (config: any) => Promise<void>;
-      getStartupSettings: () => Promise<any>;
-      setStartupOnBoot: (enabled: boolean) => Promise<void>;
-      setStartMinimized: (enabled: boolean) => Promise<void>;
-      getFullState: () => Promise<any>;
-      minimizeWindow: () => void;
-      closeWindow: () => void;
     };
   }
 }

@@ -7,7 +7,9 @@
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",
     "@types/node": "^20.5.2",
-    "typescript": "^5.1.6"
+    "eslint": "workspace:^9.18.0",
+    "typescript": "^5.1.6",
+    "typescript-eslint": "workspace:^8.15.0"
   },
   "main": "./dist/index.js",
   "name": "@hypercaps/message-queue",
@@ -15,7 +17,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "lint": "eslint",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
     "type-check": "tsc --noEmit"
   },
   "types": "./dist/index.d.ts",

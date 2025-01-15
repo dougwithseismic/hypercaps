@@ -18,14 +18,14 @@
  * @note This is NOT for persistent storage - use Store service for that
  */
 
-import { EventEmitter } from 'events';
-import crypto from 'crypto';
+import { EventEmitter } from "events";
+import crypto from "crypto";
 import {
   QueuedMessage,
   MessageQueueOptions,
   MessageHandler,
   MessageQueueEvents,
-} from './types';
+} from "./types";
 
 const DEFAULT_OPTIONS: Required<MessageQueueOptions> = {
   maxConcurrent: 1,
@@ -35,14 +35,14 @@ const DEFAULT_OPTIONS: Required<MessageQueueOptions> = {
 };
 
 function generateId(): string {
-  return crypto.randomBytes(16).toString('hex');
+  return crypto.randomBytes(16).toString("hex");
 }
 
 export class MessageQueue extends EventEmitter {
   private static instance: MessageQueue;
-  private messages: QueuedMessage[] = [];
+  private messages: QueuedMessage<unknown>[] = [];
   private processing: Set<string> = new Set();
-  private handlers: Map<string, MessageHandler> = new Map();
+  private handlers: Map<string, MessageHandler<unknown>> = new Map();
   private options: Required<MessageQueueOptions>;
   private timeouts: Map<string, NodeJS.Timeout> = new Map();
 
@@ -68,7 +68,7 @@ export class MessageQueue extends EventEmitter {
    * For persistent changes, handlers should delegate to Store service
    */
   public registerHandler<T>(type: string, handler: MessageHandler<T>): void {
-    this.handlers.set(type, handler as MessageHandler);
+    this.handlers.set(type, handler as MessageHandler<unknown>);
   }
 
   /**
@@ -82,7 +82,7 @@ export class MessageQueue extends EventEmitter {
   public async enqueue<T>(
     type: string,
     payload: T,
-    priority = 0
+    priority = 0,
   ): Promise<string> {
     const message: QueuedMessage<T> = {
       id: generateId(),
@@ -92,15 +92,15 @@ export class MessageQueue extends EventEmitter {
       priority,
       retries: 0,
       maxRetries: this.options.maxRetries,
-      status: 'pending',
+      status: "pending",
     };
 
     this.messages.push(message);
     this.messages.sort(
-      (a, b) => b.priority - a.priority || a.timestamp - b.timestamp
+      (a, b) => b.priority - a.priority || a.timestamp - b.timestamp,
     );
 
-    this.emit('message:added', message);
+    this.emit("message:added", message);
     this.processQueue();
 
     return message.id;
@@ -112,31 +112,35 @@ export class MessageQueue extends EventEmitter {
     }
 
     const pendingMessages = this.messages.filter(
-      (m) => m.status === 'pending' && !this.processing.has(m.id)
+      (m) => m.status === "pending" && !this.processing.has(m.id),
     );
 
     if (pendingMessages.length === 0) {
       if (this.processing.size === 0) {
-        this.emit('queue:empty');
+        this.emit("queue:empty");
       }
       return;
     }
 
     const message = pendingMessages[0];
+    if (!message) {
+      return;
+    }
+
     const handler = this.handlers.get(message.type);
 
     if (!handler) {
-      message.status = 'failed';
+      message.status = "failed";
       message.error = new Error(
-        `No handler registered for message type: ${message.type}`
+        `No handler registered for message type: ${message.type}`,
       );
-      this.emit('message:failed', message);
+      this.emit("message:failed", message);
       return;
     }
 
     this.processing.add(message.id);
-    message.status = 'processing';
-    this.emit('message:started', message);
+    message.status = "processing";
+    this.emit("message:started", message);
 
     // Set timeout
     const timeout = setTimeout(() => {
@@ -148,41 +152,44 @@ export class MessageQueue extends EventEmitter {
       await handler(message);
       this.handleSuccess(message);
     } catch (error) {
-      this.handleError(message, error as Error);
+      this.handleError(
+        message,
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
   }
 
-  private handleSuccess(message: QueuedMessage): void {
+  private handleSuccess(message: QueuedMessage<unknown>): void {
     this.clearTimeout(message.id);
     this.processing.delete(message.id);
-    message.status = 'completed';
-    this.emit('message:completed', message);
+    message.status = "completed";
+    this.emit("message:completed", message);
     this.messages = this.messages.filter((m) => m.id !== message.id);
     this.processQueue();
   }
 
-  private handleError(message: QueuedMessage, error: Error): void {
+  private handleError(message: QueuedMessage<unknown>, error: Error): void {
     this.clearTimeout(message.id);
     this.processing.delete(message.id);
     message.error = error;
 
     if (message.retries < message.maxRetries) {
       message.retries++;
-      message.status = 'pending';
-      this.emit('message:retrying', message);
+      message.status = "pending";
+      this.emit("message:retrying", message);
       setTimeout(() => this.processQueue(), this.options.retryDelay);
     } else {
-      message.status = 'failed';
-      this.emit('message:failed', message);
+      message.status = "failed";
+      this.emit("message:failed", message);
       this.messages = this.messages.filter((m) => m.id !== message.id);
       this.processQueue();
     }
   }
 
-  private handleTimeout(message: QueuedMessage): void {
+  private handleTimeout(message: QueuedMessage<unknown>): void {
     this.processing.delete(message.id);
     message.error = new Error(
-      `Message processing timed out after ${this.options.timeout}ms`
+      `Message processing timed out after ${this.options.timeout}ms`,
     );
     this.handleError(message, message.error);
   }
@@ -201,7 +208,7 @@ export class MessageQueue extends EventEmitter {
     total: number;
   } {
     return {
-      pending: this.messages.filter((m) => m.status === 'pending').length,
+      pending: this.messages.filter((m) => m.status === "pending").length,
       processing: this.processing.size,
       total: this.messages.length,
     };
@@ -213,16 +220,20 @@ export class MessageQueue extends EventEmitter {
     this.timeouts.forEach((timeout) => clearTimeout(timeout));
     this.timeouts.clear();
   }
-}
 
-// Type assertion for EventEmitter
-export interface MessageQueue {
-  on<K extends keyof MessageQueueEvents>(
+  public on<K extends keyof MessageQueueEvents>(
     event: K,
-    listener: MessageQueueEvents[K]
-  ): this;
-  emit<K extends keyof MessageQueueEvents>(
+    listener: MessageQueueEvents[K],
+  ): this {
+    return super.on(event, listener);
+  }
+
+  public emit<K extends keyof MessageQueueEvents>(
     event: K,
     ...args: Parameters<MessageQueueEvents[K]>
-  ): boolean;
+  ): boolean {
+    return super.emit(event, ...args);
+  }
 }
+
+export const messageQueue = MessageQueue.getInstance();

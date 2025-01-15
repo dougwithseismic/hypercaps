@@ -1,26 +1,18 @@
 {
-  "version": "0.2.0",
   "state": {
-    "settings": {
-      "startupOnBoot": false,
-      "startMinimized": false
-    },
     "features": [
       {
-        "name": "hyperKey",
-        "isFeatureEnabled": true,
-        "enableFeatureOnStartup": true,
         "config": {
           "capsLockBehavior": "BlockToggle",
           "isHyperKeyEnabled": true,
           "modifiers": [],
           "trigger": "Capital"
-        }
+        },
+        "enableFeatureOnStartup": true,
+        "isFeatureEnabled": true,
+        "name": "hyperKey"
       },
       {
-        "name": "shortcutManager",
-        "isFeatureEnabled": true,
-        "enableFeatureOnStartup": true,
         "config": {
           "isEnabled": true,
           "shortcuts": [
@@ -36,11 +28,7 @@
               "trigger": {
                 "steps": [
                   {
-                    "keys": [
-                      "LShiftKey",
-                      "LControlKey",
-                      "N"
-                    ],
+                    "keys": ["LShift", "LControl", "N"],
                     "type": "combo",
                     "window": 200
                   }
@@ -60,19 +48,13 @@
               "trigger": {
                 "steps": [
                   {
-                    "keys": [
-                      "H",
-                      "G"
-                    ],
+                    "keys": ["H", "G"],
                     "strict": true,
                     "type": "combo",
                     "window": 200
                   },
                   {
-                    "keys": [
-                      "H",
-                      "G"
-                    ],
+                    "keys": ["H", "G"],
                     "strict": true,
                     "type": "combo",
                     "window": 200
@@ -86,7 +68,7 @@
                 "program": "notepad.exe",
                 "type": "launch"
               },
-              "cooldown": 500,
+              "cooldown": 1000,
               "enabled": true,
               "id": "3f7b42fb-4890-4c40-9ad1-5b5bb21d7a2f",
               "name": "Hold Shift + A",
@@ -94,17 +76,12 @@
                 "steps": [
                   {
                     "holdTime": 2000,
-                    "keys": [
-                      "LShiftKey"
-                    ],
+                    "keys": ["LShift"],
                     "type": "hold",
                     "window": 1000
                   },
                   {
-                    "keys": [
-                      "LShiftKey",
-                      "A"
-                    ],
+                    "keys": ["LShift", "A"],
                     "type": "combo",
                     "window": 200
                   }
@@ -113,8 +90,16 @@
               }
             }
           ]
-        }
+        },
+        "enableFeatureOnStartup": true,
+        "isFeatureEnabled": true,
+        "name": "shortcutManager"
       }
-    ]
-  }
+    ],
+    "settings": {
+      "startMinimized": false,
+      "startupOnBoot": false
+    }
+  },
+  "version": "0.2.0"
 }
