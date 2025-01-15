@@ -309,25 +309,6 @@ Guidelines for Pattern Documentation:
 
 ### HyperCaps Mechanics
 
-#### Windows Key Monitoring Pattern
-
-Location: `apps/hypercaps/electron/scripts/keyboard-monitor.ps1`
-
-This pattern enables low-level keyboard monitoring in Windows:
-- Uses Windows API through P/Invoke in PowerShell
-- Implements a keyboard hook using `SetWindowsHookEx`
-- Maintains a `HashSet` of currently pressed keys
-- Outputs JSON-formatted state updates for IPC communication
-
-Key components:
-```csharp
-// Hook setup
-[DllImport("user32.dll")]
-SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
-
-// Key state tracking
-private static HashSet<Keys> pressedKeys = new HashSet<Keys>();
-```
 
 #### Electron IPC Pattern
 
@@ -389,7 +370,6 @@ interface KeyMapping {
 
 Important project paths:
 
-- PowerShell Script: `apps/hypercaps/electron/features/hyperkeys/scripts/keyboard-monitor.ps1`
 - Keyboard Service: `apps/hypercaps/electron/features/hyperkeys/services/keyboard.ts`
 - Main Process: `apps/hypercaps/electron/main.ts`
 - React Components: `apps/hypercaps/src/components/`
