@@ -2,6 +2,20 @@
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
+# Helper function for debug output
+function Write-Debug-Message {
+    param([string]$Message)
+    Write-Host "[DEBUG] $Message"
+}
+
+# Validate config
+if (-not (Get-Variable -Name Config -ErrorAction SilentlyContinue)) {
+    Write-Error "No config variable found"
+    exit 1
+}
+
+Write-Debug-Message "Starting keyboard monitor with config: $($Config | ConvertTo-Json)"
+
 try {
     Add-Type -TypeDefinition @"
 using System;
@@ -41,22 +55,136 @@ public class PollingKeyboardMonitor {
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(Keys vKey);
 
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    public const int KEYEVENTF_KEYDOWN = 0x0000;
+    public const int KEYEVENTF_KEYUP = 0x0002;
+    public const int KEYEVENTF_EXTENDEDKEY = 0x0001;
+
     private static InputBuffer inputBuffer;
     private static System.Timers.Timer pollTimer;
     private static HashSet<Keys> lastFrameKeys = new HashSet<Keys>();
+    public static bool IsDebugEnabled = false;
 
-    public static void Initialize(long bufferWindow = 3000) {
+    // HyperKey state
+    public static bool IsEnabled = false;
+    public static bool IsHyperKeyEnabled = false;
+    public static Keys HyperKeyTrigger = Keys.CapsLock;
+    public static List<Keys> ModifierKeys = new List<Keys>();
+    public static bool isHandlingSyntheticCapsLock = false;
+    public static CapsLockBehavior CapsLockHandling = CapsLockBehavior.BlockToggle;
+
+    public enum CapsLockBehavior {
+        None,           // Don't do anything special with CapsLock
+        DoublePress,    // Press CapsLock again to untoggle
+        BlockToggle     // Just block the CapsLock toggle completely
+    }
+
+    public static void Initialize(bool isEnabled, bool isHyperKeyEnabled, string trigger, string[] modifiers, string capsLockBehavior = "BlockToggle", long bufferWindow = 3000) {
+        if (IsDebugEnabled) {
+            Console.WriteLine(string.Format("[DEBUG] Configuring HyperKey - Previous State: IsEnabled={0}, IsHyperKeyEnabled={1}", 
+                IsEnabled, IsHyperKeyEnabled));
+        }
+
+        IsEnabled = isEnabled;
+        IsHyperKeyEnabled = isHyperKeyEnabled;
+        HyperKeyTrigger = (Keys)Enum.Parse(typeof(Keys), trigger, true);
+        CapsLockHandling = (CapsLockBehavior)Enum.Parse(typeof(CapsLockBehavior), capsLockBehavior, true);
+        
+        ModifierKeys.Clear();
+        foreach (var modifier in modifiers) {
+            ModifierKeys.Add((Keys)Enum.Parse(typeof(Keys), modifier, true));
+        }
+
         inputBuffer = new InputBuffer(bufferWindow);
         
         pollTimer = new System.Timers.Timer(8.33); // ~120Hz polling
         pollTimer.Elapsed += (sender, e) => PollKeyboardState();
         pollTimer.Start();
         
-        Console.WriteLine("[DEBUG] Polling keyboard monitor initialized");
+        if (IsDebugEnabled) {
+            Console.WriteLine(string.Format("[DEBUG] HyperKey Configured - New State: IsEnabled={0}, IsHyperKeyEnabled={1}, Trigger={2}, Modifiers={3}, BufferWindow={4}ms",
+                IsEnabled, IsHyperKeyEnabled, HyperKeyTrigger, string.Join(",", ModifierKeys), bufferWindow));
+        }
+    }
+
+    private static void ProcessKeyPress(Keys key) {
+        if (!IsEnabled) return;
+
+        var timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+        if (inputBuffer != null) {
+            inputBuffer.ProcessKeyEvent(key, true, timestamp);
+        }
+
+        if (IsHyperKeyEnabled && key == HyperKeyTrigger) {
+            if (key == Keys.CapsLock && !isHandlingSyntheticCapsLock) {
+                switch (CapsLockHandling) {
+                    case CapsLockBehavior.DoublePress:
+                        System.Threading.Thread.Sleep(1);
+                        SendKeyDown(Keys.CapsLock);
+                        SendKeyUp(Keys.CapsLock);
+                        SendHyperKeyDown();
+                        break;
+                    case CapsLockBehavior.BlockToggle:
+                        SendHyperKeyDown();
+                        break;
+                    case CapsLockBehavior.None:
+                        SendHyperKeyDown();
+                        break;
+                }
+            } else {
+                SendHyperKeyDown();
+            }
+        }
+    }
+
+    private static void ProcessKeyRelease(Keys key) {
+        if (!IsEnabled) return;
+
+        var timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+        if (inputBuffer != null) {
+            inputBuffer.ProcessKeyEvent(key, false, timestamp);
+        }
+
+        if (IsHyperKeyEnabled && key == HyperKeyTrigger) {
+            SendHyperKeyUp();
+        }
+    }
+
+    public static void SendKeyDown(Keys key, bool extended = false) {
+        if (key == Keys.CapsLock) {
+            isHandlingSyntheticCapsLock = true;
+        }
+        uint flags = (uint)(KEYEVENTF_KEYDOWN | (extended ? KEYEVENTF_EXTENDEDKEY : 0));
+        keybd_event((byte)key, 0, flags, UIntPtr.Zero);
+    }
+
+    public static void SendKeyUp(Keys key, bool extended = false) {
+        uint flags = (uint)(KEYEVENTF_KEYUP | (extended ? KEYEVENTF_EXTENDEDKEY : 0));
+        keybd_event((byte)key, 0, flags, UIntPtr.Zero);
+        if (key == Keys.CapsLock) {
+            isHandlingSyntheticCapsLock = false;
+        }
+    }
+
+    public static void SendHyperKeyDown() {
+        foreach (var key in ModifierKeys) {
+            SendKeyDown(key);
+        }
+    }
+
+    public static void SendHyperKeyUp() {
+        // Release in reverse order
+        for (int i = ModifierKeys.Count - 1; i >= 0; i--) {
+            SendKeyUp(ModifierKeys[i]);
+        }
     }
 
     private static void PollKeyboardState() {
         try {
+            if (!IsEnabled) return;
+
             var timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             var currentKeys = new HashSet<Keys>();
 
@@ -83,20 +211,22 @@ public class PollingKeyboardMonitor {
             var justReleased = lastFrameKeys.Except(currentKeys);
 
             foreach (var key in justPressed) {
-                inputBuffer.ProcessKeyEvent(key, true, timestamp);
+                ProcessKeyPress(key);
             }
             foreach (var key in justReleased) {
-                inputBuffer.ProcessKeyEvent(key, false, timestamp);
+                ProcessKeyRelease(key);
             }
 
-            if (currentKeys.Count > 0) {
+            if (currentKeys.Count > 0 && inputBuffer != null) {
                 inputBuffer.ForceFrameUpdate(timestamp);
             }
 
             lastFrameKeys = currentKeys;
         }
         catch (Exception ex) {
-            Console.WriteLine(string.Format("[ERROR] Polling error: {0}", ex.Message));
+            if (IsDebugEnabled) {
+                Console.WriteLine(string.Format("[ERROR] Polling error: {0}", ex.Message));
+            }
         }
     }
 
@@ -277,7 +407,7 @@ public class InputBuffer {
             frame.FrameNumber,
             frame.Timestamp,
             isDown ? "keydown" : "keyup",
-            triggerKey,
+            key,
             string.Join(",", quotedPressed),
             string.Join(",", quotedHeld),
             string.Join(",", quotedReleased),
@@ -295,21 +425,71 @@ public class InputBuffer {
 }
 "@ -ReferencedAssemblies System.Windows.Forms
 
-    # Initialize and run the polling monitor
-    [PollingKeyboardMonitor]::Initialize(3000)
-    
-    Write-Host "[DEBUG] Polling keyboard monitor started. Press Ctrl+C to exit."
-    
+    # Configure the hyperkey based on config
+    Write-Debug-Message "Configuring HyperKey with: isEnabled=$($Config.isEnabled), trigger=$($Config.trigger)"
+    Write-Debug-Message "Full config: $($Config | ConvertTo-Json -Depth 10)"
+
+    # Ensure modifiers is an array, even if empty
+    if ($null -eq $Config.modifiers) {
+        Write-Debug-Message "Modifiers is null, initializing empty array"
+        $Config.modifiers = @()
+    } elseif ($Config.modifiers -isnot [array]) {
+        Write-Debug-Message "Modifiers is not an array, converting from: $($Config.modifiers.GetType())"
+        $Config.modifiers = @($Config.modifiers)
+    }
+
+    Write-Debug-Message "Raw modifiers value: $($Config.modifiers | ConvertTo-Json -Depth 10)"
+
+    # Set default CapsLock behavior if not specified
+    $capsLockBehavior = if ($Config.capsLockBehavior) { $Config.capsLockBehavior } else { "BlockToggle" }
+    Write-Debug-Message "Using CapsLock behavior: $capsLockBehavior"
+
+    # Convert modifiers to string array and filter out empty/null values
+    $modifiersArray = @($Config.modifiers | Where-Object { $_ } | ForEach-Object { $_.ToString().Trim() })
+
+    Write-Debug-Message "Processed modifiers array: $($modifiersArray | ConvertTo-Json -Depth 10)"
+    Write-Debug-Message "Modifiers array type: $($modifiersArray.GetType())"
+    Write-Debug-Message "Modifiers array length: $($modifiersArray.Length)"
+
     try {
+        Write-Debug-Message "Attempting to configure HyperKey..."
+        Write-Debug-Message "Parameters: isEnabled=$($Config.isEnabled), isHyperKeyEnabled=$($Config.isHyperKeyEnabled), trigger=$($Config.trigger), modifiers=$($modifiersArray -join ','), capsLockBehavior=$capsLockBehavior"
+        
+        [PollingKeyboardMonitor]::IsDebugEnabled = $true
+        [PollingKeyboardMonitor]::Initialize(
+            [bool]$Config.isEnabled,
+            [bool]$Config.isHyperKeyEnabled,
+            [string]$Config.trigger,
+            [string[]]@($modifiersArray),
+            [string]$capsLockBehavior,
+            [long]$Config.bufferWindow
+        )
+        Write-Debug-Message "HyperKey configured successfully"
+    } catch {
+        Write-Debug-Message "Error configuring HyperKey: $_"
+        Write-Debug-Message "Error type: $($_.Exception.GetType())"
+        Write-Debug-Message "Stack trace: $($_.ScriptStackTrace)"
+        throw
+    }
+
+    Write-Debug-Message "HyperKey state after config: isEnabled=$([PollingKeyboardMonitor]::IsEnabled), trigger=$([PollingKeyboardMonitor]::HyperKeyTrigger), modifiers=$([string]::Join(',', [PollingKeyboardMonitor]::ModifierKeys))"
+
+    try {
+        Write-Host "[DEBUG] Polling keyboard monitor started. Press Ctrl+C to exit."
+        
         while ($true) {
             Start-Sleep -Seconds 1
         }
     }
     finally {
+        Write-Debug-Message "Starting cleanup process..."
         [PollingKeyboardMonitor]::Cleanup()
+        Write-Debug-Message "Keyboard monitor cleaned up"
+        Write-Debug-Message "Process terminating..."
     }
-}
-catch {
+} catch {
+    Write-Debug-Message "Fatal error occurred: $_"
+    Write-Debug-Message "Stack trace: $($_.ScriptStackTrace)"
     Write-Error "Error in polling keyboard monitor: $_"
     exit 1
 } 
