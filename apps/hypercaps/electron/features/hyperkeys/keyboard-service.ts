@@ -122,7 +122,6 @@ export class KeyboardService extends EventEmitter {
 
   private getScriptPath(): string {
     const scriptName = 'keyboard-monitor-polling.ps1';
-    // const scriptName = 'keyboard-monitor.ps1';
     const scriptSubPath = path.join(
       'electron',
       'features',
