@@ -151,12 +151,11 @@ const createWindow = async () => {
     }
   });
 
-  // Hide window instead of closing when user clicks X
+  // Hide window instead of closing when user clicks X, unless we're quitting
   mainWindow.on('close', (event) => {
     if (!(mainWindow as any).isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
-      return false;
     }
   });
 };

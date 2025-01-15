@@ -228,22 +228,68 @@ export class ShortcutService {
         return;
       }
 
+      // Use spawn instead of exec for better process handling
+      const { spawn } = require('child_process');
+      const isProduction = process.env.NODE_ENV === 'production';
+
       if (shortcut.action.type === 'launch') {
-        exec(shortcut.action.program || '', (error) => {
-          if (error) {
-            console.error(
-              `[ShortcutService] Error executing shortcut: ${error}`
-            );
-          }
-        });
+        console.log(
+          `[ShortcutService] Launching program: ${shortcut.action.program}`
+        );
+        const program = shortcut.action.program || '';
+
+        // In production, we need to use cmd.exe to launch programs
+        if (isProduction) {
+          const child = spawn('cmd.exe', ['/c', 'start', '', program], {
+            shell: true,
+            detached: true,
+            stdio: 'ignore',
+          });
+
+          child.on('error', (error: Error) => {
+            console.error(`[ShortcutService] Launch error: ${error.message}`);
+          });
+
+          child.unref();
+        } else {
+          // In development, we can use exec
+          exec(program, (error) => {
+            if (error) {
+              console.error(
+                `[ShortcutService] Error executing program: ${error}`
+              );
+            }
+          });
+        }
       } else if (shortcut.action.type === 'command') {
-        exec(shortcut.action.command || '', (error) => {
-          if (error) {
-            console.error(
-              `[ShortcutService] Error executing command: ${error}`
-            );
-          }
-        });
+        console.log(
+          `[ShortcutService] Running command: ${shortcut.action.command}`
+        );
+        const command = shortcut.action.command || '';
+
+        // In production, we need to use cmd.exe to run commands
+        if (isProduction) {
+          const child = spawn('cmd.exe', ['/c', command], {
+            shell: true,
+            detached: true,
+            stdio: 'ignore',
+          });
+
+          child.on('error', (error: Error) => {
+            console.error(`[ShortcutService] Command error: ${error.message}`);
+          });
+
+          child.unref();
+        } else {
+          // In development, we can use exec
+          exec(command, (error) => {
+            if (error) {
+              console.error(
+                `[ShortcutService] Error executing command: ${error}`
+              );
+            }
+          });
+        }
       }
 
       // Clear the matcher state after successful execution

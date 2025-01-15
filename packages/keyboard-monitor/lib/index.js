@@ -21,4 +21,3 @@ class KeyboardMonitor {
     }
 }
 exports.KeyboardMonitor = KeyboardMonitor;
-exports.default = KeyboardMonitor;

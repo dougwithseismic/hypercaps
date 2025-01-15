@@ -52,5 +52,3 @@ export class KeyboardMonitor {
     this.monitor.setConfig(config);
   }
 }
-
-export default KeyboardMonitor;

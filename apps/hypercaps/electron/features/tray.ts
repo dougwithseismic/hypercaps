@@ -179,8 +179,12 @@ export class TrayFeature {
         label: 'Quit',
         accelerator: 'CommandOrControl+Q',
         click: () => {
-          this.mainWindow.close();
+          // Set the quitting flag to prevent the window from being hidden
+          this.mainWindow.webContents.send('app-quitting');
+          (this.mainWindow as any).isQuitting = true;
           this.dispose();
+          // Force quit the application
+          require('electron').app.quit();
         },
       },
     ]);

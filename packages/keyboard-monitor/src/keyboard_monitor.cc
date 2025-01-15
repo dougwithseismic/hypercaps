@@ -34,46 +34,19 @@ KeyboardMonitor::KeyboardMonitor(const Napi::CallbackInfo& info)
 }
 
 KeyboardMonitor::~KeyboardMonitor() {
-    if (keyboardHook) {
-        UnhookWindowsHookEx(keyboardHook);
-        keyboardHook = NULL;
+    if (isPolling) {
+        isPolling = false;
+        WaitForSingleObject(pollingThread, INFINITE);
+        CloseHandle(pollingThread);
     }
     if (tsfn) {
         tsfn.Release();
     }
 }
 
-LRESULT CALLBACK KeyboardMonitor::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode >= 0 && instance) {
-        KBDLLHOOKSTRUCT* hookStruct = (KBDLLHOOKSTRUCT*)lParam;
-        bool isKeyDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
-        bool isKeyUp = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
-
-        if (instance->isEnabled) {
-            instance->ProcessKeyEvent(hookStruct->vkCode, isKeyDown);
-
-            // Handle HyperKey functionality
-            if (instance->isHyperKeyEnabled && hookStruct->vkCode == instance->hyperKeyTrigger) {
-                if (isKeyDown) {
-                    // Send modifier keys
-                    for (DWORD modifier : instance->modifierKeys) {
-                        keybd_event(modifier, 0, 0, 0);
-                    }
-                    return 1; // Block the original key
-                } else if (isKeyUp) {
-                    // Release modifier keys in reverse order
-                    for (auto it = instance->modifierKeys.rbegin(); it != instance->modifierKeys.rend(); ++it) {
-                        keybd_event(*it, 0, KEYEVENTF_KEYUP, 0);
-                    }
-                    return 1; // Block the original key
-                }
-            }
-        }
-    }
-    return CallNextHookEx(NULL, nCode, wParam, lParam);
-}
-
 void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
+    if (!isEnabled) return;
+
     auto now = std::chrono::steady_clock::now();
     auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
         now.time_since_epoch()
@@ -81,20 +54,7 @@ void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
 
     if (frames.empty() || 
         std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFrameTime).count() >= FRAME_TIME) {
-        // Create new frame
-        KeyboardFrame newFrame;
-        newFrame.justPressed = std::set<DWORD>();
-        newFrame.held = std::set<DWORD>();
-        newFrame.justReleased = std::set<DWORD>();
-        newFrame.holdDurations = std::map<DWORD, long long>();
-        newFrame.timestamp = timestamp;
-        newFrame.frameNumber = currentFrame++;
-        frames.push(newFrame);
-        
-        while (frames.size() > 60) { // Keep ~1 second of frames
-            frames.pop();
-        }
-        lastFrameTime = now;
+        CreateNewFrame(timestamp);
     }
 
     auto& currentFrame = frames.back();
@@ -103,47 +63,213 @@ void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
         if (currentFrame.held.find(vkCode) == currentFrame.held.end()) {
             currentFrame.justPressed.insert(vkCode);
             currentFrame.held.insert(vkCode);
+            keyPressStartTimes[vkCode] = timestamp;
         }
     } else {
         if (currentFrame.held.find(vkCode) != currentFrame.held.end()) {
             currentFrame.justReleased.insert(vkCode);
             currentFrame.held.erase(vkCode);
+            keyPressStartTimes.erase(vkCode);
         }
     }
 
-    // Emit frame event
-    tsfn.NonBlockingCall([frame = currentFrame](Napi::Env env, Napi::Function jsCallback) {
+    // Handle HyperKey functionality
+    if (isHyperKeyEnabled && vkCode == hyperKeyTrigger) {
+        if (isKeyDown) {
+            // Send modifier keys
+            for (DWORD modifier : modifierKeys) {
+                keybd_event(modifier, 0, 0, 0);
+            }
+        } else {
+            // Release modifier keys in reverse order
+            for (auto it = modifierKeys.rbegin(); it != modifierKeys.rend(); ++it) {
+                keybd_event(*it, 0, KEYEVENTF_KEYUP, 0);
+            }
+        }
+    }
+
+    // Update hold durations
+    for (const auto& key : currentFrame.held) {
+        if (keyPressStartTimes.find(key) != keyPressStartTimes.end()) {
+            currentFrame.holdDurations[key] = timestamp - keyPressStartTimes[key];
+        }
+    }
+
+    EmitFrame(currentFrame);
+}
+
+void KeyboardMonitor::PollKeyboardState() {
+    if (!isEnabled) return;
+
+    auto now = std::chrono::steady_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()
+    ).count();
+
+    // Create new frame if needed
+    if (frames.empty() || 
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFrameTime).count() >= FRAME_TIME) {
+        CreateNewFrame(timestamp);
+    }
+
+    auto& currentFrame = frames.back();
+    std::set<DWORD> currentKeys;
+
+    // Check all possible virtual key codes
+    for (int vk = 0; vk < 256; vk++) {
+        // Skip invalid or system keys
+        if (vk == 0 || vk == VK_PACKET || 
+            (vk >= VK_LBUTTON && vk <= VK_XBUTTON2) || // Skip mouse buttons
+            vk == VK_CANCEL || vk == VK_MODECHANGE ||
+            vk == VK_CLEAR || vk == VK_SELECT ||
+            vk == VK_EXECUTE || vk == VK_HELP ||
+            (vk >= VK_BROWSER_BACK && vk <= VK_LAUNCH_APP2) || // Skip browser/media keys
+            (vk >= VK_PROCESSKEY && vk <= VK_PACKET) || // Skip IME keys
+            vk == VK_ATTN || vk == VK_CRSEL || vk == VK_EXSEL ||
+            vk == VK_EREOF || vk == VK_PLAY || vk == VK_ZOOM ||
+            vk == VK_NONAME || vk == VK_PA1) {
+            continue;
+        }
+
+        SHORT keyState = GetAsyncKeyState(vk);
+        if (keyState & 0x8000) { // Key is pressed
+            // Only process keys that have a valid mapping
+            std::string keyName = KeyMapping::GetKeyName(vk);
+            if (!keyName.empty()) {
+                currentKeys.insert(vk);
+                if (currentFrame.held.find(vk) == currentFrame.held.end()) {
+                    currentFrame.justPressed.insert(vk);
+                    currentFrame.held.insert(vk);
+                    keyPressStartTimes[vk] = timestamp;
+                }
+            }
+        } else if (currentFrame.held.find(vk) != currentFrame.held.end()) {
+            currentFrame.justReleased.insert(vk);
+            currentFrame.held.erase(vk);
+            keyPressStartTimes.erase(vk);
+        }
+    }
+
+    // Update hold durations
+    for (const auto& key : currentFrame.held) {
+        if (keyPressStartTimes.find(key) != keyPressStartTimes.end()) {
+            currentFrame.holdDurations[key] = timestamp - keyPressStartTimes[key];
+        }
+    }
+
+    // Emit frame if there's activity
+    if (!currentFrame.justPressed.empty() || !currentFrame.justReleased.empty() || !currentFrame.held.empty()) {
+        EmitFrame(currentFrame);
+    }
+
+    lastPollTime = now;
+}
+
+void KeyboardMonitor::CreateNewFrame(long long timestamp) {
+    KeyboardFrame newFrame;
+    newFrame.timestamp = timestamp;
+    newFrame.frameNumber = currentFrame++;
+
+    // Copy held keys from previous frame
+    if (!frames.empty()) {
+        newFrame.held = frames.back().held;
+    }
+
+    frames.push(newFrame);
+    while (frames.size() > 60) {
+        frames.pop();
+    }
+    lastFrameTime = std::chrono::steady_clock::now();
+}
+
+void KeyboardMonitor::EmitFrame(const KeyboardFrame& frame) {
+    // Debug output
+    printf("\n[DEBUG] Frame %d at %lld\n", frame.frameNumber, frame.timestamp);
+    printf("  justPressed: [");
+    for (const auto& key : frame.justPressed) {
+        std::string keyName = KeyMapping::GetKeyName(key);
+        printf("%s(%d) ", keyName.empty() ? "Unknown" : keyName.c_str(), key);
+    }
+    printf("]\n");
+    
+    printf("  held: [");
+    for (const auto& key : frame.held) {
+        std::string keyName = KeyMapping::GetKeyName(key);
+        printf("%s(%d) ", keyName.empty() ? "Unknown" : keyName.c_str(), key);
+    }
+    printf("]\n");
+    
+    printf("  justReleased: [");
+    for (const auto& key : frame.justReleased) {
+        std::string keyName = KeyMapping::GetKeyName(key);
+        printf("%s(%d) ", keyName.empty() ? "Unknown" : keyName.c_str(), key);
+    }
+    printf("]\n");
+    
+    printf("  holdDurations: {");
+    for (const auto& pair : frame.holdDurations) {
+        std::string keyName = KeyMapping::GetKeyName(pair.first);
+        printf("%s(%d):%lld ", keyName.empty() ? "Unknown" : keyName.c_str(), pair.first, pair.second);
+    }
+    printf("}\n");
+
+    tsfn.NonBlockingCall([frame](Napi::Env env, Napi::Function jsCallback) {
         auto eventData = Napi::Object::New(env);
         eventData.Set("frame", frame.frameNumber);
         eventData.Set("timestamp", frame.timestamp);
         
+        // Get the key name for the event
+        std::string eventKeyName;
+        if (!frame.justPressed.empty()) {
+            eventKeyName = KeyMapping::GetKeyName(*frame.justPressed.begin());
+        } else if (!frame.justReleased.empty()) {
+            eventKeyName = KeyMapping::GetKeyName(*frame.justReleased.begin());
+        }
+        
+        auto event = Napi::Object::New(env);
+        event.Set("type", frame.justPressed.empty() ? "keyup" : "keydown");
+        event.Set("key", Napi::String::New(env, eventKeyName));
+        eventData.Set("event", event);
+        
         auto state = Napi::Object::New(env);
         
-        // Convert sets to arrays
+        // Convert sets to arrays with readable key names
         auto justPressed = Napi::Array::New(env);
         int idx = 0;
         for (const auto& key : frame.justPressed) {
-            justPressed[idx++] = Napi::Number::New(env, key);
+            std::string keyName = KeyMapping::GetKeyName(key);
+            if (!keyName.empty()) {
+                justPressed[idx++] = Napi::String::New(env, keyName);
+            }
         }
         state.Set("justPressed", justPressed);
 
         auto held = Napi::Array::New(env);
         idx = 0;
         for (const auto& key : frame.held) {
-            held[idx++] = Napi::Number::New(env, key);
+            std::string keyName = KeyMapping::GetKeyName(key);
+            if (!keyName.empty()) {
+                held[idx++] = Napi::String::New(env, keyName);
+            }
         }
         state.Set("held", held);
 
         auto justReleased = Napi::Array::New(env);
         idx = 0;
         for (const auto& key : frame.justReleased) {
-            justReleased[idx++] = Napi::Number::New(env, key);
+            std::string keyName = KeyMapping::GetKeyName(key);
+            if (!keyName.empty()) {
+                justReleased[idx++] = Napi::String::New(env, keyName);
+            }
         }
         state.Set("justReleased", justReleased);
 
         auto holdDurations = Napi::Object::New(env);
         for (const auto& pair : frame.holdDurations) {
-            holdDurations.Set(std::to_string(pair.first), Napi::Number::New(env, pair.second));
+            std::string keyName = KeyMapping::GetKeyName(pair.first);
+            if (!keyName.empty()) {
+                holdDurations.Set(keyName, Napi::Number::New(env, pair.second));
+            }
         }
         state.Set("holdDurations", holdDurations);
 
@@ -154,16 +280,19 @@ void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
 }
 
 Napi::Value KeyboardMonitor::Start(const Napi::CallbackInfo& info) {
-    if (!keyboardHook) {
-        keyboardHook = SetWindowsHookEx(
-            WH_KEYBOARD_LL,
-            LowLevelKeyboardProc,
-            GetModuleHandle(NULL),
-            0
+    if (!isPolling) {
+        isPolling = true;
+        pollingThread = CreateThread(
+            NULL,
+            0,
+            PollingThreadProc,
+            this,
+            0,
+            NULL
         );
         
-        if (!keyboardHook) {
-            Napi::Error::New(info.Env(), "Failed to install keyboard hook")
+        if (!pollingThread) {
+            Napi::Error::New(info.Env(), "Failed to start polling thread")
                 .ThrowAsJavaScriptException();
         }
         
@@ -173,9 +302,11 @@ Napi::Value KeyboardMonitor::Start(const Napi::CallbackInfo& info) {
 }
 
 Napi::Value KeyboardMonitor::Stop(const Napi::CallbackInfo& info) {
-    if (keyboardHook) {
-        UnhookWindowsHookEx(keyboardHook);
-        keyboardHook = NULL;
+    if (isPolling) {
+        isPolling = false;
+        WaitForSingleObject(pollingThread, INFINITE);
+        CloseHandle(pollingThread);
+        pollingThread = NULL;
         isEnabled = false;
     }
     return info.Env().Undefined();
@@ -218,6 +349,15 @@ Napi::Value KeyboardMonitor::SetConfig(const Napi::CallbackInfo& info) {
     }
     
     return env.Undefined();
+}
+
+DWORD WINAPI PollingThreadProc(LPVOID param) {
+    KeyboardMonitor* monitor = (KeyboardMonitor*)param;
+    while (monitor->isPolling) {
+        monitor->PollKeyboardState();
+        Sleep(KeyboardMonitor::POLLING_INTERVAL);
+    }
+    return 0;
 }
 
 // Module initialization

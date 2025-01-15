@@ -24,4 +24,3 @@ export declare class KeyboardMonitor {
     stop(): void;
     setConfig(config: KeyboardConfig): void;
 }
-export default KeyboardMonitor;

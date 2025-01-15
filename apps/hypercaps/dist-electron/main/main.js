@@ -5970,22 +5970,56 @@ class ShortcutService {
         );
         return;
       }
+      const { spawn } = require("child_process");
+      const isProduction = process.env.NODE_ENV === "production";
       if (shortcut.action.type === "launch") {
-        child_process.exec(shortcut.action.program || "", (error) => {
-          if (error) {
-            console.error(
-              `[ShortcutService] Error executing shortcut: ${error}`
-            );
-          }
-        });
+        console.log(
+          `[ShortcutService] Launching program: ${shortcut.action.program}`
+        );
+        const program = shortcut.action.program || "";
+        if (isProduction) {
+          const child = spawn("cmd.exe", ["/c", "start", "", program], {
+            shell: true,
+            detached: true,
+            stdio: "ignore"
+          });
+          child.on("error", (error) => {
+            console.error(`[ShortcutService] Launch error: ${error.message}`);
+          });
+          child.unref();
+        } else {
+          child_process.exec(program, (error) => {
+            if (error) {
+              console.error(
+                `[ShortcutService] Error executing program: ${error}`
+              );
+            }
+          });
+        }
       } else if (shortcut.action.type === "command") {
-        child_process.exec(shortcut.action.command || "", (error) => {
-          if (error) {
-            console.error(
-              `[ShortcutService] Error executing command: ${error}`
-            );
-          }
-        });
+        console.log(
+          `[ShortcutService] Running command: ${shortcut.action.command}`
+        );
+        const command = shortcut.action.command || "";
+        if (isProduction) {
+          const child = spawn("cmd.exe", ["/c", command], {
+            shell: true,
+            detached: true,
+            stdio: "ignore"
+          });
+          child.on("error", (error) => {
+            console.error(`[ShortcutService] Command error: ${error.message}`);
+          });
+          child.unref();
+        } else {
+          child_process.exec(command, (error) => {
+            if (error) {
+              console.error(
+                `[ShortcutService] Error executing command: ${error}`
+              );
+            }
+          });
+        }
       }
       this.matcher.clearFramesUpTo(match.endTime);
     } catch (error) {
@@ -6185,8 +6219,10 @@ class TrayFeature {
         label: "Quit",
         accelerator: "CommandOrControl+Q",
         click: () => {
-          this.mainWindow.close();
+          this.mainWindow.webContents.send("app-quitting");
+          this.mainWindow.isQuitting = true;
           this.dispose();
+          require("electron").app.quit();
         }
       }
     ]);
@@ -6311,7 +6347,6 @@ const createWindow = async () => {
     if (!mainWindow.isQuitting) {
       event.preventDefault();
       mainWindow == null ? void 0 : mainWindow.hide();
-      return false;
     }
   });
 };
