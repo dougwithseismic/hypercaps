@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { AppState, AppStateSchema } from './types/app-state';
 import { Feature, FeatureName } from './types/feature-config';
 import { EventEmitter } from 'events';
+import { DEFAULT_STATE } from './defaults';
 
 // Get version from package.json
 const pkg = require(path.join(app.getAppPath(), 'package.json'));
@@ -192,35 +193,6 @@ interface VersionedState {
   version: string;
   state: AppState;
 }
-
-const DEFAULT_STATE: AppState = {
-  settings: {
-    startupOnBoot: false,
-    startMinimized: false,
-  },
-  features: [
-    {
-      name: 'hyperKey',
-      isFeatureEnabled: true,
-      enableFeatureOnStartup: true,
-      config: {
-        isHyperKeyEnabled: true,
-        trigger: 'CapsLock',
-        modifiers: [],
-        capsLockBehavior: 'BlockToggle',
-      },
-    },
-    {
-      name: 'shortcutManager',
-      isFeatureEnabled: true,
-      enableFeatureOnStartup: true,
-      config: {
-        shortcuts: [],
-        isEnabled: true,
-      },
-    },
-  ],
-};
 
 export class Store extends EventEmitter {
   private static instance: Store;

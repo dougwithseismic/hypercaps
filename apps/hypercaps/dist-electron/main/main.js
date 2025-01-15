@@ -4919,7 +4919,7 @@ const DEFAULT_STATE = {
       enableFeatureOnStartup: true,
       config: {
         isHyperKeyEnabled: true,
-        trigger: "CapsLock",
+        trigger: "Capital",
         modifiers: [],
         capsLockBehavior: "BlockToggle"
       }
