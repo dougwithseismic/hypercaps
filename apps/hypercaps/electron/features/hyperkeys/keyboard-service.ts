@@ -41,7 +41,7 @@ export class KeyboardService extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
   private keyboardMonitor: KeyboardMonitor | null = null;
   private store: Store;
-  private bufferWindow: number = 3000; // Default 3 seconds
+  private bufferWindow = 3000; // Default 3 seconds
   private state: ServiceState = {
     isListening: false,
     isLoading: false,

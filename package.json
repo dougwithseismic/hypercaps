@@ -6,9 +6,9 @@
     "build:monitor": "turbo build --filter=@hypercaps/keyboard-monitor",
     "dev": "turbo dev",
     "dev:hypercaps": "turbo dev --filter=hypercaps",
-    "lint": "turbo lint",
-    "lint:fix": "turbo lint -- --fix",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,md}\"",
     "check": "turbo lint format:check",
     "prepare": "husky"

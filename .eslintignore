@@ -27,3 +27,6 @@ public/
 # ESLint specific ignores
 *.config.js
 *.config.mjs
+
+# PowerShell scripts
+**/*.ps1

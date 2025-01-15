@@ -1,12 +1,12 @@
-import { ipcMain, BrowserWindow } from 'electron';
 import { MessageQueue } from '@hypercaps/message-queue';
+import { ipcMain } from 'electron';
 import {
   IPCCommand,
-  IPCResult,
-  ServiceConfig,
-  RegisteredService,
-  IPCHandler,
   IPCEvent,
+  IPCHandler,
+  IPCResult,
+  RegisteredService,
+  ServiceConfig,
   createError,
   createResult,
 } from '../types';

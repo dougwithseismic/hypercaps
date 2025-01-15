@@ -20,9 +20,9 @@ if (process.platform !== 'win32') {
   );
   app.quit();
 }
-
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (require('electron-squirrel-startup')) {
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+if (require('electron-squirrel-startup') as boolean) {
   app.quit();
 }
 
@@ -153,7 +153,7 @@ const createWindow = async () => {
 
   // Hide window instead of closing when user clicks X, unless we're quitting
   mainWindow.on('close', (event) => {
-    if (!(mainWindow as any).isQuitting) {
+    if (!(mainWindow as unknown as { isQuitting: boolean }).isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
     }
