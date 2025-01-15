@@ -104,12 +104,6 @@ export class KeyboardService extends EventEmitter {
   private setState(updates: Partial<ServiceState>): void {
     this.state = { ...this.state, ...updates };
 
-    // Emit state change
-    this.mainWindow?.webContents.send('keyboard-service-state', {
-      ...this.state,
-      isRunning: this.isRunning(),
-    });
-
     ipc.emit({
       service: IPCSERVICE_NAMES.KEYBOARD,
       event: SERVICE_ACTIONS.STATE_CHANGED,
@@ -145,9 +139,13 @@ export class KeyboardService extends EventEmitter {
     }
 
     // Send initial state to renderer
-    this.mainWindow?.webContents.send('hyperkey-state', {
-      ...hyperKey.config,
-      enabled: hyperKey.isFeatureEnabled,
+    ipc.emit({
+      service: IPCSERVICE_NAMES.HYPERKEY,
+      event: SERVICE_ACTIONS.CONFIG_CHANGED,
+      data: {
+        ...hyperKey.config,
+        enabled: hyperKey.isFeatureEnabled,
+      },
     });
 
     // Auto-start if feature is enabled
@@ -174,7 +172,6 @@ export class KeyboardService extends EventEmitter {
       },
     };
 
-    this.mainWindow?.webContents.send('keyboard-frame', keyboardState);
     ipc.emit({
       service: IPCSERVICE_NAMES.KEYBOARD,
       event: SERVICE_ACTIONS.FRAME,
@@ -297,7 +294,7 @@ export class KeyboardService extends EventEmitter {
     });
 
     // Emit config change event
-    this.mainWindow?.webContents.send('ipc:event', {
+    ipc.emit({
       service: IPCSERVICE_NAMES.HYPERKEY,
       event: SERVICE_ACTIONS.CONFIG_CHANGED,
       data: config,
