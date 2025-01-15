@@ -35,12 +35,11 @@ yarn-error.log*
 out/
 build/
 
-# Electron - Specific paths and files
+# Electron specific
 .electron-cache/
 **/dist/
 **/dist-electron/
 **/release/
-**/electron/out/
 *.zip
 
 # HyperCaps specific
