@@ -30,7 +30,7 @@ export interface BaseContract {
  */
 export interface HyperKeyContract extends BaseContract {
   getConfig: {
-    params: void;
+    params: undefined;
     result: {
       enabled: boolean;
       mappings: Array<{
@@ -53,7 +53,7 @@ export interface HyperKeyContract extends BaseContract {
         enabled: boolean;
       }>;
     };
-    result: void;
+    result: undefined;
   };
 }
 
@@ -62,7 +62,7 @@ export interface HyperKeyContract extends BaseContract {
  */
 export interface StartupContract extends BaseContract {
   getSettings: {
-    params: void;
+    params: undefined;
     result: {
       startOnBoot: boolean;
       startMinimized: boolean;
@@ -72,13 +72,13 @@ export interface StartupContract extends BaseContract {
     params: {
       enabled: boolean;
     };
-    result: void;
+    result: undefined;
   };
   setStartMinimized: {
     params: {
       enabled: boolean;
     };
-    result: void;
+    result: undefined;
   };
 }
 
@@ -87,12 +87,12 @@ export interface StartupContract extends BaseContract {
  */
 export interface WindowContract extends BaseContract {
   minimize: {
-    params: void;
-    result: void;
+    params: undefined;
+    result: undefined;
   };
   close: {
-    params: void;
-    result: void;
+    params: undefined;
+    result: undefined;
   };
 }
 

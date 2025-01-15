@@ -1,10 +1,5 @@
 import type { IPCCommand, IPCResult } from './types';
-import type {
-  ServiceName,
-  ServiceActions,
-  ActionParams,
-  IPC_SERVICES,
-} from './contracts';
+import type { ServiceName, ServiceActions, ActionParams } from './contracts';
 
 export * from './types';
 export * from './contracts';
@@ -49,7 +44,7 @@ export const createCommand = <
 >(
   service: TService,
   action: TAction,
-  params: ActionParams<TService, TAction>
+  params?: ActionParams<TService, TAction>
 ): IPCCommand<ActionParams<TService, TAction>> => ({
   service: service.toString(),
   action: action.toString(),
