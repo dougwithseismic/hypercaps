@@ -407,7 +407,7 @@ public class InputBuffer {
             frame.FrameNumber,
             frame.Timestamp,
             isDown ? "keydown" : "keyup",
-            key,
+            triggerKey,
             string.Join(",", quotedPressed),
             string.Join(",", quotedHeld),
             string.Join(",", quotedReleased),
