@@ -5,13 +5,30 @@ import type {
   IPCResult,
 } from '../types';
 
+declare global {
+  interface Window {
+    api: {
+      ipc: {
+        run: <TParams, TResult>(
+          command: IPCCommand<TParams>
+        ) => Promise<IPCResult<TResult>>;
+        on: <TData>(
+          service: string,
+          event: string,
+          callback: (data: TData) => void
+        ) => () => void;
+      };
+    };
+  }
+}
+
 /**
  * Client-side IPC service for communicating with the main process
  * Provides a clean API for running commands and subscribing to events
  */
 export class IPCClient {
   private static instance: IPCClient;
-  private eventHandlers: Map<string, Set<Function>>;
+  private eventHandlers: Map<string, Set<IPCEventHandler>>;
 
   private constructor() {
     this.eventHandlers = new Map();
@@ -60,7 +77,10 @@ export class IPCClient {
     }
 
     // Add the handler
-    this.eventHandlers.get(channel)?.add(handler);
+    const handlers = this.eventHandlers.get(channel);
+    if (handlers) {
+      handlers.add(handler as IPCEventHandler);
+    }
 
     // Set up the bridge listener
     const unsubscribe = window.api.ipc.on<TData>(
@@ -68,20 +88,26 @@ export class IPCClient {
       event,
       (eventData: TData) => {
         console.log('[IPCClient] Received event data:', eventData);
-        this.eventHandlers.get(channel)?.forEach((h) => {
-          console.log('[IPCClient] Calling handler for channel:', channel);
-          h({ service, event, data: eventData } as IPCEvent<TData>);
-        });
+        const currentHandlers = this.eventHandlers.get(channel);
+        if (currentHandlers) {
+          currentHandlers.forEach((h) => {
+            console.log('[IPCClient] Calling handler for channel:', channel);
+            h({ service, event, data: eventData } as IPCEvent<TData>);
+          });
+        }
       }
     );
 
     // Return cleanup function
     return () => {
       console.log('[IPCClient] Cleaning up event listener:', channel);
-      this.eventHandlers.get(channel)?.delete(handler);
-      if (this.eventHandlers.get(channel)?.size === 0) {
-        this.eventHandlers.delete(channel);
-        unsubscribe();
+      const currentHandlers = this.eventHandlers.get(channel);
+      if (currentHandlers) {
+        currentHandlers.delete(handler as IPCEventHandler);
+        if (currentHandlers.size === 0) {
+          this.eventHandlers.delete(channel);
+          unsubscribe();
+        }
       }
     };
   }

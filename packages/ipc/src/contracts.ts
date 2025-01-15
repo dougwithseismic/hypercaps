@@ -130,7 +130,7 @@ export type ActionParams<
   TAction extends ServiceActions<TService>,
 > = TService extends keyof ServiceContractMap
   ? TAction extends keyof ServiceContractMap[TService]
-    ? ServiceContractMap[TService][TAction] extends { params: any }
+    ? ServiceContractMap[TService][TAction] extends { params: unknown }
       ? ServiceContractMap[TService][TAction]['params']
       : never
     : never
@@ -144,7 +144,7 @@ export type ActionResult<
   TAction extends ServiceActions<TService>,
 > = TService extends keyof ServiceContractMap
   ? TAction extends keyof ServiceContractMap[TService]
-    ? ServiceContractMap[TService][TAction] extends { result: any }
+    ? ServiceContractMap[TService][TAction] extends { result: unknown }
       ? ServiceContractMap[TService][TAction]['result']
       : never
     : never

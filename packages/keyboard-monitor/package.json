@@ -20,6 +20,7 @@
     "dev": "tsc --watch",
     "install": "node-gyp rebuild"
   },
+  "type": "commonjs",
   "types": "lib/index.d.ts",
   "version": "1.0.0"
 }

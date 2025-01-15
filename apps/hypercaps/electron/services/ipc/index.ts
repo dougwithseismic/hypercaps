@@ -7,7 +7,8 @@ export const ipc = ipcService;
 ipc.onEvent((event) => {
   const windows = BrowserWindow.getAllWindows();
   windows.forEach((window) => {
-    console.log('[IPCService] Sending event to window:', window.id, event);
+    console.log('[IPCService] Sending event to window:', window.id);
+    console.dir(event, { depth: null });
     window.webContents.send('ipc:event', event);
   });
 });

@@ -4,7 +4,7 @@
  */
 
 export interface KeyEvent {
-  type: 'keydown' | 'keyup';
+  type: 'keydown' | 'keyup' | 'keyhold';
   key: string;
 }
 

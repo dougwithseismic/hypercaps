@@ -218,19 +218,27 @@ void KeyboardMonitor::EmitFrame(const KeyboardFrame& frame) {
         eventData.Set("frame", frame.frameNumber);
         eventData.Set("timestamp", frame.timestamp);
         
-        // Get the key name for the event
+        // Get the key name and determine event type based on key state
         std::string eventKeyName;
+        std::string eventType;
+        
         if (!frame.justPressed.empty()) {
             eventKeyName = KeyMapping::GetKeyName(*frame.justPressed.begin());
+            eventType = "keydown";
         } else if (!frame.justReleased.empty()) {
             eventKeyName = KeyMapping::GetKeyName(*frame.justReleased.begin());
+            eventType = "keyup";
+        } else if (!frame.held.empty()) {
+            eventKeyName = KeyMapping::GetKeyName(*frame.held.begin());
+            eventType = "keyhold";
         }
         
         auto event = Napi::Object::New(env);
-        event.Set("type", frame.justPressed.empty() ? "keyup" : "keydown");
+        event.Set("type", eventType);
         event.Set("key", Napi::String::New(env, eventKeyName));
         eventData.Set("event", event);
-        
+
+                
         auto state = Napi::Object::New(env);
         
         // Convert sets to arrays with readable key names

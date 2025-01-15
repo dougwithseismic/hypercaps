@@ -30,3 +30,10 @@ public/
 
 # PowerShell scripts
 **/*.ps1
+
+# Markdown files
+*.md
+*.mdx
+
+# JSON files
+*.json

@@ -5,6 +5,7 @@ import { ShortcutService } from './features/shortcut-manager/shortcut-service';
 import { Store } from '@electron/services/store';
 import { TrayFeature } from './features/tray';
 import { AppState } from '@electron/services/store/types/app-state';
+import electronSquirrelStartup from 'electron-squirrel-startup';
 
 // Immediate environment logging
 console.log('=== Environment Debug ===');
@@ -21,8 +22,7 @@ if (process.platform !== 'win32') {
   app.quit();
 }
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-if (require('electron-squirrel-startup') as boolean) {
+if (electronSquirrelStartup) {
   app.quit();
 }
 

@@ -19,8 +19,11 @@ export class IPCService {
   private static instance: IPCService;
   private services: Map<string, RegisteredService>;
   private queue: MessageQueue;
-  private eventHandlers: Map<string, Map<string, Set<IPCHandler<any, any>>>>;
-  private eventListeners: Set<(event: IPCEvent<any>) => void>;
+  private eventHandlers: Map<
+    string,
+    Map<string, Set<IPCHandler<unknown, unknown>>>
+  >;
+  private eventListeners: Set<(event: IPCEvent<unknown>) => void>;
 
   private constructor() {
     this.services = new Map();
@@ -70,7 +73,7 @@ export class IPCService {
       throw new Error(`Service ${serviceId} not found`);
     }
 
-    service.handlers.set(action, handler as IPCHandler<any, any>);
+    service.handlers.set(action, handler as IPCHandler<unknown, unknown>);
 
     // Also register as an event handler
     if (!this.eventHandlers.has(serviceId)) {
@@ -80,7 +83,7 @@ export class IPCService {
     if (!serviceHandlers.has(action)) {
       serviceHandlers.set(action, new Set());
     }
-    serviceHandlers.get(action)!.add(handler as IPCHandler<any, any>);
+    serviceHandlers.get(action)!.add(handler as IPCHandler<unknown, unknown>);
   }
 
   /**
@@ -123,7 +126,7 @@ export class IPCService {
   /**
    * Register a global event listener
    */
-  public onEvent(listener: (event: IPCEvent<any>) => void): () => void {
+  public onEvent(listener: (event: IPCEvent<unknown>) => void): () => void {
     this.eventListeners.add(listener);
     return () => {
       this.eventListeners.delete(listener);
@@ -148,7 +151,7 @@ export class IPCService {
     // Notify all global event listeners
     this.eventListeners.forEach((listener) => {
       try {
-        listener(event);
+        listener(event as IPCEvent<unknown>);
       } catch (error) {
         console.error('[IPCService] Event listener error:', error);
       }
@@ -186,7 +189,7 @@ export class IPCService {
    */
   private setupIPC(): void {
     // Handle incoming commands
-    ipcMain.handle('ipc:command', async (_, command: IPCCommand) => {
+    ipcMain.handle('ipc:command', async (_, command: IPCCommand<unknown>) => {
       try {
         return await this.handleCommand(command);
       } catch (error) {

@@ -68,7 +68,7 @@ export interface ServiceConfig {
  */
 export interface RegisteredService {
   config: ServiceConfig;
-  handlers: Map<string, IPCHandler<any, any>>;
+  handlers: Map<string, IPCHandler<unknown, unknown>>;
 }
 
 /**

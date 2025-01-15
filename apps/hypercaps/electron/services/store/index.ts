@@ -19,17 +19,19 @@
  */
 
 import { app } from 'electron';
-import path from 'path';
+import { EventEmitter } from 'events';
 import fs from 'fs';
 import { produce } from 'immer';
+import path from 'path';
 import { z } from 'zod';
+import { DEFAULT_STATE } from './defaults';
 import { AppState, AppStateSchema } from './types/app-state';
 import { Feature, FeatureName } from './types/feature-config';
-import { EventEmitter } from 'events';
-import { DEFAULT_STATE } from './defaults';
 
 // Get version from package.json
-const pkg = require(path.join(app.getAppPath(), 'package.json'));
+const pkg = JSON.parse(
+  fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf-8')
+);
 const CURRENT_STATE_VERSION = pkg.version;
 
 // Version when each migration was introduced
