@@ -5694,8 +5694,6 @@ class KeyboardService extends events.EventEmitter {
         reject(error);
       });
       (_a = this.keyboardProcess.stdout) == null ? void 0 : _a.on("data", (data) => {
-        const output = data.toString();
-        console.log("[KeyboardService] Raw stdout:", output);
         if (!hasReceivedInitialData) {
           console.log("[KeyboardService] Received initial data");
           hasReceivedInitialData = true;

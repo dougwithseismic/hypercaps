@@ -1,13 +1,14 @@
-import { BrowserWindow, dialog, app } from 'electron';
-import { spawn, ChildProcess } from 'child_process';
+import { BrowserWindow, dialog } from 'electron';
 import { EventEmitter } from 'events';
-import path from 'path';
 import { Store } from '@electron/services/store';
 import { ipc } from '@electron/services/ipc';
 import { HyperKeyFeatureConfig } from './types/hyperkey-feature';
-import { Shortcut, TriggerStep } from '../shortcut-manager/types/';
 import { KeyboardState, ServiceState } from './types/keyboard-state';
 import { IPCSERVICE_NAMES } from '@electron/consts';
+import {
+  KeyboardMonitor,
+  type KeyboardFrame,
+} from '@hypercaps/keyboard-monitor';
 
 const SERVICE_ACTIONS = {
   START: 'start',
@@ -38,9 +39,8 @@ const SERVICE_ACTIONS = {
 
 export class KeyboardService extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
-  private keyboardProcess: ChildProcess | null = null;
+  private keyboardMonitor: KeyboardMonitor | null = null;
   private store: Store;
-  private startupTimeout: NodeJS.Timeout | null = null;
   private bufferWindow: number = 3000; // Default 3 seconds
   private state: ServiceState = {
     isListening: false,
@@ -120,21 +120,6 @@ export class KeyboardService extends EventEmitter {
     });
   }
 
-  private getScriptPath(): string {
-    const scriptName = 'keyboard-monitor-polling.ps1';
-    const scriptSubPath = path.join(
-      'electron',
-      'features',
-      'hyperkeys',
-      'scripts',
-      scriptName
-    );
-
-    return process.env.NODE_ENV === 'development'
-      ? path.join(app.getAppPath(), scriptSubPath)
-      : path.join(process.resourcesPath, scriptSubPath);
-  }
-
   public async getState(): Promise<ServiceState> {
     const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
     return {
@@ -171,111 +156,39 @@ export class KeyboardService extends EventEmitter {
     }
   }
 
-  private handleKeyboardOutput = (data: Buffer) => {
-    try {
-      const lines = data.toString().split('\n');
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+  private handleKeyboardFrame = (data: KeyboardFrame): void => {
+    // Send frame state directly to renderer and emit IPC event
+    const keyboardState: KeyboardState = {
+      frame: data.frame,
+      timestamp: data.timestamp,
+      event: {
+        type: 'keydown',
+        key: String(data.state.justPressed[0] || ''), // Use first pressed key if available
+      },
+      state: {
+        justPressed: data.state.justPressed.map(String),
+        held: data.state.held.map(String),
+        justReleased: data.state.justReleased.map(String),
+        holdDurations: Object.entries(data.state.holdDurations).reduce(
+          (acc, [key, value]) => ({ ...acc, [String(key)]: value }),
+          {}
+        ),
+      },
+    };
 
-        if (trimmed.startsWith('[DEBUG]')) {
-          // console.log("[KeyboardService]", trimmed);
-          continue;
-        }
-
-        try {
-          const state = JSON.parse(trimmed);
-          // Skip if not a frame event
-          if (!state.frame || !state.state) continue;
-
-          const keyboardState: KeyboardState = {
-            frame: state.frame,
-            timestamp: state.timestamp || Date.now(),
-            event: state.event,
-            state: {
-              justPressed: state.state.justPressed || [],
-              held: state.state.held || [],
-              justReleased: state.state.justReleased || [],
-              holdDurations: state.state.holdDurations || {},
-            },
-          };
-
-          // Log frame state for debugging
-          // console.log(`[KeyboardService] Frame ${keyboardState.frame}:`, {
-          //   event: keyboardState.event,
-          //   justPressed: keyboardState.state.justPressed,
-          //   held: keyboardState.state.held,
-          //   justReleased: keyboardState.state.justReleased,
-          //   holdDurations: keyboardState.state.holdDurations,
-          // });
-
-          // Send frame state directly to renderer and emit IPC event
-          this.mainWindow?.webContents.send('keyboard-frame', keyboardState);
-          ipc.emit({
-            service: IPCSERVICE_NAMES.KEYBOARD,
-            event: SERVICE_ACTIONS.FRAME,
-            data: keyboardState,
-          });
-        } catch (parseError) {
-          if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-            console.error(
-              '[KeyboardService] Error parsing keyboard state:',
-              parseError
-            );
-          }
-        }
-      }
-    } catch (error) {
-      console.error('[KeyboardService] Error handling keyboard output:', error);
-    }
+    this.mainWindow?.webContents.send('keyboard-frame', keyboardState);
+    ipc.emit({
+      service: IPCSERVICE_NAMES.KEYBOARD,
+      event: SERVICE_ACTIONS.FRAME,
+      data: keyboardState,
+    });
   };
-
-  /**
-   * Updates the buffer window based on the longest possible shortcut sequence
-   * This should be called whenever shortcuts are updated
-   */
-  public async updateBufferWindow(): Promise<void> {
-    const shortcutManager = await this.store.getFeature(
-      IPCSERVICE_NAMES.SHORTCUT_MANAGER
-    );
-
-    if (shortcutManager?.config?.shortcuts) {
-      const shortcuts = shortcutManager.config.shortcuts as Shortcut[];
-      this.bufferWindow = shortcuts.reduce((max, shortcut) => {
-        // Check trigger window
-        const triggerWindow = shortcut.trigger.totalTimeWindow || 0;
-        // Check hold times in sequence
-        const holdTimes =
-          shortcut.trigger.steps.reduce(
-            (maxHold: number, step: TriggerStep) => {
-              const holdTime = step.holdTime || 0;
-              return Math.max(maxHold, holdTime);
-            },
-            0
-          ) || 0;
-        return Math.max(max, triggerWindow, holdTimes);
-      }, this.bufferWindow);
-
-      // If we're already running, restart with new buffer window
-      if (this.isRunning()) {
-        await this.restartListening();
-      }
-    }
-  }
-
-  /**
-   * Restarts the keyboard service with current configuration
-   */
-  private async restartListening(): Promise<void> {
-    await this.stopListening();
-    await this.startListening();
-  }
 
   public async startListening(): Promise<void> {
     console.log('[KeyboardService] startListening() called');
 
-    if (this.keyboardProcess) {
-      console.log('[KeyboardService] Process already running');
+    if (this.keyboardMonitor) {
+      console.log('[KeyboardService] Monitor already running');
       return;
     }
 
@@ -283,19 +196,6 @@ export class KeyboardService extends EventEmitter {
     if (!hyperKey?.isFeatureEnabled) {
       console.log('[KeyboardService] Feature is disabled, not starting');
       return;
-    }
-
-    if (this.state.isStarting) {
-      console.log('[KeyboardService] Process already starting, waiting...');
-      await new Promise<void>((resolve) => {
-        const checkInterval = setInterval(() => {
-          if (!this.state.isStarting) {
-            clearInterval(checkInterval);
-            resolve();
-          }
-        }, 100);
-      });
-      if (this.keyboardProcess) return;
     }
 
     this.setState({
@@ -307,13 +207,6 @@ export class KeyboardService extends EventEmitter {
     });
 
     try {
-      const scriptPath = this.getScriptPath();
-      const hyperKey = await this.store.getFeature(IPCSERVICE_NAMES.HYPERKEY);
-
-      if (!hyperKey) {
-        throw new Error('HyperKey feature not found');
-      }
-
       const config = {
         isEnabled: hyperKey.isFeatureEnabled,
         isHyperKeyEnabled: hyperKey.config.isHyperKeyEnabled,
@@ -323,60 +216,18 @@ export class KeyboardService extends EventEmitter {
         bufferWindow: this.bufferWindow,
       };
 
-      const command = [
-        // Enable debug output and set error preferences
-        "$ProgressPreference = 'SilentlyContinue';",
-        "$ErrorActionPreference = 'Stop';",
-        "Write-Host '[DEBUG] Starting keyboard monitor...';",
-
-        // Set up config
-        '$Config = @{',
-        `  isEnabled=$${config.isEnabled.toString().toLowerCase()};`,
-        `  isHyperKeyEnabled=$${config.isHyperKeyEnabled.toString().toLowerCase()};`,
-        `  trigger='${config.trigger}';`,
-        `  modifiers=@(${config.modifiers.map((m) => `'${m}'`).join(',') || '@()'});`,
-        `  capsLockBehavior='${config.capsLockBehavior}';`,
-        `  bufferWindow=${config.bufferWindow};`,
-        '};',
-
-        // Debug output config
-        "Write-Host '[DEBUG] Config:' ($Config | ConvertTo-Json -Depth 10);",
-
-        // Execute script with proper error handling
-        'try {',
-        `  Set-Location '${path.dirname(scriptPath)}';`,
-        `  . '${scriptPath}';`,
-        '} catch {',
-        '  Write-Error $_.Exception.Message;',
-        '  Write-Error $_.ScriptStackTrace;',
-        '  exit 1;',
-        '}',
-      ].join(' ');
-
-      console.log('[KeyboardService] command', command);
-      console.log('[KeyboardService] Spawning process with command:', command);
-      console.log('[KeyboardService] Script path:', scriptPath);
-      console.log('[KeyboardService] Process env:', process.env.NODE_ENV);
-
-      this.keyboardProcess = spawn('powershell.exe', [
-        '-ExecutionPolicy',
-        'Bypass',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        command,
-      ]);
-
-      // Check if process started successfully
-      if (!this.keyboardProcess.pid) {
-        throw new Error('Failed to start PowerShell process');
-      }
-      console.log(
-        '[KeyboardService] Process started with PID:',
-        this.keyboardProcess.pid
+      // Create and configure keyboard monitor
+      this.keyboardMonitor = new KeyboardMonitor(
+        (eventName: string, data: KeyboardFrame) => {
+          if (eventName === 'frame') {
+            this.handleKeyboardFrame(data);
+          }
+        }
       );
 
-      await this.setupProcessListeners();
+      // Start monitoring
+      this.keyboardMonitor.setConfig(config);
+      this.keyboardMonitor.start();
 
       // Update store on successful start
       await this.store.update((draft) => {
@@ -391,6 +242,7 @@ export class KeyboardService extends EventEmitter {
       this.setState({
         isListening: true,
         isLoading: false,
+        isStarting: false,
       });
     } catch (error) {
       const errorMessage =
@@ -403,157 +255,19 @@ export class KeyboardService extends EventEmitter {
           timestamp: Date.now(),
         },
       });
-      this.handleStartupFailure(errorMessage);
+      dialog.showErrorBox(
+        'Keyboard Monitor Error',
+        `Failed to start keyboard monitor: ${errorMessage}`
+      );
     }
-  }
-
-  private async setupProcessListeners(): Promise<void> {
-    if (!this.keyboardProcess) {
-      console.log('[KeyboardService] Process not found, returning early');
-      return;
-    }
-
-    console.log('[KeyboardService] Setting up process listeners');
-
-    return new Promise((resolve, reject) => {
-      let hasReceivedInitialData = false;
-      const cleanup = () => {
-        console.log('[KeyboardService] Cleaning up listeners');
-        if (this.keyboardProcess) {
-          this.keyboardProcess.stdout?.removeAllListeners();
-          this.keyboardProcess.stderr?.removeAllListeners();
-          this.keyboardProcess.removeAllListeners();
-        }
-      };
-
-      // Handle process errors
-      this.keyboardProcess.on('error', (error) => {
-        console.error('[KeyboardService] Process error:', error);
-        cleanup();
-        reject(error);
-      });
-
-      // Handle stdout data
-      this.keyboardProcess.stdout?.on('data', (data) => {
-        const output = data.toString();
-        console.log('[KeyboardService] Raw stdout:', output);
-
-        if (!hasReceivedInitialData) {
-          console.log('[KeyboardService] Received initial data');
-          hasReceivedInitialData = true;
-          this.clearStartupState();
-          resolve();
-        }
-
-        this.handleKeyboardOutput(data);
-      });
-
-      // Handle stderr data
-      this.keyboardProcess.stderr?.on('data', (data) => {
-        const error = data.toString();
-        console.error('[KeyboardService] stderr:', error);
-        if (!hasReceivedInitialData) {
-          cleanup();
-          reject(new Error(error));
-        }
-      });
-
-      // Handle process exit
-      this.keyboardProcess.on('close', (code, signal) => {
-        console.log(
-          '[KeyboardService] Process closed with code:',
-          code,
-          'signal:',
-          signal
-        );
-        cleanup();
-        this.keyboardProcess = null;
-
-        // Update state to reflect process termination
-        this.setState({
-          isListening: false,
-          isLoading: false,
-          error: code !== 0 ? `Process exited with code ${code}` : undefined,
-        });
-
-        if (!hasReceivedInitialData) {
-          reject(
-            new Error(`Process exited with code ${code} before sending data`)
-          );
-        }
-      });
-
-      // Set timeout for initial data
-      const timeout = setTimeout(() => {
-        if (!hasReceivedInitialData) {
-          console.error('[KeyboardService] Timeout waiting for initial data');
-          cleanup();
-          reject(new Error('Timeout waiting for initial data'));
-        }
-      }, 5000);
-
-      // Cleanup timeout on success or failure
-      Promise.race([
-        new Promise((_, timeoutReject) => {
-          timeout.unref(); // Don't let timeout prevent process exit
-        }),
-        new Promise<void>((successResolve) => {
-          const checkInterval = setInterval(() => {
-            if (hasReceivedInitialData) {
-              clearInterval(checkInterval);
-              clearTimeout(timeout);
-              successResolve();
-            }
-          }, 100);
-        }),
-      ]).catch((error) => {
-        clearTimeout(timeout);
-        reject(error);
-      });
-    });
-  }
-
-  private clearStartupState(): void {
-    if (this.startupTimeout) {
-      clearTimeout(this.startupTimeout);
-      this.startupTimeout = null;
-    }
-    this.setState({
-      isLoading: false,
-      isStarting: false,
-    });
-  }
-
-  private handleStartupFailure(message: string): void {
-    this.clearStartupState();
-    if (this.keyboardProcess) {
-      this.keyboardProcess.kill();
-      this.keyboardProcess = null;
-    }
-    this.setState({
-      isListening: false,
-      error: message,
-      lastError: {
-        message,
-        timestamp: Date.now(),
-      },
-    });
-    dialog.showErrorBox(
-      'Keyboard Monitor Error',
-      `Failed to start keyboard monitor: ${message}`
-    );
   }
 
   public async stopListening(): Promise<void> {
     console.log('[KeyboardService] stopListening() called');
 
-    if (this.keyboardProcess) {
-      console.log('[KeyboardService] Cleaning up process');
-      this.keyboardProcess.stdout?.removeAllListeners();
-      this.keyboardProcess.stderr?.removeAllListeners();
-      this.keyboardProcess.removeAllListeners();
-      this.keyboardProcess.kill();
-      this.keyboardProcess = null;
+    if (this.keyboardMonitor) {
+      this.keyboardMonitor.stop();
+      this.keyboardMonitor = null;
     }
 
     this.setState({
@@ -566,7 +280,7 @@ export class KeyboardService extends EventEmitter {
   }
 
   public isRunning(): boolean {
-    return this.keyboardProcess !== null;
+    return this.keyboardMonitor !== null;
   }
 
   public dispose(): void {
