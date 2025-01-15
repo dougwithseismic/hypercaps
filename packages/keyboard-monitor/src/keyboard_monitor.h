@@ -17,6 +17,10 @@ struct KeyboardFrame {
     std::map<DWORD, long long> holdDurations;
     long long timestamp;
     int frameNumber;
+    struct {
+        std::string type;
+        DWORD key;
+    } event;
 };
 
 class KeyboardMonitor : public Napi::ObjectWrap<KeyboardMonitor> {

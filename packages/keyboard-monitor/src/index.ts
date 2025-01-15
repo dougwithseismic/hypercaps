@@ -1,26 +1,9 @@
 import bindings from 'bindings';
+import type { KeyboardConfig, KeyboardFrame } from './types/keyboard';
 
 const addon = bindings('keyboard_monitor');
 
-export interface KeyboardConfig {
-  isEnabled: boolean;
-  isHyperKeyEnabled: boolean;
-  trigger: string;
-  modifiers: string[];
-  capsLockBehavior?: 'None' | 'DoublePress' | 'BlockToggle';
-  bufferWindow?: number;
-}
-
-export interface KeyboardFrame {
-  frame: number;
-  timestamp: number;
-  state: {
-    justPressed: number[];
-    held: number[];
-    justReleased: number[];
-    holdDurations: Record<string, number>;
-  };
-}
+export * from './types/keyboard';
 
 export type KeyboardEventCallback = (
   eventName: string,

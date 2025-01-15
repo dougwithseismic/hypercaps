@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { Store } from '@electron/services/store';
 import { ipc } from '@electron/services/ipc';
 import { HyperKeyFeatureConfig } from './types/hyperkey-feature';
-import { KeyboardState, ServiceState } from './types/keyboard-state';
+import { ServiceState } from './types/keyboard-state';
 import { IPCSERVICE_NAMES } from '@electron/consts';
 import {
   KeyboardMonitor,
@@ -158,14 +158,11 @@ export class KeyboardService extends EventEmitter {
 
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
     // Send frame state directly to renderer and emit IPC event
-    console.log('[KeyboardService] data SHITTTTj', data);
-    const keyboardState: KeyboardState = {
+    console.log('[KeyboardService] Keyboard frame:', data);
+    const keyboardState = {
       frame: data.frame,
       timestamp: data.timestamp,
-      event: {
-        type: data.event.type,
-        key: String(data.event.key), // Use first pressed key if available
-      },
+      event: data.event,
       state: {
         justPressed: data.state.justPressed.map(String),
         held: data.state.held.map(String),
