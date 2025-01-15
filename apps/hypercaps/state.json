@@ -1,18 +1,26 @@
 {
+  "version": "0.2.0",
   "state": {
+    "settings": {
+      "startupOnBoot": false,
+      "startMinimized": false
+    },
     "features": [
       {
+        "name": "hyperKey",
+        "isFeatureEnabled": true,
+        "enableFeatureOnStartup": true,
         "config": {
           "capsLockBehavior": "BlockToggle",
           "isHyperKeyEnabled": true,
           "modifiers": [],
           "trigger": "Capital"
-        },
-        "enableFeatureOnStartup": true,
-        "isFeatureEnabled": true,
-        "name": "hyperKey"
+        }
       },
       {
+        "name": "shortcutManager",
+        "isFeatureEnabled": true,
+        "enableFeatureOnStartup": true,
         "config": {
           "isEnabled": true,
           "shortcuts": [
@@ -28,7 +36,11 @@
               "trigger": {
                 "steps": [
                   {
-                    "keys": ["LShift", "LControl", "N"],
+                    "keys": [
+                      "LShift",
+                      "LControl",
+                      "N"
+                    ],
                     "type": "combo",
                     "window": 200
                   }
@@ -48,13 +60,19 @@
               "trigger": {
                 "steps": [
                   {
-                    "keys": ["H", "G"],
+                    "keys": [
+                      "H",
+                      "G"
+                    ],
                     "strict": true,
                     "type": "combo",
                     "window": 200
                   },
                   {
-                    "keys": ["H", "G"],
+                    "keys": [
+                      "H",
+                      "G"
+                    ],
                     "strict": true,
                     "type": "combo",
                     "window": 200
@@ -76,12 +94,17 @@
                 "steps": [
                   {
                     "holdTime": 2000,
-                    "keys": ["LShift"],
+                    "keys": [
+                      "LShift"
+                    ],
                     "type": "hold",
                     "window": 1000
                   },
                   {
-                    "keys": ["LShift", "A"],
+                    "keys": [
+                      "LShift",
+                      "A"
+                    ],
                     "type": "combo",
                     "window": 200
                   }
@@ -90,16 +113,8 @@
               }
             }
           ]
-        },
-        "enableFeatureOnStartup": true,
-        "isFeatureEnabled": true,
-        "name": "shortcutManager"
+        }
       }
-    ],
-    "settings": {
-      "startMinimized": false,
-      "startupOnBoot": false
-    }
-  },
-  "version": "0.2.0"
+    ]
+  }
 }

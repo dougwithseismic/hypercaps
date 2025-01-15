@@ -6,6 +6,9 @@ export * from './contracts';
 export * from './ipc-service';
 export * from './ipc-client';
 
+// Re-export the singleton instance
+export { ipc } from './ipc-service';
+
 declare global {
   interface Window {
     electron: {

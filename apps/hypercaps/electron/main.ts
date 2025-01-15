@@ -68,21 +68,36 @@ const createWindow = async () => {
   mainWindow = new BrowserWindow({
     width: 300,
     height: 300,
-
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, '../preload/preload.js'),
+      // Add GPU-related options
+      disableHtmlFullscreenWindowResize: true,
+      enableWebSQL: false,
     },
     resizable: true,
     minimizable: true,
     maximizable: false,
     fullscreenable: false,
-    // Round corners on Windows 11
     roundedCorners: true,
     backgroundMaterial: 'acrylic',
     darkTheme: true,
     backgroundColor: '#00000000',
+  });
+
+  // Handle renderer process crashes gracefully
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    console.log('Renderer process crashed:', details.reason);
+    mainWindow?.reload();
+  });
+
+  // Handle GPU process crashes gracefully
+  app.on('child-process-gone', (event, details) => {
+    if (details.type === 'GPU') {
+      console.log('GPU process crashed:', details.reason);
+      mainWindow?.reload();
+    }
   });
 
   // Setup IPC handlers

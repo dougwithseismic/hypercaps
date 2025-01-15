@@ -3,23 +3,21 @@
  * Defines the types for keyboard state management
  */
 
-export interface KeyEvent {
-  type: 'keydown' | 'keyup' | 'keyhold';
-  key: string;
-}
+import type {
+  KeyEvent,
+  KeyState,
+  KeyboardFrame,
+} from '@hypercaps/keyboard-monitor';
 
-export interface KeyState {
-  justPressed: string[];
-  held: string[];
-  justReleased: string[];
-  holdDurations: Record<string, number>;
-}
+export type { KeyEvent, KeyState };
 
-export interface KeyboardState {
-  frame: number;
-  timestamp: number;
-  event: KeyEvent;
-  state: KeyState;
+export interface KeyboardState extends Omit<KeyboardFrame, 'state'> {
+  state: {
+    justPressed: string[];
+    held: string[];
+    justReleased: string[];
+    holdDurations: Record<string, number>;
+  };
 }
 
 export interface ServiceState {

@@ -1,21 +1,5 @@
-export interface KeyboardConfig {
-    isEnabled: boolean;
-    isHyperKeyEnabled: boolean;
-    trigger: string;
-    modifiers: string[];
-    capsLockBehavior?: 'None' | 'DoublePress' | 'BlockToggle';
-    bufferWindow?: number;
-}
-export interface KeyboardFrame {
-    frame: number;
-    timestamp: number;
-    state: {
-        justPressed: number[];
-        held: number[];
-        justReleased: number[];
-        holdDurations: Record<string, number>;
-    };
-}
+import type { KeyboardConfig, KeyboardFrame } from './types/keyboard';
+export * from './types/keyboard';
 export type KeyboardEventCallback = (eventName: string, data: KeyboardFrame) => void;
 export declare class KeyboardMonitor {
     private monitor;

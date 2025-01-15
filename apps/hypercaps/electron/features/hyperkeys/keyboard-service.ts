@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { Store } from '@electron/services/store';
 import { ipc } from '@electron/services/ipc';
 import { HyperKeyFeatureConfig } from './types/hyperkey-feature';
-import { KeyboardState, ServiceState } from './types/keyboard-state';
+import { ServiceState } from './types/keyboard-state';
 import { IPCSERVICE_NAMES } from '@electron/consts';
 import {
   KeyboardMonitor,
@@ -104,12 +104,6 @@ export class KeyboardService extends EventEmitter {
   private setState(updates: Partial<ServiceState>): void {
     this.state = { ...this.state, ...updates };
 
-    // Emit state change
-    this.mainWindow?.webContents.send('keyboard-service-state', {
-      ...this.state,
-      isRunning: this.isRunning(),
-    });
-
     ipc.emit({
       service: IPCSERVICE_NAMES.KEYBOARD,
       event: SERVICE_ACTIONS.STATE_CHANGED,
@@ -145,9 +139,13 @@ export class KeyboardService extends EventEmitter {
     }
 
     // Send initial state to renderer
-    this.mainWindow?.webContents.send('hyperkey-state', {
-      ...hyperKey.config,
-      enabled: hyperKey.isFeatureEnabled,
+    ipc.emit({
+      service: IPCSERVICE_NAMES.HYPERKEY,
+      event: SERVICE_ACTIONS.CONFIG_CHANGED,
+      data: {
+        ...hyperKey.config,
+        enabled: hyperKey.isFeatureEnabled,
+      },
     });
 
     // Auto-start if feature is enabled
@@ -158,14 +156,11 @@ export class KeyboardService extends EventEmitter {
 
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
     // Send frame state directly to renderer and emit IPC event
-    console.log('[KeyboardService] data SHITTTTj', data);
-    const keyboardState: KeyboardState = {
+    console.log('[KeyboardService] Keyboard frame:', data);
+    const keyboardState = {
       frame: data.frame,
       timestamp: data.timestamp,
-      event: {
-        type: data.event.type,
-        key: String(data.event.key), // Use first pressed key if available
-      },
+      event: data.event,
       state: {
         justPressed: data.state.justPressed.map(String),
         held: data.state.held.map(String),
@@ -177,7 +172,6 @@ export class KeyboardService extends EventEmitter {
       },
     };
 
-    this.mainWindow?.webContents.send('keyboard-frame', keyboardState);
     ipc.emit({
       service: IPCSERVICE_NAMES.KEYBOARD,
       event: SERVICE_ACTIONS.FRAME,
@@ -300,7 +294,7 @@ export class KeyboardService extends EventEmitter {
     });
 
     // Emit config change event
-    this.mainWindow?.webContents.send('ipc:event', {
+    ipc.emit({
       service: IPCSERVICE_NAMES.HYPERKEY,
       event: SERVICE_ACTIONS.CONFIG_CHANGED,
       data: config,
