@@ -14,7 +14,7 @@
           "capsLockBehavior": "BlockToggle",
           "isHyperKeyEnabled": false,
           "modifiers": [],
-          "trigger": "CapsLock"
+          "trigger": "Capital"
         }
       },
       {
@@ -36,12 +36,12 @@
               "trigger": {
                 "steps": [
                   {
-                    "type": "combo",
                     "keys": [
                       "LShiftKey",
                       "LControlKey",
                       "N"
                     ],
+                    "type": "combo",
                     "window": 200
                   }
                 ],
@@ -60,22 +60,22 @@
               "trigger": {
                 "steps": [
                   {
-                    "type": "combo",
                     "keys": [
                       "H",
                       "G"
                     ],
-                    "window": 200,
-                    "strict": true
+                    "strict": true,
+                    "type": "combo",
+                    "window": 200
                   },
                   {
-                    "type": "combo",
                     "keys": [
                       "H",
                       "G"
                     ],
-                    "window": 200,
-                    "strict": true
+                    "strict": true,
+                    "type": "combo",
+                    "window": 200
                   }
                 ],
                 "totalTimeWindow": 1000
@@ -93,19 +93,19 @@
               "trigger": {
                 "steps": [
                   {
-                    "type": "hold",
+                    "holdTime": 2000,
                     "keys": [
                       "LShiftKey"
                     ],
-                    "holdTime": 2000,
+                    "type": "hold",
                     "window": 1000
                   },
                   {
-                    "type": "combo",
                     "keys": [
                       "LShiftKey",
                       "A"
                     ],
+                    "type": "combo",
                     "window": 200
                   }
                 ],
