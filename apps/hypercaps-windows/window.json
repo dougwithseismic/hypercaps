@@ -1,0 +1,25 @@
+{
+	"bounds": {
+		"width": 904,
+		"height": 672,
+		"x": 572,
+		"y": 216
+	},
+	"state": {
+		"isMaximized": false,
+		"isMinimized": false,
+		"isVisible": false,
+		"isFocused": false,
+		"isAlwaysOnTop": false
+	},
+	"behavior": {
+		"rememberPosition": true,
+		"rememberSize": true,
+		"startMinimized": false,
+		"hideMenuBar": true,
+		"showOnAllWorkspaces": false
+	},
+	"appearance": {
+		"vibrancy": "none"
+	}
+}

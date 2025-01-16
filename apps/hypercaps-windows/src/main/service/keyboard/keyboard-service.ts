@@ -1,60 +1,24 @@
-import {
-  CapsLockBehavior,
-  KeyboardConfig,
-  KeyboardMonitor,
-  type KeyboardFrame
-} from '@hypercaps/keyboard-monitor'
-
-import { validateRemapRules } from '@hypercaps/keyboard-monitor/src/utils/remap-validator'
+import { KeyboardConfig, KeyboardMonitor, type KeyboardFrame } from '@hypercaps/keyboard-monitor'
 import { dialog } from 'electron'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
-import { RemapperConfig } from '../../features/remapper/types'
-import { store } from '../../infrastructure/store'
-import {
-  ErrorState,
-  FrameHistoryOptions,
-  KeyboardFrameEvent,
-  KeyboardServiceState,
-  StateChangeEvent
-} from './types'
-
-// Default configuration values
-const DEFAULT_BUFFER_WINDOW = 3000 // 3 seconds
-const DEFAULT_MAX_REMAP_CHAIN = 5
-const DEFAULT_CAPS_BEHAVIOR: CapsLockBehavior = 'BlockToggle'
-const DEFAULT_FRAME_HISTORY: FrameHistoryOptions = {
-  maxSize: 100,
-  retentionMs: 5000 // 5 seconds
-}
-
-const DEFAULT_KEYBOARD_SERVICE_STATE: KeyboardServiceState = {
-  isListening: false,
-  isLoading: false,
-  isStarting: false,
-  isServiceEnabled: false,
-  frameHistory: [],
-  historyOptions: DEFAULT_FRAME_HISTORY,
-  features: {
-    remapper: {
-      isFeatureEnabled: false,
-      config: {
-        isRemapperEnabled: false,
-        remaps: {},
-        capsLockBehavior: DEFAULT_CAPS_BEHAVIOR
-      }
-    }
-  }
-}
+import { keyboardStore } from './store'
+import { ErrorState, KeyboardFrameEvent, KeyboardServiceState, StateChangeEvent } from './types'
 
 export class KeyboardService extends EventEmitter {
   private static instance: KeyboardService
   private keyboardMonitor: KeyboardMonitor | null = null
-  private bufferWindow = DEFAULT_BUFFER_WINDOW
-  private maxRemapChainLength = DEFAULT_MAX_REMAP_CHAIN
-  private state: KeyboardServiceState = DEFAULT_KEYBOARD_SERVICE_STATE
-  private unsubscribeHandlers: Array<() => void> = []
+  private state: KeyboardServiceState = {
+    isListening: false,
+    isLoading: false,
+    isStarting: false,
+    frameHistory: [],
+    currentFrame: undefined,
+    error: undefined,
+    lastError: undefined
+  }
   private frameCleanupInterval: NodeJS.Timeout | null = null
+  private config = keyboardStore.get()
 
   private constructor() {
     super()
@@ -81,7 +45,7 @@ export class KeyboardService extends EventEmitter {
 
   private cleanupFrameHistory(): void {
     const now = Date.now()
-    const { maxSize, retentionMs } = this.state.historyOptions
+    const { maxSize, retentionMs } = this.config.service.frameHistory
 
     let frameHistory = this.state.frameHistory.filter(
       (frame) => now - frame.timestamp < retentionMs
@@ -98,24 +62,13 @@ export class KeyboardService extends EventEmitter {
   }
 
   private setupStoreListeners(): void {
-    // Listen for feature config changes
-    const unsubscribeConfig = store.events.on('feature:config:changed', ({ feature, config }) => {
-      if (feature === 'remapper') {
-        this.handleConfigChange(config as RemapperConfig)
+    keyboardStore.on({
+      event: 'store:changed',
+      handler: ({ config }) => {
+        this.config = config
+        this.handleConfigChange()
       }
     })
-
-    // Listen for feature enable/disable
-    const unsubscribeEnabled = store.events.on(
-      'feature:enabled:changed',
-      ({ feature, enabled }) => {
-        if (feature === 'remapper') {
-          this.handleFeatureToggle(enabled)
-        }
-      }
-    )
-
-    this.unsubscribeHandlers.push(unsubscribeConfig, unsubscribeEnabled)
   }
 
   private setState(updates: Partial<KeyboardServiceState>): void {
@@ -219,65 +172,49 @@ export class KeyboardService extends EventEmitter {
 
   public async initialize(): Promise<void> {
     console.log('[KeyboardService] Initializing...')
-    const remapper = store.getFeatureConfig('remapper')
 
-    // Update initial state
-    this.setState({
-      isServiceEnabled: true,
-      features: {
-        remapper: {
-          isFeatureEnabled: remapper.isFeatureEnabled,
-          config: remapper.config
-        }
-      }
-    })
+    if (!this.config.service.enabled) {
+      console.log('[KeyboardService] Service is disabled')
+      return
+    }
 
-    // Start if feature is enabled
-    if (remapper.isFeatureEnabled) {
+    if (this.config.monitoring.enabled) {
       await this.startListening()
     }
   }
 
-  private validateConfig(config: RemapperConfig): boolean {
-    const errors = validateRemapRules(config.remaps)
+  private handleConfigChange(): void {
+    console.log('[KeyboardService] Config changed:', this.config)
 
-    if (errors.length > 0) {
-      const errorMessages = errors.map((error) => `- ${error.message}`).join('\n')
-      dialog.showErrorBox(
-        'Invalid Remap Configuration',
-        `The following errors were found in your remap configuration:\n\n${errorMessages}`
-      )
-      return false
-    }
-
-    return true
-  }
-
-  private handleConfigChange(config: RemapperConfig): void {
-    console.log('[KeyboardService] Config changed:', config)
-
-    // Validate new config before applying
-    if (!this.validateConfig(config)) {
-      console.error('[KeyboardService] Invalid remap configuration, not applying changes')
+    if (!this.config.service.enabled) {
+      this.stopListening()
       return
     }
 
-    this.restartWithConfig(config).catch((error) => {
-      console.error('[KeyboardService] Failed to restart with new config:', error)
-    })
+    if (this.config.monitoring.enabled && !this.isRunning()) {
+      this.startListening()
+    } else if (!this.config.monitoring.enabled && this.isRunning()) {
+      this.stopListening()
+    } else if (this.isRunning()) {
+      // Update monitor config
+      this.updateMonitorConfig()
+    }
   }
 
-  private handleFeatureToggle(enabled: boolean): void {
-    console.log('[KeyboardService] Feature toggled:', enabled)
-    if (enabled) {
-      this.startListening().catch((error) => {
-        console.error('[KeyboardService] Failed to start listening:', error)
-      })
-    } else {
-      this.stopListening().catch((error) => {
-        console.error('[KeyboardService] Failed to stop listening:', error)
-      })
+  private updateMonitorConfig(): void {
+    if (!this.keyboardMonitor) return
+
+    const config: KeyboardConfig = {
+      isRemapperEnabled: true,
+      remaps: {},
+      maxRemapChainLength: 1,
+
+      isEnabled: this.config.monitoring.enabled,
+      capsLockBehavior: this.config.monitoring.capsLockBehavior,
+      bufferWindow: this.config.service.bufferWindow
     }
+
+    this.keyboardMonitor.setConfig(config)
   }
 
   public async startListening(): Promise<void> {
@@ -288,15 +225,8 @@ export class KeyboardService extends EventEmitter {
       return
     }
 
-    const remapper = store.getFeatureConfig('remapper')
-    if (!remapper.isFeatureEnabled) {
-      console.log('[KeyboardService] Feature is disabled, not starting')
-      return
-    }
-
-    // Validate config before starting
-    if (!this.validateConfig(remapper.config)) {
-      console.error('[KeyboardService] Invalid initial config, not starting')
+    if (!this.config.monitoring.enabled) {
+      console.log('[KeyboardService] Monitoring is disabled')
       return
     }
 
@@ -310,17 +240,12 @@ export class KeyboardService extends EventEmitter {
 
     try {
       const config: KeyboardConfig = {
-        // Feature flags
-        isEnabled: remapper.isFeatureEnabled,
-        isRemapperEnabled: remapper.config.isRemapperEnabled,
-
-        // Remapping configuration
-        remaps: remapper.config.remaps,
-        maxRemapChainLength: this.maxRemapChainLength,
-
-        // Behavior configuration
-        capsLockBehavior: remapper.config.capsLockBehavior || DEFAULT_CAPS_BEHAVIOR,
-        bufferWindow: this.bufferWindow
+        isEnabled: this.config.monitoring.enabled,
+        capsLockBehavior: this.config.monitoring.capsLockBehavior,
+        bufferWindow: this.config.service.bufferWindow,
+        isRemapperEnabled: true,
+        remaps: { Capital: ['LShift'] },
+        maxRemapChainLength: 1
       }
 
       this.keyboardMonitor = new KeyboardMonitor((eventName: string, data: KeyboardFrame) => {
@@ -362,7 +287,6 @@ export class KeyboardService extends EventEmitter {
       this.keyboardMonitor = null
     }
 
-    // Clear state but keep feature configuration
     this.setState({
       isListening: false,
       isLoading: false,
@@ -385,25 +309,10 @@ export class KeyboardService extends EventEmitter {
     // Clean up resources
     this.cleanup()
 
-    // Clean up store listeners
-    this.unsubscribeHandlers.forEach((unsubscribe) => {
-      try {
-        unsubscribe()
-      } catch (error) {
-        console.error('[KeyboardService] Error during listener cleanup:', error)
-      }
-    })
-    this.unsubscribeHandlers = []
-
     // Clear singleton instance
     KeyboardService.instance = undefined as unknown as KeyboardService
 
     console.log('[KeyboardService] Service disposed')
-  }
-
-  private async restartWithConfig(config: RemapperConfig): Promise<void> {
-    await this.stopListening()
-    await this.startListening()
   }
 
   private cleanup(): void {

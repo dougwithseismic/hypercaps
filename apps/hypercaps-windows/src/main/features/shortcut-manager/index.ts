@@ -2,10 +2,8 @@ import { exec } from 'child_process'
 import { EventEmitter } from 'events'
 import { keyboardService } from '../../service/keyboard/keyboard-service'
 import type { KeyboardFrameEvent } from '../../service/keyboard/types'
-import { shortcutHooks } from './hooks'
 import { KeyboardEventMatcher } from './keyboard-event-matcher'
 import type { Command, CommandMatch, KeyboardFrame, Shortcut, TriggerStep } from './types'
-import type { ShortcutManagerConfig } from './types/shortcut-config'
 
 // Helper function to convert Shortcut to Command
 function shortcutToCommand(shortcut: Shortcut): Command {
@@ -33,7 +31,6 @@ class ShortcutFeature extends EventEmitter {
   private matcher: KeyboardEventMatcher
   private lastExecutions: Map<string, number>
   private isInitialized = false
-  private config: ShortcutManagerConfig
   private isEnabled: boolean
 
   constructor() {
@@ -49,7 +46,6 @@ class ShortcutFeature extends EventEmitter {
     if (!featureState) {
       console.error('[ShortcutFeature] No feature state found, Creating default config')
     }
-    this.config = featureState.config
     this.isEnabled = featureState.isFeatureEnabled
   }
 

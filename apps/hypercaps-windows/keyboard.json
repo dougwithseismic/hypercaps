@@ -1,0 +1,15 @@
+{
+	"service": {
+		"enabled": true,
+		"bufferWindow": 3000,
+		"frameHistory": {
+			"maxSize": 100,
+			"retentionMs": 5000
+		}
+	},
+	"monitoring": {
+		"enabled": true,
+		"capsLockBehavior": "BlockToggle",
+		"debug": false
+	}
+}
