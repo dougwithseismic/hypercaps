@@ -5,11 +5,11 @@
 
 import type {
   KeyEvent,
-  KeyState,
+  KeyboardState,
   KeyboardFrame,
 } from '@hypercaps/keyboard-monitor';
 
-export type { KeyEvent, KeyState };
+export type { KeyEvent, KeyboardState as KeyState };
 
 export interface KeyboardState extends Omit<KeyboardFrame, 'state'> {
   state: {
