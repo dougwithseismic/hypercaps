@@ -1,0 +1,52 @@
+{
+  "isEnabled": true,
+  "shortcuts": [
+    {
+      "action": {
+        "program": "calc.exe",
+        "type": "launch"
+      },
+      "cooldown": 500,
+      "enabled": true,
+      "id": "915b42fb-4890-4c40-9ad1-5b5bb21d7a2e",
+      "name": "Open Calculator",
+      "trigger": {
+        "steps": [
+          {
+            "keys": ["LShift", "LControl", "N"],
+            "type": "combo",
+            "window": 200
+          }
+        ],
+        "totalTimeWindow": 500
+      }
+    },
+    {
+      "action": {
+        "program": "explorer.exe",
+        "type": "launch"
+      },
+      "cooldown": 500,
+      "enabled": true,
+      "id": "2f3a9d8c-6b7e-4f5d-9c1a-0e2b4d5f6g7h",
+      "name": "HG+HG",
+      "trigger": {
+        "steps": [
+          {
+            "keys": ["H", "G"],
+            "type": "combo",
+            "window": 200,
+            "strict": true
+          },
+          {
+            "keys": ["H", "G"],
+            "type": "combo",
+            "window": 200,
+            "strict": true
+          }
+        ],
+        "totalTimeWindow": 500
+      }
+    }
+  ]
+}

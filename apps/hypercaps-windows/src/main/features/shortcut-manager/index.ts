@@ -3,7 +3,16 @@ import { EventEmitter } from 'events'
 import { keyboardService } from '../../service/keyboard/keyboard-service'
 import type { KeyboardFrameEvent } from '../../service/keyboard/types'
 import { KeyboardEventMatcher } from './keyboard-event-matcher'
-import type { Command, CommandMatch, KeyboardFrame, Shortcut, TriggerStep } from './types'
+import { shortcutStore } from './store'
+import type {
+  Command,
+  CommandMatch,
+  KeyboardFrame,
+  Shortcut,
+  ShortcutManagerConfig,
+  TriggerStep
+} from './types'
+import { spawn } from 'child_process'
 
 // Helper function to convert Shortcut to Command
 function shortcutToCommand(shortcut: Shortcut): Command {
@@ -16,12 +25,12 @@ function shortcutToCommand(shortcut: Shortcut): Command {
         conditions: {
           holdTime: step.holdTime,
           window: step.window,
-          strict: step.strict
+          strict: step.type === 'combo' ? (step.strict ?? true) : step.strict // Default to strict for combos
         }
       })),
       window: shortcut.trigger.totalTimeWindow,
       totalTimeWindow: shortcut.trigger.totalTimeWindow,
-      strict: false // Default to non-strict mode
+      strict: shortcut.trigger.strict ?? false // Global strict mode setting
     },
     cooldown: shortcut.cooldown || 500 // Default cooldown if not specified
   }
@@ -32,6 +41,8 @@ class ShortcutFeature extends EventEmitter {
   private lastExecutions: Map<string, number>
   private isInitialized = false
   private isEnabled: boolean
+  private config: ShortcutManagerConfig
+  private store = shortcutStore
 
   constructor() {
     super()
@@ -40,29 +51,19 @@ class ShortcutFeature extends EventEmitter {
       maxAgeMs: 5000 // 5 seconds max age
     })
     this.lastExecutions = new Map()
-
-    // Initialize with current store state
-    const featureState = shortcutHooks.getConfig()
-    if (!featureState) {
-      console.error('[ShortcutFeature] No feature state found, Creating default config')
-    }
-    this.isEnabled = featureState.isFeatureEnabled
+    this.config = this.store.get()
+    this.isEnabled = this.config.isEnabled
   }
 
   async initialize(): Promise<void> {
     console.log('[ShortcutFeature] Initializing...')
 
     try {
-      // Subscribe to shortcut config changes
-      shortcutHooks.onConfigChange((config) => {
+      // Subscribe to store changes
+      this.store.subscribe((config) => {
         console.log('[ShortcutFeature] Config updated:', config)
         this.config = config
-      })
-
-      // Subscribe to feature enabled/disabled state
-      shortcutHooks.onEnabledChange((enabled) => {
-        console.log('[ShortcutFeature] Feature enabled state changed:', enabled)
-        this.isEnabled = enabled
+        this.isEnabled = config.isEnabled
       })
 
       // Subscribe to keyboard frames
@@ -100,7 +101,6 @@ class ShortcutFeature extends EventEmitter {
     const enabledShortcuts = this.config.shortcuts.filter((s) => s.enabled).map(shortcutToCommand)
 
     const matches = this.matcher.findMatches(enabledShortcuts)
-
     // Execute matched shortcuts
     for (const match of matches) {
       await this.executeShortcut(match)
@@ -119,9 +119,6 @@ class ShortcutFeature extends EventEmitter {
       return
     }
 
-    console.log(`[ShortcutFeature] Executing shortcut: ${match.command.id}`)
-    this.lastExecutions.set(match.command.id, now)
-
     try {
       // Find the shortcut from local config
       const shortcut = this.config.shortcuts.find((s) => s.id === match.command.id)
@@ -132,7 +129,6 @@ class ShortcutFeature extends EventEmitter {
       }
 
       const isProduction = process.env.NODE_ENV === 'production'
-      const { spawn } = require('child_process')
 
       if (shortcut.action.type === 'launch') {
         console.log(`[ShortcutFeature] Launching program: ${shortcut.action.program}`)
@@ -160,6 +156,7 @@ class ShortcutFeature extends EventEmitter {
       } else if (shortcut.action.type === 'command') {
         console.log(`[ShortcutFeature] Running command: ${shortcut.action.command}`)
         const command = shortcut.action.command || ''
+        console.log('[ShortcutFeature] Running command (Need to implement):', command)
         // TODO: Implement command execution
       }
 
@@ -171,6 +168,9 @@ class ShortcutFeature extends EventEmitter {
     } catch (error) {
       console.error('[ShortcutFeature] Error executing shortcut:', error)
       this.emit('shortcut:error', { error, shortcutId: match.command.id })
+    } finally {
+      console.log(`[ShortcutFeature] Executing shortcut: ${match.command.id}`)
+      this.lastExecutions.set(match.command.id, now)
     }
   }
 

@@ -185,7 +185,7 @@ void KeyboardMonitor::CreateNewFrame(long long timestamp) {
 
 void KeyboardMonitor::EmitFrame(const KeyboardFrame& frame) {
     // Debug output
-    printf("\n[DEBUG] Frame %d at %lld\n", frame.frameNumber, frame.timestamp);
+    // printf("\n[DEBUG] Frame %d at %lld\n", frame.frameNumber, frame.timestamp);
     printf("  justPressed: [");
     for (const auto& key : frame.justPressed) {
         std::string keyName = KeyMapping::GetKeyName(key);

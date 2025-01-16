@@ -2,6 +2,8 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { mainWindow } from './features/main-window'
 import { keyboardService } from './service/keyboard/keyboard-service'
+import trayFeature from './features/tray'
+import { shortcutFeature } from './features/shortcut-manager'
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -21,11 +23,8 @@ app.whenReady().then(async () => {
   ipcMain.on('ping', () => console.log('pong'))
 
   await keyboardService.initialize()
-  // await shortcutFeature.initialize()
-
-  keyboardService.on('keyboard:frame', (frame) => {
-    console.log('[keyboard:frame]', frame)
-  })
+  await trayFeature.initialize()
+  await shortcutFeature.initialize()
 
   mainWindow.initialize()
 

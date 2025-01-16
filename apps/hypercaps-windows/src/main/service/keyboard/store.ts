@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { createStore } from '../store'
-import { CapsLockBehavior } from '@hypercaps/keyboard-monitor'
 
 /**
  * Keyboard service configuration schema

@@ -1,0 +1,9 @@
+{
+	"enabled": true,
+	"minimizeToTray": true,
+	"closeToTray": true,
+	"showNotifications": true,
+	"icon": {
+		"theme": "system"
+	}
+}

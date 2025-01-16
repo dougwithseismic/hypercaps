@@ -1,6 +1,12 @@
 {
   "name": "hypercaps",
   "private": true,
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ]
+  },
   "scripts": {
     "build": "turbo build",
     "go": "pnpm run build:monitor && pnpm run dev:hypercaps",

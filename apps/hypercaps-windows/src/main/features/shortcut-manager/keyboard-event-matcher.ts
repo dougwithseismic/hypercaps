@@ -10,9 +10,10 @@ export interface KeyboardEventMatcherOptions {
 export class KeyboardEventMatcher {
   private frames: KeyboardFrame[] = []
   private keyStates: Map<string, KeyboardState> = new Map()
-  private nextFrameId = 0
   private readonly maxSize: number
   private readonly maxAge: number
+  private lastMatchTime = 0
+  private readonly matchCooldownMs = 500 // Configurable cooldown period
 
   constructor({ maxFrames, maxAgeMs }: KeyboardEventMatcherOptions) {
     this.maxSize = maxFrames
@@ -74,6 +75,12 @@ export class KeyboardEventMatcher {
   }
 
   public findMatches(commands: Command[]): CommandMatch[] {
+    const now = Date.now()
+    // Don't process matches during cooldown period
+    if (now - this.lastMatchTime < this.matchCooldownMs) {
+      return []
+    }
+
     const matches: CommandMatch[] = []
 
     for (const command of commands) {
@@ -81,6 +88,11 @@ export class KeyboardEventMatcher {
         const match = this.tryMatchAtIndex(command, i)
         if (match) {
           matches.push(match)
+          this.lastMatchTime = now // Update last match time
+          // Clear all state up to now to prevent ghost matches
+          this.clearFramesUpTo(now)
+          // Only return the first match found
+          return matches
         }
       }
     }
@@ -134,7 +146,7 @@ export class KeyboardEventMatcher {
     holdDurations: Map<string, number>
   ): boolean {
     switch (step.type) {
-      case 'hold':
+      case 'hold': {
         if (!step.conditions?.holdTime) return false
 
         // All keys must be either held or just pressed
@@ -153,8 +165,9 @@ export class KeyboardEventMatcher {
           holdDurations.set(key, duration)
         }
         return true
+      }
 
-      case 'combo':
+      case 'combo': {
         const allKeysActive = step.keys.every(
           (key: string) => frame.justPressed.has(key) || frame.heldKeys.has(key)
         )
@@ -164,6 +177,7 @@ export class KeyboardEventMatcher {
           return step.keys.every((key: string) => frame.justPressed.has(key))
         }
         return allKeysActive
+      }
 
       case 'press':
         return step.keys.some((key: string) => frame.justPressed.has(key))
@@ -201,17 +215,9 @@ export class KeyboardEventMatcher {
   }
 
   public clearFramesUpTo(timestamp: number): void {
-    const index = this.frames.findIndex((frame) => frame.timestamp > timestamp)
-    if (index !== -1) {
-      this.frames = this.frames.slice(index)
-      // Clean up key states for keys that were last seen in cleared frames
-      for (const [key, state] of this.keyStates.entries()) {
-        if (state.lastUpdateTime <= timestamp) {
-          this.keyStates.delete(key)
-        }
-      }
-    } else {
-      this.reset()
-    }
+    // More aggressive clearing - remove all frames and reset key states
+    this.frames = []
+    this.keyStates.clear()
+    this.lastMatchTime = timestamp
   }
 }

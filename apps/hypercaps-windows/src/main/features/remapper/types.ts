@@ -1,7 +1,7 @@
-import { CapsLockBehaviorOptions } from '@hypercaps/keyboard-monitor'
 import { z } from 'zod'
 
-const remapperBehaviorSchema = z.enum(CapsLockBehaviorOptions)
+const remapperBehaviorOptions = ['None', 'DoublePress', 'BlockToggle'] as const
+const remapperBehaviorSchema = z.enum(remapperBehaviorOptions)
 
 export const remapperConfigSchema = z.object({
   isRemapperEnabled: z.boolean(),

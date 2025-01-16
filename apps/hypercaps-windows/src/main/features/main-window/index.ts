@@ -1,4 +1,4 @@
-import { is, optimizer } from '@electron-toolkit/utils'
+import { optimizer } from '@electron-toolkit/utils'
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'path'
 import icon from '../../../../resources/icon.png?asset'
@@ -167,7 +167,8 @@ export class MainWindow {
   private loadContent(): void {
     if (!this.window) return
 
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    // Load the local URL for development or the local html file for production
+    if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
       this.window.loadURL(process.env['ELECTRON_RENDERER_URL'])
     } else {
       this.window.loadFile(join(__dirname, '../renderer/index.html'))
