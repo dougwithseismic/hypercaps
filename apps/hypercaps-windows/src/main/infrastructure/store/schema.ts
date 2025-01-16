@@ -60,6 +60,7 @@ export const DEFAULT_CONFIG: StoreSchema = {
     isMaximized: false
   },
   features: {
+    shortcuts: {},
     remapper: {
       name: 'remapper',
       isFeatureEnabled: true,

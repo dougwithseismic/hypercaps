@@ -6,6 +6,7 @@
     "go": "pnpm run build:monitor && pnpm run dev:hypercaps",
     "build:monitor": "turbo build --filter=@hypercaps/keyboard-monitor",
     "dev": "turbo dev",
+    "dev:windows": "turbo dev --filter=hypercaps-windows",
     "dev:hypercaps": "turbo dev --filter=hypercaps",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",

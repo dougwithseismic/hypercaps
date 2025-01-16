@@ -1,25 +1,25 @@
-import {
-  KeyEvent,
-  KeyboardFrame,
-  KeyboardState,
-  Command,
-  CommandMatch,
-  TriggerStep,
-} from './types';
+import { KeyEvent, KeyboardFrame, KeyboardState, Command, CommandMatch, TriggerStep } from './types'
+
+export interface KeyboardEventMatcherOptions {
+  /** Maximum number of frames to keep in buffer */
+  maxFrames: number
+  /** Maximum age of frames in milliseconds */
+  maxAgeMs: number
+}
 
 export class KeyboardEventMatcher {
-  private frames: KeyboardFrame[] = [];
-  private keyStates: Map<string, KeyboardState> = new Map();
-  private nextFrameId = 0;
-  private readonly maxSize: number;
-  private readonly maxAge: number;
+  private frames: KeyboardFrame[] = []
+  private keyStates: Map<string, KeyboardState> = new Map()
+  private nextFrameId = 0
+  private readonly maxSize: number
+  private readonly maxAge: number
 
-  constructor(maxSize: number, maxAge: number) {
-    this.maxSize = maxSize;
-    this.maxAge = maxAge;
+  constructor({ maxFrames, maxAgeMs }: KeyboardEventMatcherOptions) {
+    this.maxSize = maxFrames
+    this.maxAge = maxAgeMs
     console.log(
-      `[KeyboardEventMatcher] Initialized with maxSize=${maxSize}, maxAge=${maxAge}`
-    );
+      `[KeyboardEventMatcher] Initialized with maxFrames=${maxFrames}, maxAgeMs=${maxAgeMs}`
+    )
   }
 
   public addFrame(frame: KeyboardFrame): void {
@@ -30,100 +30,93 @@ export class KeyboardEventMatcher {
         state: 'justPressed',
         initialPressTime: frame.timestamp,
         holdDuration: 0,
-        lastUpdateTime: frame.timestamp,
-      });
+        lastUpdateTime: frame.timestamp
+      })
     }
 
     for (const key of frame.heldKeys) {
-      const state = this.keyStates.get(key);
+      const state = this.keyStates.get(key)
       if (state) {
         if (state.state === 'justPressed') {
-          state.state = 'held';
+          state.state = 'held'
         }
-        state.holdDuration = frame.holdDurations.get(key) || 0;
-        state.lastUpdateTime = frame.timestamp;
+        state.holdDuration = frame.holdDurations.get(key) || 0
+        state.lastUpdateTime = frame.timestamp
       }
     }
 
     for (const key of frame.justReleased) {
-      const state = this.keyStates.get(key);
+      const state = this.keyStates.get(key)
       if (state) {
-        state.state = 'released';
-        state.lastUpdateTime = frame.timestamp;
+        state.state = 'released'
+        state.lastUpdateTime = frame.timestamp
       }
     }
 
     // Clean up released keys after a frame
     for (const [key, state] of this.keyStates.entries()) {
-      if (
-        state.state === 'released' &&
-        frame.timestamp - state.lastUpdateTime > 16
-      ) {
-        this.keyStates.delete(key);
+      if (state.state === 'released' && frame.timestamp - state.lastUpdateTime > 16) {
+        this.keyStates.delete(key)
       }
     }
 
-    this.frames.push(frame);
-    this.cleanOldFrames(frame.timestamp);
+    this.frames.push(frame)
+    this.cleanOldFrames(frame.timestamp)
   }
 
   private cleanOldFrames(currentTime: number): void {
     while (
       this.frames.length > 0 &&
-      (this.frames.length > this.maxSize ||
-        currentTime - this.frames[0].timestamp > this.maxAge)
+      (this.frames.length > this.maxSize || currentTime - this.frames[0].timestamp > this.maxAge)
     ) {
-      this.frames.shift();
+      this.frames.shift()
     }
   }
 
   public findMatches(commands: Command[]): CommandMatch[] {
-    const matches: CommandMatch[] = [];
+    const matches: CommandMatch[] = []
 
     for (const command of commands) {
       for (let i = 0; i < this.frames.length; i++) {
-        const match = this.tryMatchAtIndex(command, i);
+        const match = this.tryMatchAtIndex(command, i)
         if (match) {
-          matches.push(match);
+          matches.push(match)
         }
       }
     }
 
-    return matches;
+    return matches
   }
 
-  private tryMatchAtIndex(
-    command: Command,
-    startIndex: number
-  ): CommandMatch | null {
-    const pattern = command.pattern;
-    let currentIndex = startIndex;
-    const events: KeyEvent[] = [];
-    const holdDurations = new Map<string, number>();
+  private tryMatchAtIndex(command: Command, startIndex: number): CommandMatch | null {
+    const pattern = command.pattern
+    let currentIndex = startIndex
+    const events: KeyEvent[] = []
+    const holdDurations = new Map<string, number>()
 
     for (const step of pattern.steps) {
-      const frame = this.frames[currentIndex];
-      if (!frame) return null;
+      const frame = this.frames[currentIndex]
+      if (!frame) return null
 
       if (!this.isStepMatched(step, frame, holdDurations)) {
-        return null;
+        return null
       }
 
       // Add events from this frame
-      events.push(...this.getEventsFromFrame(frame));
+      events.push(...this.getEventsFromFrame(frame))
 
       // Move to next frame if not at end
       if (currentIndex < this.frames.length - 1) {
-        currentIndex++;
+        currentIndex++
       }
     }
 
-    const startTime = this.frames[startIndex].timestamp;
-    const endTime = this.frames[currentIndex].timestamp;
+    const startTime = this.frames[startIndex].timestamp
+    const endTime = this.frames[currentIndex].timestamp
 
     // Check if pattern completed within window
-    if (endTime - startTime > pattern.window) {
-      return null;
+    if (endTime - startTime > (pattern.window ?? pattern.totalTimeWindow ?? 1000)) {
+      return null
     }
 
     return {
@@ -131,8 +124,8 @@ export class KeyboardEventMatcher {
       events,
       startTime,
       endTime,
-      holdDurations,
-    };
+      holdDurations
+    }
   }
 
   private isStepMatched(
@@ -142,55 +135,52 @@ export class KeyboardEventMatcher {
   ): boolean {
     switch (step.type) {
       case 'hold':
-        if (!step.conditions?.holdTime) return false;
+        if (!step.conditions?.holdTime) return false
 
         // All keys must be either held or just pressed
         if (
-          !step.keys.every(
-            (key: string) =>
-              frame.heldKeys.has(key) || frame.justPressed.has(key)
-          )
+          !step.keys.every((key: string) => frame.heldKeys.has(key) || frame.justPressed.has(key))
         ) {
-          return false;
+          return false
         }
 
         // Check hold durations
         for (const key of step.keys) {
-          const duration = frame.holdDurations.get(key) || 0;
+          const duration = frame.holdDurations.get(key) || 0
           if (duration < step.conditions.holdTime) {
-            return false;
+            return false
           }
-          holdDurations.set(key, duration);
+          holdDurations.set(key, duration)
         }
-        return true;
+        return true
 
       case 'combo':
         const allKeysActive = step.keys.every(
           (key: string) => frame.justPressed.has(key) || frame.heldKeys.has(key)
-        );
-        const isStrict = step.conditions?.strict ?? false;
+        )
+        const isStrict = step.conditions?.strict ?? false
 
         if (isStrict) {
-          return step.keys.every((key: string) => frame.justPressed.has(key));
+          return step.keys.every((key: string) => frame.justPressed.has(key))
         }
-        return allKeysActive;
+        return allKeysActive
 
       case 'press':
-        return step.keys.some((key: string) => frame.justPressed.has(key));
+        return step.keys.some((key: string) => frame.justPressed.has(key))
 
       case 'release':
-        return step.keys.every((key: string) => frame.justReleased.has(key));
+        return step.keys.every((key: string) => frame.justReleased.has(key))
 
       default:
-        return false;
+        return false
     }
   }
 
   private getEventsFromFrame(frame: KeyboardFrame): KeyEvent[] {
-    const events: KeyEvent[] = [];
+    const events: KeyEvent[] = []
 
     for (const key of frame.justPressed) {
-      events.push({ key, type: 'press', timestamp: frame.timestamp });
+      events.push({ key, type: 'press', timestamp: frame.timestamp })
     }
 
     for (const key of frame.justReleased) {
@@ -198,30 +188,30 @@ export class KeyboardEventMatcher {
         key,
         type: 'release',
         timestamp: frame.timestamp,
-        duration: frame.holdDurations.get(key),
-      });
+        duration: frame.holdDurations.get(key)
+      })
     }
 
-    return events;
+    return events
   }
 
   public reset(): void {
-    this.frames = [];
-    this.keyStates.clear();
+    this.frames = []
+    this.keyStates.clear()
   }
 
   public clearFramesUpTo(timestamp: number): void {
-    const index = this.frames.findIndex((frame) => frame.timestamp > timestamp);
+    const index = this.frames.findIndex((frame) => frame.timestamp > timestamp)
     if (index !== -1) {
-      this.frames = this.frames.slice(index);
+      this.frames = this.frames.slice(index)
       // Clean up key states for keys that were last seen in cleared frames
       for (const [key, state] of this.keyStates.entries()) {
         if (state.lastUpdateTime <= timestamp) {
-          this.keyStates.delete(key);
+          this.keyStates.delete(key)
         }
       }
     } else {
-      this.reset();
+      this.reset()
     }
   }
 }

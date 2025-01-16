@@ -1,19 +1,11 @@
-import { shortcutFeature } from './index'
 import { exec } from 'child_process'
-import { randomUUID } from 'crypto'
-import { Features, store } from '../../infrastructure/store'
+import { EventEmitter } from 'events'
 import { keyboardService } from '../../service/keyboard/keyboard-service'
 import type { KeyboardFrameEvent } from '../../service/keyboard/types'
+import { shortcutHooks } from './hooks'
 import { KeyboardEventMatcher } from './keyboard-event-matcher'
-import type {
-  Command,
-  CommandMatch,
-  KeyboardFrame,
-  Shortcut,
-  ShortcutManagerConfig,
-  TriggerStep
-} from './types'
-import { EventEmitter } from 'events'
+import type { Command, CommandMatch, KeyboardFrame, Shortcut, TriggerStep } from './types'
+import type { ShortcutManagerConfig } from './types/shortcut-config'
 
 // Helper function to convert Shortcut to Command
 function shortcutToCommand(shortcut: Shortcut): Command {
@@ -38,29 +30,44 @@ function shortcutToCommand(shortcut: Shortcut): Command {
 }
 
 class ShortcutFeature extends EventEmitter {
-  private shortcutFeature: Features['shortcuts']
   private matcher: KeyboardEventMatcher
   private lastExecutions: Map<string, number>
   private isInitialized = false
+  private config: ShortcutManagerConfig
+  private isEnabled: boolean
 
   constructor() {
     super()
-    this.matcher = new KeyboardEventMatcher(32, 5000) // 32 frames, 5 seconds
+    this.matcher = new KeyboardEventMatcher({
+      maxFrames: 32, // 32 frames buffer
+      maxAgeMs: 5000 // 5 seconds max age
+    })
     this.lastExecutions = new Map()
-    this.shortcutFeature = store.getFeatureConfig('shortcuts')
+
+    // Initialize with current store state
+    const featureState = shortcutHooks.getConfig()
+    if (!featureState) {
+      console.error('[ShortcutFeature] No feature state found, Creating default config')
+    }
+    this.config = featureState.config
+    this.isEnabled = featureState.isFeatureEnabled
   }
 
   async initialize(): Promise<void> {
     console.log('[ShortcutFeature] Initializing...')
 
     try {
-      // Get current state
-      // TODO: Implement store.getFeature
-      console.log('TODO: implement store.getFeature')
+      // Subscribe to shortcut config changes
+      shortcutHooks.onConfigChange((config) => {
+        console.log('[ShortcutFeature] Config updated:', config)
+        this.config = config
+      })
 
-      // Initialize feature in store if it doesn't exist
-      // TODO: Implement store.update
-      console.log('TODO: implement store.update')
+      // Subscribe to feature enabled/disabled state
+      shortcutHooks.onEnabledChange((enabled) => {
+        console.log('[ShortcutFeature] Feature enabled state changed:', enabled)
+        this.isEnabled = enabled
+      })
 
       // Subscribe to keyboard frames
       keyboardService.on('keyboard:frame', this.handleFrameEvent)
@@ -76,9 +83,9 @@ class ShortcutFeature extends EventEmitter {
     const frame: KeyboardFrame = {
       id: event.id,
       timestamp: event.timestamp,
-      justPressed: new Set(event.state.justPressed),
-      heldKeys: new Set(event.state.held),
-      justReleased: new Set(event.state.justReleased),
+      justPressed: new Set(event.state.justPressed.map(String)),
+      heldKeys: new Set(event.state.held.map(String)),
+      justReleased: new Set(event.state.justReleased.map(String)),
       holdDurations: new Map(Object.entries(event.state.holdDurations))
     }
 
@@ -92,18 +99,9 @@ class ShortcutFeature extends EventEmitter {
   }
 
   private async findAndExecuteMatches(): Promise<void> {
-    // TODO: Implement store.getFeature
-    console.log('TODO: implement store.getFeature')
+    if (!this.isEnabled || !this.config.isEnabled) return
 
-    const shortcutsConfig = store.getFeatureConfig('shortcuts')
-    console.log('shortcutsConfig', shortcutsConfig)
-
-    const state = { isEnabled: true, shortcuts: [] } // Temporary mock state
-    if (!state?.isEnabled) return
-
-    const enabledShortcuts = state.shortcuts
-      .filter((s: Shortcut) => s.enabled)
-      .map(shortcutToCommand)
+    const enabledShortcuts = this.config.shortcuts.filter((s) => s.enabled).map(shortcutToCommand)
 
     const matches = this.matcher.findMatches(enabledShortcuts)
 
@@ -129,11 +127,8 @@ class ShortcutFeature extends EventEmitter {
     this.lastExecutions.set(match.command.id, now)
 
     try {
-      // Find the original shortcut from the store
-      // TODO: Implement store.getFeature
-      console.log('TODO: implement store.getFeature')
-      const state = { shortcuts: [] } // Temporary mock state
-      const shortcut = state.shortcuts.find((s: Shortcut) => s.id === match.command.id)
+      // Find the shortcut from local config
+      const shortcut = this.config.shortcuts.find((s) => s.id === match.command.id)
 
       if (!shortcut) {
         console.error(`[ShortcutFeature] Shortcut not found: ${match.command.id}`)
@@ -169,6 +164,7 @@ class ShortcutFeature extends EventEmitter {
       } else if (shortcut.action.type === 'command') {
         console.log(`[ShortcutFeature] Running command: ${shortcut.action.command}`)
         const command = shortcut.action.command || ''
+        // TODO: Implement command execution
       }
 
       // Emit shortcut executed event
@@ -182,35 +178,6 @@ class ShortcutFeature extends EventEmitter {
     }
   }
 
-  async addShortcut(shortcut: Omit<Shortcut, 'id'>): Promise<void> {
-    const newShortcut: Shortcut = {
-      ...shortcut,
-      id: randomUUID()
-    }
-
-    // TODO: Implement store.update
-    console.log('TODO: implement store.update', newShortcut)
-    this.emit('shortcut:added', newShortcut)
-  }
-
-  async removeShortcut(id: string): Promise<void> {
-    // TODO: Implement store.update
-    console.log('TODO: implement store.update', id)
-    this.emit('shortcut:removed', id)
-  }
-
-  async updateShortcut(id: string, update: Partial<Shortcut>): Promise<void> {
-    // TODO: Implement store.update
-    console.log('TODO: implement store.update', id, update)
-    this.emit('shortcut:updated', { id, update })
-  }
-
-  async toggleEnabled(): Promise<void> {
-    // TODO: Implement store.update
-    console.log('TODO: implement store.update')
-    this.emit('feature:toggled')
-  }
-
   dispose(): void {
     if (this.isInitialized) {
       keyboardService.off('keyboard:frame', this.handleFrameEvent)
@@ -222,4 +189,5 @@ class ShortcutFeature extends EventEmitter {
   }
 }
 
+// Export singleton instance
 export const shortcutFeature = new ShortcutFeature()
