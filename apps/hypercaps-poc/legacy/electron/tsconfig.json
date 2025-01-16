@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "CommonJS",
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "noImplicitAny": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "outDir": "dist",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "paths": {
+      "*": ["node_modules/*"],
+      "@electron/*": ["../electron/*"]
+    }
+  },
+  "include": [
+    "**/*",
+    "../../_main/features/shortcuts/types",
+    "../../_main/features/shortcuts/keyboard-event-matcher.ts",
+    "../../_main/types"
+  ]
+}

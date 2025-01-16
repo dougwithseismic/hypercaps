@@ -15,15 +15,17 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "eslint": "^9.18.0",
     "@eslint/js": "^9.18.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.18.0",
     "eslint-config-prettier": "^9.1.0",
-    "typescript-eslint": "^8.15.0",
     "husky": "^9.1.7",
     "lint-staged": "^15.3.0",
     "prettier": "^3.2.5",
+    "tsx": "^4.19.2",
     "turbo": "^2.3.3",
-    "typescript": "5.5.4"
+    "typescript": "5.5.4",
+    "typescript-eslint": "^8.15.0"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {

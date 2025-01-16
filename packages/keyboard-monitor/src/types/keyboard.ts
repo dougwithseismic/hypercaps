@@ -24,11 +24,32 @@ export interface KeyboardFrame {
   state: KeyState;
 }
 
+export type CapsLockBehavior = 'None' | 'DoublePress' | 'BlockToggle';
+
+export interface RemapRule {
+  from: string;
+  to: string[];
+}
+
+export interface RemapValidationError {
+  type: 'circular' | 'invalid_key' | 'self_reference' | 'chain_length';
+  message: string;
+  rule?: RemapRule;
+}
+
+/**
+ * Configuration for the keyboard monitor
+ */
 export interface KeyboardConfig {
+  // Feature flags
   isEnabled: boolean;
-  isHyperKeyEnabled: boolean;
-  trigger: string;
-  modifiers: string[];
-  capsLockBehavior?: 'None' | 'DoublePress' | 'BlockToggle';
-  bufferWindow?: number;
+  isRemapperEnabled: boolean;
+
+  // Remapping configuration
+  remaps: Record<string, string[]>;
+  maxRemapChainLength: number;
+
+  // Behavior configuration
+  capsLockBehavior: CapsLockBehavior;
+  bufferWindow: number;
 }

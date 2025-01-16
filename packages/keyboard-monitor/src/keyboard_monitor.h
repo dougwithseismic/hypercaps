@@ -6,6 +6,8 @@
 #include <queue>
 #include <map>
 #include <chrono>
+#include <string>
+#include <vector>
 
 // Forward declare the polling thread function
 DWORD WINAPI PollingThreadProc(LPVOID param);
@@ -39,11 +41,14 @@ private:
 
     // State
     bool isEnabled = false;
-    bool isHyperKeyEnabled = false;
+    bool isRemapperEnabled = false;
     bool isPolling = false;
-    DWORD hyperKeyTrigger = 0;
-    std::set<DWORD> modifierKeys;
     HANDLE pollingThread = NULL;
+    
+    // Configuration
+    std::map<std::string, std::vector<std::string>> remaps;
+    int bufferWindow = 3000;
+    int maxRemapChainLength = 5;
     
     // Frame management
     std::queue<KeyboardFrame> frames;

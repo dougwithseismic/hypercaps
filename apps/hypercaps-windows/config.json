@@ -1,0 +1,30 @@
+{
+  "app": {
+    "firstRun": true,
+    "startMinimized": false,
+    "startWithSystem": false,
+    "theme": "system",
+    "version": "0.0.1"
+  },
+  "features": {
+    "remapper": {
+      "config": {
+        "capsLockBehavior": "BlockToggle",
+        "isRemapperEnabled": true,
+        "remaps": {
+          "CapsLock": ["LShift", "LAlt"]
+        }
+      },
+      "enableFeatureOnStartup": true,
+      "isFeatureEnabled": true,
+      "name": "remapper"
+    }
+  },
+  "window": {
+    "bounds": {
+      "height": 600,
+      "width": 800
+    },
+    "isMaximized": false
+  }
+}

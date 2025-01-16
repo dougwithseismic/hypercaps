@@ -59,6 +59,17 @@ void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
 
     auto& currentFrame = frames.back();
     
+    // Handle remapping if enabled
+    if (isRemapperEnabled && !KeyMapping::IsKeyRemapped(vkCode)) {
+        KeyMapping::ProcessRemaps(remaps, vkCode, isKeyDown, maxRemapChainLength);
+        // If the key was remapped, we don't process it further
+        // unless it's CapsLock and we want to report it
+        if (KeyMapping::IsKeyRemapped(vkCode) && 
+            !(vkCode == VK_CAPITAL && KeyMapping::ShouldReportCapsLock())) {
+            return;
+        }
+    }
+    
     if (isKeyDown) {
         if (currentFrame.held.find(vkCode) == currentFrame.held.end()) {
             currentFrame.justPressed.insert(vkCode);
@@ -70,21 +81,6 @@ void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
             currentFrame.justReleased.insert(vkCode);
             currentFrame.held.erase(vkCode);
             keyPressStartTimes.erase(vkCode);
-        }
-    }
-
-    // Handle HyperKey functionality
-    if (isHyperKeyEnabled && vkCode == hyperKeyTrigger) {
-        if (isKeyDown) {
-            // Send modifier keys
-            for (DWORD modifier : modifierKeys) {
-                keybd_event(modifier, 0, 0, 0);
-            }
-        } else {
-            // Release modifier keys in reverse order
-            for (auto it = modifierKeys.rbegin(); it != modifierKeys.rend(); ++it) {
-                keybd_event(*it, 0, KEYEVENTF_KEYUP, 0);
-            }
         }
     }
 
@@ -136,6 +132,11 @@ void KeyboardMonitor::PollKeyboardState() {
             // Only process keys that have a valid mapping
             std::string keyName = KeyMapping::GetKeyName(vk);
             if (!keyName.empty()) {
+                // For CapsLock, only process if we should report it
+                if (vk == VK_CAPITAL && !KeyMapping::ShouldReportCapsLock()) {
+                    continue;
+                }
+                
                 currentKeys.insert(vk);
                 if (currentFrame.held.find(vk) == currentFrame.held.end()) {
                     currentFrame.justPressed.insert(vk);
@@ -332,29 +333,38 @@ Napi::Value KeyboardMonitor::SetConfig(const Napi::CallbackInfo& info) {
     
     // Update configuration
     isEnabled = config.Get("isEnabled").ToBoolean();
-    isHyperKeyEnabled = config.Get("isHyperKeyEnabled").ToBoolean();
+    isRemapperEnabled = config.Get("isRemapperEnabled").ToBoolean();
     
-    // Convert trigger key from string to VK code
-    std::string triggerKey = config.Get("trigger").ToString();
-    DWORD newTrigger = KeyMapping::GetVirtualKeyCode(triggerKey);
-    if (newTrigger == 0) {
-        Napi::Error::New(env, "Invalid trigger key: " + triggerKey).ThrowAsJavaScriptException();
-        return env.Undefined();
-    }
-    hyperKeyTrigger = newTrigger;
+    // Get remap configuration
+    Napi::Object remapsObj = config.Get("remaps").ToObject();
+    remaps.clear();
     
-    // Convert modifier keys
-    Napi::Array modifiers = config.Get("modifiers").As<Napi::Array>();
-    modifierKeys.clear();
-    for (uint32_t i = 0; i < modifiers.Length(); i++) {
-        std::string modifier = modifiers.Get(i).ToString();
-        DWORD vkCode = KeyMapping::GetVirtualKeyCode(modifier);
-        if (vkCode == 0) {
-            Napi::Error::New(env, "Invalid modifier key: " + modifier).ThrowAsJavaScriptException();
-            return env.Undefined();
+    auto remapProps = remapsObj.GetPropertyNames();
+    for (uint32_t i = 0; i < remapProps.Length(); i++) {
+        std::string fromKey = remapProps.Get(i).ToString();
+        Napi::Array toKeys = remapsObj.Get(fromKey).As<Napi::Array>();
+        
+        std::vector<std::string> targetKeys;
+        for (uint32_t j = 0; j < toKeys.Length(); j++) {
+            targetKeys.push_back(toKeys.Get(j).ToString());
         }
-        modifierKeys.insert(vkCode);
+        
+        remaps[fromKey] = targetKeys;
     }
+    
+    // Get behavior configuration
+    std::string capsLockBehavior = config.Get("capsLockBehavior").ToString();
+    if (capsLockBehavior == "None") {
+        // Handle None behavior
+    } else if (capsLockBehavior == "DoublePress") {
+        // Handle DoublePress behavior
+    } else if (capsLockBehavior == "BlockToggle") {
+        // Handle BlockToggle behavior
+    }
+    
+    // Get timing configuration
+    bufferWindow = config.Get("bufferWindow").ToNumber().Int32Value();
+    maxRemapChainLength = config.Get("maxRemapChainLength").ToNumber().Int32Value();
     
     return env.Undefined();
 }

@@ -1,10 +1,18 @@
 #include "key_mapping.h"
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 
+// Static member initialization
 std::map<std::string, DWORD> KeyMapping::keyNameToVK;
 std::map<DWORD, std::string> KeyMapping::vkToKeyName;
+std::map<DWORD, std::vector<DWORD>> KeyMapping::activeRemaps;
+std::map<DWORD, KeyState> KeyMapping::keyStates;
+std::set<DWORD> KeyMapping::processedKeys;
+std::queue<DWORD> KeyMapping::releaseOrder;
 bool KeyMapping::mapsInitialized = false;
+bool KeyMapping::capsLockRemapped = false;
+bool KeyMapping::reportCapsLock = true;
 
 void KeyMapping::InitializeMaps() {
     if (mapsInitialized) return;
@@ -165,4 +173,242 @@ std::string KeyMapping::GetKeyName(DWORD vkCode) {
 
     // Return empty string if VK code not found
     return "";
+}
+
+bool KeyMapping::IsModifierKey(DWORD vkCode) {
+    return vkCode == VK_SHIFT || vkCode == VK_CONTROL || vkCode == VK_MENU ||
+           vkCode == VK_LSHIFT || vkCode == VK_RSHIFT ||
+           vkCode == VK_LCONTROL || vkCode == VK_RCONTROL ||
+           vkCode == VK_LMENU || vkCode == VK_RMENU ||
+           vkCode == VK_LWIN || vkCode == VK_RWIN;
+}
+
+void KeyMapping::TrackKeyPress(DWORD vkCode, const std::vector<DWORD>& remappedKeys) {
+    auto now = std::chrono::steady_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()
+    ).count();
+
+    KeyState state;
+    state.isPressed = true;
+    state.isModifier = IsModifierKey(vkCode);
+    state.pressTime = timestamp;
+    state.remappedTo = remappedKeys;
+
+    keyStates[vkCode] = state;
+    releaseOrder.push(vkCode);
+}
+
+void KeyMapping::TrackKeyRelease(DWORD vkCode) {
+    auto it = keyStates.find(vkCode);
+    if (it != keyStates.end()) {
+        // Release remapped keys in reverse order
+        ReleaseRemappedKeys(vkCode);
+        keyStates.erase(it);
+    }
+}
+
+void KeyMapping::ReleaseRemappedKeys(DWORD vkCode) {
+    auto it = keyStates.find(vkCode);
+    if (it == keyStates.end()) return;
+
+    const auto& remappedKeys = it->second.remappedTo;
+    // Release keys in reverse order
+    for (auto rit = remappedKeys.rbegin(); rit != remappedKeys.rend(); ++rit) {
+        SimulateKeyRelease(*rit);
+        auto stateIt = keyStates.find(*rit);
+        if (stateIt != keyStates.end()) {
+            keyStates.erase(stateIt);
+        }
+    }
+}
+
+void KeyMapping::ProcessRemaps(
+    const std::map<std::string, std::vector<std::string>>& remaps,
+    DWORD vkCode,
+    bool isKeyDown,
+    int maxChainLength
+) {
+    // Update CapsLock state when processing remaps
+    UpdateCapsLockState(remaps);
+    
+    // Handle CapsLock specially if it's remapped
+    if (vkCode == VK_CAPITAL && capsLockRemapped) {
+        HandleCapsLockRemap(isKeyDown);
+    }
+    
+    // Skip if already processed to prevent recursion
+    if (processedKeys.find(vkCode) != processedKeys.end()) {
+        return;
+    }
+    
+    // Mark as processed
+    processedKeys.insert(vkCode);
+    
+    // Get the key name for lookup
+    std::string keyName = GetKeyName(vkCode);
+    if (keyName.empty()) {
+        processedKeys.erase(vkCode);
+        return;
+    }
+    
+    // Check if this key has remaps
+    auto remapIt = remaps.find(keyName);
+    if (remapIt == remaps.end()) {
+        processedKeys.erase(vkCode);
+        return;
+    }
+    
+    // Convert target key names to VK codes
+    std::vector<DWORD> targetKeys;
+    for (const auto& targetKeyName : remapIt->second) {
+        DWORD targetVK = GetVirtualKeyCode(targetKeyName);
+        if (targetVK != 0) {
+            targetKeys.push_back(targetVK);
+        }
+    }
+    
+    // Store active remaps for this key
+    activeRemaps[vkCode] = targetKeys;
+    
+    // Check for circular remaps
+    std::set<DWORD> visited;
+    if (IsCircularRemap(vkCode, remaps, visited, 0, maxChainLength)) {
+        printf("Warning: Circular remap detected for key %s\n", keyName.c_str());
+        processedKeys.erase(vkCode);
+        return;
+    }
+    
+    if (isKeyDown) {
+        // Track the key press and its remapped keys
+        TrackKeyPress(vkCode, targetKeys);
+        
+        // Process the remapped keys in order
+        for (DWORD targetVK : targetKeys) {
+            SimulateKeyPress(targetVK);
+        }
+    } else {
+        // Release keys and clean up state
+        TrackKeyRelease(vkCode);
+    }
+    
+    // Clear processed flag
+    processedKeys.erase(vkCode);
+}
+
+bool KeyMapping::IsKeyRemapped(DWORD vkCode) {
+    return activeRemaps.find(vkCode) != activeRemaps.end();
+}
+
+std::vector<DWORD> KeyMapping::GetRemappedKeys(DWORD vkCode) {
+    auto it = activeRemaps.find(vkCode);
+    return it != activeRemaps.end() ? it->second : std::vector<DWORD>();
+}
+
+void KeyMapping::SimulateKeyPress(DWORD vkCode) {
+    // Don't simulate if key is already pressed
+    auto it = keyStates.find(vkCode);
+    if (it != keyStates.end() && it->second.isPressed) {
+        return;
+    }
+
+    INPUT input = {0};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = vkCode;
+    input.ki.dwFlags = 0; // Key press
+    SendInput(1, &input, sizeof(INPUT));
+}
+
+void KeyMapping::SimulateKeyRelease(DWORD vkCode) {
+    INPUT input = {0};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = vkCode;
+    input.ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(1, &input, sizeof(INPUT));
+}
+
+bool KeyMapping::IsCircularRemap(
+    DWORD sourceKey,
+    const std::map<std::string, std::vector<std::string>>& remaps,
+    std::set<DWORD>& visited,
+    int depth,
+    int maxDepth
+) {
+    // Check depth limit
+    if (depth >= maxDepth) {
+        return true;
+    }
+    
+    // Check for circular reference
+    if (visited.find(sourceKey) != visited.end()) {
+        return true;
+    }
+    
+    visited.insert(sourceKey);
+    
+    // Get source key name
+    std::string keyName = GetKeyName(sourceKey);
+    if (keyName.empty()) {
+        visited.erase(sourceKey);
+        return false;
+    }
+    
+    // Check remaps for this key
+    auto remapIt = remaps.find(keyName);
+    if (remapIt == remaps.end()) {
+        visited.erase(sourceKey);
+        return false;
+    }
+    
+    // Check each target key for circular references
+    for (const auto& targetKeyName : remapIt->second) {
+        DWORD targetVK = GetVirtualKeyCode(targetKeyName);
+        if (targetVK != 0) {
+            if (IsCircularRemap(targetVK, remaps, visited, depth + 1, maxDepth)) {
+                return true;
+            }
+        }
+    }
+    
+    visited.erase(sourceKey);
+    return false;
+}
+
+bool KeyMapping::IsCapsLockRemapped() {
+    return capsLockRemapped;
+}
+
+void KeyMapping::BlockCapsLockToggle() {
+    // Get current state
+    bool capsState = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
+    
+    // If CapsLock is ON, turn it OFF
+    if (capsState) {
+        // Simulate CapsLock press and release to toggle it off
+        keybd_event(VK_CAPITAL, 0x45, KEYEVENTF_EXTENDEDKEY, 0);
+        keybd_event(VK_CAPITAL, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+    }
+}
+
+bool KeyMapping::ShouldReportCapsLock() {
+    return reportCapsLock;
+}
+
+void KeyMapping::HandleCapsLockRemap(bool isKeyDown) {
+    if (isKeyDown) {
+        // Block the toggle behavior
+        BlockCapsLockToggle();
+    }
+}
+
+void KeyMapping::UpdateCapsLockState(const std::map<std::string, std::vector<std::string>>& remaps) {
+    // Check if CapsLock is being remapped
+    auto it = remaps.find("CapsLock");
+    if (it == remaps.end()) {
+        it = remaps.find("Capital"); // Check alternate name
+    }
+    
+    capsLockRemapped = (it != remaps.end());
+    // Only report CapsLock if it's not being remapped to something else
+    reportCapsLock = !capsLockRemapped;
 } 
