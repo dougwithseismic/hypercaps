@@ -27,3 +27,4 @@ tsconfig.tsbuildinfo
 
 # Public assets
 public/
+packages/eslint-config/

@@ -6,9 +6,9 @@
 [![Built with Electron](https://img.shields.io/badge/Built%20with-Electron-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Star](https://img.shields.io/github/stars/dougwithseismic/hypercaps?style=social)](https://github.com/dougwithseismic/hypercaps)
 
-The Keyboad Hack for Windows Users Living at Mach 10
+The Street Fighter of Shortcut Managers. The Keyboard Hack for Windows Users Living at Mach 10 🥋
 
-Transform your keyboard into a productivity powerhouse. Born from the frustration of Windows users who needed more speed, more control, and more power than PowerToys could deliver. If you've ever felt held back by your keyboard, this is your nitro boost.
+Transform your keyboard into a productivity powerhouse with frame-perfect execution and combo mastery. Born from the frustration of Windows users who needed more speed, more control, and more power than PowerToys could deliver. If you've ever felt held back by your keyboard, this is your nitro boost.
 
 Built with ❤️ by [Seismic](https://withseismic.com) • [Doug Silkstone](https://linkedin.com/in/dougsilkstone)
 
@@ -18,11 +18,30 @@ Mac users have their Hyperkey. Windows users have... PowerToys? Not anymore. We 
 
 ## Features
 
-- **Turbocharged Key Remapping**: Turn any key into your personal productivity accelerator
-- **Smart CapsLock Handling**: Because even Caps Lock can be a speed demon
+### 🥋 Combo System
+
+- **Frame-Perfect Execution**: ⌨️ ➔ ⌨️ + 200ms ➔ 🚀
+- **Multi-Key Sequences**: Chain commands like fighting game moves
+
+  ```
+  CapsLock ➔ H, G (200ms) ➔ H, G (200ms) = 🎯
+  ```
+
+- **Timing Windows**: Execute your combos with precision timing
+- **Strict Mode**: Perfect execution for power users
+
+### ⚡ Turbocharged Engine
+
+- **32-Frame Buffer**: Just like a fighting game, but for your keyboard
+- **Zero Input Lag**: Built for speed with low-level optimizations
+- **Local Processing**: All combos executed on your machine
+
+### 🎮 Power User Features
+
+- **Smart CapsLock**: Your new command center
   - Block Toggle: Pure speed, no accidents
   - Double Press: Quick CapsLock when you need it
-  - None: Classic behavior with superpowers
+  - Combo Mode: Chain it like a special move
 - **Zero-Friction Integration**:
   - Silent startup with Windows
   - Instant tray access
@@ -37,20 +56,20 @@ winget install hypercaps
 scoop install hypercaps
 ```
 
-## Usage
+## Quick Start Your Combo Journey
 
 1. Launch HyperCaps
 2. Choose your trigger key (default: CapsLock)
-3. Configure your desired modifier combination
-4. Start using your new Hyper key!
+3. Configure your first combo
+4. Master the execution ⌨️💪
 
 ## Roadmap
 
-- [x] Core keyboard monitoring and remapping
+- [x] Core combo system and frame-perfect execution
 - [x] Basic settings UI
-- [ ] Advanced Shortcut Manager
+- [ ] Advanced Combo Manager
 - [ ] LUA Scripting Support
-  - Custom key bindings
+  - Custom combos and macros
   - Clipboard manipulation
   - Voice/Video control
   - LLM integration
