@@ -185,7 +185,7 @@ void KeyboardMonitor::CreateNewFrame(long long timestamp) {
 
 void KeyboardMonitor::EmitFrame(const KeyboardFrame& frame) {
     // Debug output
-    // printf("\n[DEBUG] Frame %d at %lld\n", frame.frameNumber, frame.timestamp);
+    printf("\n[DEBUG] Frame %d at %lld\n", frame.frameNumber, frame.timestamp);
     printf("  justPressed: [");
     for (const auto& key : frame.justPressed) {
         std::string keyName = KeyMapping::GetKeyName(key);
@@ -214,78 +214,109 @@ void KeyboardMonitor::EmitFrame(const KeyboardFrame& frame) {
     }
     printf("}\n");
 
-    tsfn.NonBlockingCall([frame](Napi::Env env, Napi::Function jsCallback) {
-        auto eventData = Napi::Object::New(env);
-        eventData.Set("frame", frame.frameNumber);
-        eventData.Set("timestamp", frame.timestamp);
-        
-        // Get the key name and determine event type based on key state
-        std::string eventKeyName;
-        std::string eventType;
-        
-        if (!frame.justPressed.empty()) {
-            eventKeyName = KeyMapping::GetKeyName(*frame.justPressed.begin());
-            eventType = "keydown";
-        } else if (!frame.justReleased.empty()) {
-            eventKeyName = KeyMapping::GetKeyName(*frame.justReleased.begin());
-            eventType = "keyup";
-        } else if (!frame.held.empty()) {
-            eventKeyName = KeyMapping::GetKeyName(*frame.held.begin());
-            eventType = "keyhold";
-        }
-        
-        auto event = Napi::Object::New(env);
-        event.Set("type", eventType);
-        event.Set("key", Napi::String::New(env, eventKeyName));
-        eventData.Set("event", event);
-
+    // Add error handling wrapper for N-API calls
+    try {
+        tsfn.NonBlockingCall([frame](Napi::Env env, Napi::Function jsCallback) {
+            try {
+                auto eventData = Napi::Object::New(env);
+                eventData.Set("frame", frame.frameNumber);
+                eventData.Set("timestamp", frame.timestamp);
                 
-        auto state = Napi::Object::New(env);
-        
-        // Convert sets to arrays with readable key names
-        auto justPressed = Napi::Array::New(env);
-        int idx = 0;
-        for (const auto& key : frame.justPressed) {
-            std::string keyName = KeyMapping::GetKeyName(key);
-            if (!keyName.empty()) {
-                justPressed[idx++] = Napi::String::New(env, keyName);
-            }
-        }
-        state.Set("justPressed", justPressed);
+                // Get the key name and determine event type based on key state
+                std::string eventKeyName;
+                std::string eventType;
+                
+                if (!frame.justPressed.empty()) {
+                    auto vkCode = *frame.justPressed.begin();
+                    eventKeyName = KeyMapping::GetKeyName(vkCode);
+                    if (eventKeyName.empty()) {
+                        printf("[ERROR] Failed to get key name for VK code: %d\n", vkCode);
+                        eventKeyName = "Unknown";
+                    }
+                    eventType = "keydown";
+                } else if (!frame.justReleased.empty()) {
+                    auto vkCode = *frame.justReleased.begin();
+                    eventKeyName = KeyMapping::GetKeyName(vkCode);
+                    if (eventKeyName.empty()) {
+                        printf("[ERROR] Failed to get key name for VK code: %d\n", vkCode);
+                        eventKeyName = "Unknown";
+                    }
+                    eventType = "keyup";
+                } else if (!frame.held.empty()) {
+                    auto vkCode = *frame.held.begin();
+                    eventKeyName = KeyMapping::GetKeyName(vkCode);
+                    if (eventKeyName.empty()) {
+                        printf("[ERROR] Failed to get key name for VK code: %d\n", vkCode);
+                        eventKeyName = "Unknown";
+                    }
+                    eventType = "keyhold";
+                }
+                
+                auto event = Napi::Object::New(env);
+                event.Set("type", eventType);
+                event.Set("key", Napi::String::New(env, eventKeyName));
+                eventData.Set("event", event);
+                
+                auto state = Napi::Object::New(env);
+                
+                // Convert sets to arrays with readable key names
+                auto justPressed = Napi::Array::New(env);
+                int idx = 0;
+                for (const auto& key : frame.justPressed) {
+                    std::string keyName = KeyMapping::GetKeyName(key);
+                    if (!keyName.empty()) {
+                        justPressed[idx++] = Napi::String::New(env, keyName);
+                    } else {
+                        printf("[ERROR] Failed to get key name for VK code in justPressed: %d\n", key);
+                    }
+                }
+                state.Set("justPressed", justPressed);
 
-        auto held = Napi::Array::New(env);
-        idx = 0;
-        for (const auto& key : frame.held) {
-            std::string keyName = KeyMapping::GetKeyName(key);
-            if (!keyName.empty()) {
-                held[idx++] = Napi::String::New(env, keyName);
-            }
-        }
-        state.Set("held", held);
+                auto held = Napi::Array::New(env);
+                idx = 0;
+                for (const auto& key : frame.held) {
+                    std::string keyName = KeyMapping::GetKeyName(key);
+                    if (!keyName.empty()) {
+                        held[idx++] = Napi::String::New(env, keyName);
+                    } else {
+                        printf("[ERROR] Failed to get key name for VK code in held: %d\n", key);
+                    }
+                }
+                state.Set("held", held);
 
-        auto justReleased = Napi::Array::New(env);
-        idx = 0;
-        for (const auto& key : frame.justReleased) {
-            std::string keyName = KeyMapping::GetKeyName(key);
-            if (!keyName.empty()) {
-                justReleased[idx++] = Napi::String::New(env, keyName);
-            }
-        }
-        state.Set("justReleased", justReleased);
+                auto justReleased = Napi::Array::New(env);
+                idx = 0;
+                for (const auto& key : frame.justReleased) {
+                    std::string keyName = KeyMapping::GetKeyName(key);
+                    if (!keyName.empty()) {
+                        justReleased[idx++] = Napi::String::New(env, keyName);
+                    } else {
+                        printf("[ERROR] Failed to get key name for VK code in justReleased: %d\n", key);
+                    }
+                }
+                state.Set("justReleased", justReleased);
 
-        auto holdDurations = Napi::Object::New(env);
-        for (const auto& pair : frame.holdDurations) {
-            std::string keyName = KeyMapping::GetKeyName(pair.first);
-            if (!keyName.empty()) {
-                holdDurations.Set(keyName, Napi::Number::New(env, pair.second));
-            }
-        }
-        state.Set("holdDurations", holdDurations);
+                auto holdDurations = Napi::Object::New(env);
+                for (const auto& pair : frame.holdDurations) {
+                    std::string keyName = KeyMapping::GetKeyName(pair.first);
+                    if (!keyName.empty()) {
+                        holdDurations.Set(keyName, Napi::Number::New(env, pair.second));
+                    } else {
+                        printf("[ERROR] Failed to get key name for VK code in holdDurations: %d\n", pair.first);
+                    }
+                }
+                state.Set("holdDurations", holdDurations);
 
-        eventData.Set("state", state);
-        
-        jsCallback.Call({Napi::String::New(env, "frame"), eventData});
-    });
+                eventData.Set("state", state);
+                
+                jsCallback.Call({Napi::String::New(env, "frame"), eventData});
+            } catch (const std::exception& e) {
+                printf("[ERROR] Exception in N-API callback: %s\n", e.what());
+            }
+        });
+    } catch (const std::exception& e) {
+        printf("[ERROR] Exception in EmitFrame: %s\n", e.what());
+    }
 }
 
 Napi::Value KeyboardMonitor::Start(const Napi::CallbackInfo& info) {

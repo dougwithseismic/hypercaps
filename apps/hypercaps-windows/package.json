@@ -3,6 +3,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
+    "cross-env": "^7.0.3",
     "electron-trpc": "^0.7.1",
     "electron-updater": "^6.1.7",
     "immer": "^10.1.1",
@@ -42,11 +43,11 @@
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "dev": "electron-vite dev --watch",
+    "dev": "cross-env NODE_OPTIONS='--force-node-api-uncaught-exceptions-policy=true' electron-vite dev",
     "format": "prettier --write .",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
     "postinstall": "electron-builder install-app-deps",
-    "start": "electron-vite preview",
+    "start": "cross-env NODE_OPTIONS='--force-node-api-uncaught-exceptions-policy=true' electron .",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false"

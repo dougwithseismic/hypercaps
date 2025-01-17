@@ -47,4 +47,8 @@ export class RollingWindow {
   public reset(): void {
     this.frames = []
   }
+
+  public clear(): void {
+    this.frames = []
+  }
 }

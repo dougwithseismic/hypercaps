@@ -1,20 +1,12 @@
 import { z } from 'zod'
 import { createStore } from '../../service/store'
-import { ShortcutSchema } from './types'
+import { ShortcutManagerConfigSchema, ShortcutSchema } from './types'
 import { randomUUID } from 'crypto'
-
-/**
- * Shortcut manager configuration schema
- */
-const shortcutManagerConfigSchema = z.object({
-  isEnabled: z.boolean(),
-  shortcuts: z.array(ShortcutSchema)
-})
 
 /**
  * Shortcut manager configuration type
  */
-type ShortcutManagerConfig = z.infer<typeof shortcutManagerConfigSchema>
+type ShortcutManagerConfig = z.infer<typeof ShortcutManagerConfigSchema>
 
 /**
  * Shortcut manager events
@@ -34,7 +26,7 @@ interface ShortcutManagerEvents {
  */
 export const shortcutStore = createStore<ShortcutManagerConfig, ShortcutManagerEvents>({
   name: 'shortcut-manager',
-  schema: shortcutManagerConfigSchema,
+  schema: ShortcutManagerConfigSchema,
   defaultConfig: {
     isEnabled: true,
     shortcuts: [
@@ -48,10 +40,14 @@ export const shortcutStore = createStore<ShortcutManagerConfig, ShortcutManagerE
             {
               type: 'combo',
               keys: ['LShift', 'LControl', 'N'],
-              window: 200
+              conditions: {
+                strict: false,
+                window: 800
+              }
             }
           ],
-          totalTimeWindow: 500
+          totalTimeWindow: 1000,
+          strict: false
         },
         action: {
           type: 'launch',
@@ -60,7 +56,7 @@ export const shortcutStore = createStore<ShortcutManagerConfig, ShortcutManagerE
       },
       {
         id: '2f3a9d8c-6b7e-4f5d-9c1a-0e2b4d5f6g7h',
-        name: 'HG+HG',
+        name: 'Triple -  HG+HG+HG',
         enabled: true,
         cooldown: 500,
         trigger: {
@@ -68,27 +64,67 @@ export const shortcutStore = createStore<ShortcutManagerConfig, ShortcutManagerE
             {
               type: 'combo',
               keys: ['H', 'G'],
-              strict: true,
-              window: 200
+              conditions: {
+                strict: true,
+                window: 200
+              }
             },
             {
               type: 'combo',
               keys: ['H', 'G'],
-              strict: true,
-              window: 200
+              conditions: {
+                strict: true,
+                window: 200
+              }
             },
             {
               type: 'combo',
               keys: ['H', 'G'],
-              strict: true,
-              window: 200
+              conditions: {
+                strict: true,
+                window: 200
+              }
             }
           ],
-          totalTimeWindow: 500
+          totalTimeWindow: 500,
+          strict: false
         },
         action: {
           type: 'launch',
           program: 'explorer.exe'
+        }
+      },
+      {
+        id: '3f4b9e8d-7c8f-5g6h-0i1j-2k3l4m5n6o7p',
+        name: 'Hold Shift then Shift+A',
+        enabled: true,
+        cooldown: 500,
+        trigger: {
+          steps: [
+            {
+              type: 'hold',
+              keys: ['LShift'],
+              conditions: {
+                strict: false,
+                window: 200,
+                holdTime: 1000
+              }
+            },
+            {
+              type: 'combo',
+              keys: ['LShift', 'A'],
+              conditions: {
+                strict: false,
+                window: 200
+              }
+            }
+          ],
+          totalTimeWindow: 2000,
+          strict: false
+        },
+        action: {
+          type: 'launch',
+          program: 'notepad.exe'
         }
       }
     ]
