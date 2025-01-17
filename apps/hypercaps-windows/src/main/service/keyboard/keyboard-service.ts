@@ -130,6 +130,29 @@ export class KeyboardService extends EventEmitter {
     return errors
   }
 
+  private areFramesEqual(frame1?: KeyboardFrameEvent, frame2?: KeyboardFrame): boolean {
+    if (!frame1 || !frame2) return false
+
+    const state1 = frame1.state
+    const state2 = frame2.state
+
+    const areArraysEqual = (a: number[], b: number[]) =>
+      a.length === b.length && a.every((val, idx) => b[idx] === val)
+
+    const areDurationsEqual = (a: Record<string, number>, b: Record<string, number>) => {
+      const keys1 = Object.keys(a)
+      const keys2 = Object.keys(b)
+      return keys1.length === keys2.length && keys1.every((key) => a[key] === b[key])
+    }
+
+    return (
+      areArraysEqual(state1.justPressed, state2.justPressed) &&
+      areArraysEqual(state1.held, state2.held) &&
+      areArraysEqual(state1.justReleased, state2.justReleased) &&
+      areDurationsEqual(state1.holdDurations, state2.holdDurations)
+    )
+  }
+
   private processFrame(frame: KeyboardFrame): KeyboardFrameEvent {
     const validationErrors = this.validateFrame(frame)
 
@@ -151,6 +174,11 @@ export class KeyboardService extends EventEmitter {
 
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
     const processedFrame = this.processFrame(data)
+
+    // Skip if the frame is identical to the current frame
+    if (this.areFramesEqual(this.state.currentFrame, data)) {
+      return
+    }
 
     // Update state
     this.setState({

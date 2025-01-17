@@ -34,15 +34,21 @@
         "steps": [
           {
             "keys": ["H", "G"],
+            "strict": true,
             "type": "combo",
-            "window": 200,
-            "strict": true
+            "window": 200
           },
           {
             "keys": ["H", "G"],
+            "strict": true,
             "type": "combo",
-            "window": 200,
-            "strict": true
+            "window": 200
+          },
+          {
+            "keys": ["H", "G"],
+            "strict": true,
+            "type": "combo",
+            "window": 200
           }
         ],
         "totalTimeWindow": 500

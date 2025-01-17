@@ -10,6 +10,7 @@ export const KeyEventSchema = z.object({
 
 export const KeyboardFrameSchema = z.object({
   id: z.union([z.number(), z.string()]),
+  frame: z.number(),
   timestamp: z.number(),
   justPressed: z.set(z.string()),
   heldKeys: z.set(z.string()),

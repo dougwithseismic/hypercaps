@@ -1,8 +1,7 @@
-import { exec } from 'child_process'
 import { EventEmitter } from 'events'
 import { keyboardService } from '../../service/keyboard/keyboard-service'
 import type { KeyboardFrameEvent } from '../../service/keyboard/types'
-import { KeyboardEventMatcher } from './keyboard-event-matcher'
+import { RollingWindow } from './rolling-window'
 import { shortcutStore } from './store'
 import type {
   Command,
@@ -12,7 +11,6 @@ import type {
   ShortcutManagerConfig,
   TriggerStep
 } from './types'
-import { spawn } from 'child_process'
 
 // Helper function to convert Shortcut to Command
 function shortcutToCommand(shortcut: Shortcut): Command {
@@ -37,22 +35,24 @@ function shortcutToCommand(shortcut: Shortcut): Command {
 }
 
 class ShortcutFeature extends EventEmitter {
-  private matcher: KeyboardEventMatcher
+  private rollingWindow: RollingWindow
   private lastExecutions: Map<string, number>
   private isInitialized = false
   private isEnabled: boolean
   private config: ShortcutManagerConfig
   private store = shortcutStore
+  private enabledShortcuts: Command[] = []
 
   constructor() {
     super()
-    this.matcher = new KeyboardEventMatcher({
+    this.rollingWindow = new RollingWindow({
       maxFrames: 32, // 32 frames buffer
       maxAgeMs: 5000 // 5 seconds max age
     })
     this.lastExecutions = new Map()
     this.config = this.store.get()
     this.isEnabled = this.config.isEnabled
+    this.enabledShortcuts = this.config.shortcuts.filter((s) => s.enabled).map(shortcutToCommand)
   }
 
   async initialize(): Promise<void> {
@@ -64,6 +64,9 @@ class ShortcutFeature extends EventEmitter {
         console.log('[ShortcutFeature] Config updated:', config)
         this.config = config
         this.isEnabled = config.isEnabled
+        this.enabledShortcuts = this.config.shortcuts
+          .filter((s) => s.enabled)
+          .map(shortcutToCommand)
       })
 
       // Subscribe to keyboard frames
@@ -79,6 +82,7 @@ class ShortcutFeature extends EventEmitter {
   private handleFrameEvent = (event: KeyboardFrameEvent): void => {
     const frame: KeyboardFrame = {
       id: event.id,
+      frame: event.frame,
       timestamp: event.timestamp,
       justPressed: new Set(event.state.justPressed.map(String)),
       heldKeys: new Set(event.state.held.map(String)),
@@ -87,24 +91,14 @@ class ShortcutFeature extends EventEmitter {
     }
 
     // Add frame to matcher
-    this.matcher.addFrame(frame)
-
-    // Find and execute matches
-    this.findAndExecuteMatches().catch((error) => {
-      console.error('[ShortcutFeature] Error executing matches:', error)
-    })
+    this.rollingWindow.addFrame(frame)
+    this.findAndExecuteMatches()
   }
 
   private async findAndExecuteMatches(): Promise<void> {
     if (!this.isEnabled || !this.config.isEnabled) return
-
-    const enabledShortcuts = this.config.shortcuts.filter((s) => s.enabled).map(shortcutToCommand)
-
-    const matches = this.matcher.findMatches(enabledShortcuts)
-    // Execute matched shortcuts
-    for (const match of matches) {
-      await this.executeShortcut(match)
-    }
+    const frames = this.rollingWindow.getFrames()
+    console.log('Frames', frames)
   }
 
   private async executeShortcut(match: CommandMatch): Promise<void> {
@@ -128,48 +122,32 @@ class ShortcutFeature extends EventEmitter {
         return
       }
 
-      const isProduction = process.env.NODE_ENV === 'production'
-
+      console.log(`
+      ███████╗██╗  ██╗ ██████╗ ██████╗ ████████╗ ██████╗██╗   ██╗████████╗██╗
+      ██╔════╝██║  ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝██║   ██║╚══██╔══╝██║
+      ███████╗███████║██║   ██║██████╔╝   ██║   ██║     ██║   ██║   ██║   ██║
+      ╚════██║██╔══██║██║   ██║██╔══██╗   ██║   ██║     ██║   ██║   ██║   ╚═╝
+      ███████║██║  ██║╚██████╔╝██║  ██║   ██║   ╚██████╗╚██████╔╝   ██║   ██╗
+      ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═════╝    ╚═╝   ╚═╝
+      `)
+      console.log(
+        `[ShortcutFeature] Would execute shortcut: ${shortcut.name} (${match.command.id})`
+      )
+      console.log(`[ShortcutFeature] Action type: ${shortcut.action.type}`)
       if (shortcut.action.type === 'launch') {
-        console.log(`[ShortcutFeature] Launching program: ${shortcut.action.program}`)
-        const program = shortcut.action.program || ''
-
-        if (isProduction) {
-          const child = spawn('cmd.exe', ['/c', 'start', '', program], {
-            shell: true,
-            detached: true,
-            stdio: 'ignore'
-          })
-
-          child.on('error', (error: Error) => {
-            console.error(`[ShortcutFeature] Launch error: ${error.message}`)
-          })
-
-          child.unref()
-        } else {
-          exec(program, (error) => {
-            if (error) {
-              console.error(`[ShortcutFeature] Error executing program: ${error}`)
-            }
-          })
-        }
+        console.log(`[ShortcutFeature] Would launch: ${shortcut.action.program}`)
       } else if (shortcut.action.type === 'command') {
-        console.log(`[ShortcutFeature] Running command: ${shortcut.action.command}`)
-        const command = shortcut.action.command || ''
-        console.log('[ShortcutFeature] Running command (Need to implement):', command)
-        // TODO: Implement command execution
+        console.log(`[ShortcutFeature] Would run command: ${shortcut.action.command}`)
       }
 
       // Emit shortcut executed event
       this.emit('shortcut:executed', { shortcut, match })
 
       // Clear the matcher state after successful execution
-      this.matcher.clearFramesUpTo(match.endTime)
     } catch (error) {
       console.error('[ShortcutFeature] Error executing shortcut:', error)
       this.emit('shortcut:error', { error, shortcutId: match.command.id })
     } finally {
-      console.log(`[ShortcutFeature] Executing shortcut: ${match.command.id}`)
       this.lastExecutions.set(match.command.id, now)
     }
   }
@@ -177,7 +155,7 @@ class ShortcutFeature extends EventEmitter {
   dispose(): void {
     if (this.isInitialized) {
       keyboardService.off('keyboard:frame', this.handleFrameEvent)
-      this.matcher.reset()
+      this.rollingWindow.reset()
       this.lastExecutions.clear()
       this.isInitialized = false
       this.removeAllListeners()
