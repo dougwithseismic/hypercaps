@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SequenceMatcher } from './sequence-matcher'
 import type { InputSequence, KeyboardFrame } from './types'
 
@@ -547,19 +547,19 @@ describe('SequenceMatcher', () => {
         expect(detected).toEqual(['flash-kick', 'super-flash-kick'])
 
         // // Wait too long and try Super Flash Kick again - should fail
-        // vi.advanceTimersByTime(2000) // Wait 2 seconds
-        // matcher.handleFrame(createFrame([40], [40], [], now + 4700, 12))
-        // vi.advanceTimersByTime(600)
-        // matcher.handleFrame(createFrame([38], [38], [40], now + 5300, 13))
-        // vi.advanceTimersByTime(16)
-        // matcher.handleFrame(createFrame([75], [75], [], now + 5316, 14))
-        // vi.advanceTimersByTime(16)
-        // matcher.handleFrame(createFrame([76], [76], [], now + 5332, 15))
-        // vi.advanceTimersByTime(16)
-        // matcher.handleFrame(createFrame([77], [77], [], now + 5348, 16))
-        // vi.advanceTimersByTime(16)
+        vi.advanceTimersByTime(2000) // Wait 2 seconds
+        matcher.handleFrame(createFrame([40], [40], [], now + 4700, 12))
+        vi.advanceTimersByTime(600)
+        matcher.handleFrame(createFrame([38], [38], [40], now + 5300, 13))
+        vi.advanceTimersByTime(16)
+        matcher.handleFrame(createFrame([75], [75], [], now + 5316, 14))
+        vi.advanceTimersByTime(16)
+        matcher.handleFrame(createFrame([76], [76], [], now + 5332, 15))
+        vi.advanceTimersByTime(16)
+        matcher.handleFrame(createFrame([77], [77], [], now + 5348, 16))
+        vi.advanceTimersByTime(16)
 
-        // expect(detected).toEqual(['flash-kick', 'super-flash-kick']) // No additional detection
+        expect(detected).toEqual(['flash-kick', 'super-flash-kick']) // No additional detection
       })
     })
 
@@ -1236,6 +1236,297 @@ describe('SequenceMatcher', () => {
       vi.advanceTimersByTime(16)
 
       expect(detected).toEqual(['counter'])
+    })
+  })
+
+  describe('Sequence Relationships', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+    // Helper functions
+    const createMatcher = () => {
+      const matcher = new SequenceMatcher()
+      matcher.setDebug(true)
+      const completedSequences: string[] = []
+
+      matcher.on('sequence:complete', (event) => {
+        completedSequences.push(event.id)
+      })
+
+      return { matcher, completedSequences }
+    }
+
+    const pressKey = (
+      matcher: SequenceMatcher,
+      key: number,
+      timestamp: number,
+      frameNumber: number
+    ) => {
+      matcher.handleFrame({
+        timestamp,
+        frameNumber,
+        justPressed: new Set([key]),
+        heldKeys: new Set([key]),
+        justReleased: new Set()
+      })
+    }
+
+    const holdKey = (
+      matcher: SequenceMatcher,
+      key: number,
+      timestamp: number,
+      frameNumber: number
+    ) => {
+      matcher.handleFrame({
+        timestamp,
+        frameNumber,
+        justPressed: new Set(),
+        heldKeys: new Set([key]),
+        justReleased: new Set()
+      })
+    }
+
+    const releaseKey = (
+      matcher: SequenceMatcher,
+      key: number,
+      heldKeys: number[],
+      timestamp: number,
+      frameNumber: number
+    ) => {
+      matcher.handleFrame({
+        timestamp,
+        frameNumber,
+        justPressed: new Set(),
+        heldKeys: new Set(heldKeys),
+        justReleased: new Set([key])
+      })
+    }
+
+    it('should prevent executing a sequence when PREVENTS relationship is active', () => {
+      const { matcher, completedSequences } = createMatcher()
+
+      // Add a basic sequence that will prevent others
+      const blockingSequence = {
+        id: 'blocking-move',
+        type: 'STATE' as const,
+        held: [40], // Down key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 }
+      }
+
+      // Add a sequence that should be prevented
+      const preventedSequence = {
+        id: 'prevented-move',
+        type: 'STATE' as const,
+        held: [38], // Up key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 },
+        relationships: [
+          {
+            type: 'PREVENTS' as const,
+            targetSequenceId: 'blocking-move',
+            timeWindowMs: 500
+          }
+        ]
+      }
+
+      matcher.addSequence(blockingSequence)
+      matcher.addSequence(preventedSequence)
+
+      // Execute blocking sequence
+      pressKey(matcher, 40, 1000, 0)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 40, 1100, 1)
+      vi.advanceTimersByTime(100)
+
+      // Try to execute prevented sequence within prevention window
+      releaseKey(matcher, 40, [38], 1200, 2)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 38, 1300, 3)
+      vi.advanceTimersByTime(100)
+
+      expect(completedSequences).toEqual(['blocking-move'])
+    })
+
+    it('should allow executing a sequence after PREVENTS relationship expires', () => {
+      const { matcher, completedSequences } = createMatcher()
+
+      // Add a basic sequence that will prevent others
+      const blockingSequence = {
+        id: 'blocking-move',
+        type: 'STATE' as const,
+        held: [40], // Down key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 }
+      }
+
+      // Add a sequence that should be prevented initially
+      const preventedSequence = {
+        id: 'prevented-move',
+        type: 'STATE' as const,
+        held: [38], // Up key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 },
+        relationships: [
+          {
+            type: 'PREVENTS' as const,
+            targetSequenceId: 'blocking-move',
+            timeWindowMs: 500
+          }
+        ]
+      }
+
+      matcher.addSequence(blockingSequence)
+      matcher.addSequence(preventedSequence)
+
+      // Execute blocking sequence
+      pressKey(matcher, 40, 1000, 0)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 40, 1100, 1)
+      vi.advanceTimersByTime(500)
+
+      // Try to execute prevented sequence after prevention window
+      releaseKey(matcher, 40, [38], 1600, 2)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 38, 1700, 3)
+      vi.advanceTimersByTime(100)
+
+      expect(completedSequences).toEqual(['blocking-move', 'prevented-move'])
+    })
+
+    it('should require a specific sequence before allowing execution', () => {
+      const { matcher, completedSequences } = createMatcher()
+
+      // Add a prerequisite sequence
+      const prerequisiteSequence = {
+        id: 'prerequisite-move',
+        type: 'STATE' as const,
+        held: [40], // Down key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 }
+      }
+
+      // Add a sequence that requires the prerequisite
+      const dependentSequence = {
+        id: 'dependent-move',
+        type: 'STATE' as const,
+        held: [38], // Up key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 },
+        relationships: [
+          {
+            type: 'REQUIRES' as const,
+            targetSequenceId: 'prerequisite-move',
+            timeWindowMs: 500
+          }
+        ]
+      }
+
+      matcher.removeAllSequences()
+      matcher.addSequence(prerequisiteSequence)
+      matcher.addSequence(dependentSequence)
+
+      // Try dependent sequence without prerequisite
+      pressKey(matcher, 38, 1000, 0)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 38, 1100, 1)
+      vi.advanceTimersByTime(100)
+
+      expect(completedSequences).toEqual([])
+
+      // Execute prerequisite sequence
+      pressKey(matcher, 40, 1200, 2)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 40, 1300, 3)
+      vi.advanceTimersByTime(100)
+
+      expect(completedSequences).toEqual(['prerequisite-move'])
+
+      // Now try dependent sequence
+      releaseKey(matcher, 40, [38], 1400, 4)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 38, 1500, 5)
+      vi.advanceTimersByTime(100)
+
+      expect(completedSequences).toEqual(['prerequisite-move', 'dependent-move'])
+    })
+
+    it('should handle multiple relationships on a single sequence', () => {
+      const { matcher, completedSequences } = createMatcher()
+
+      // Add sequences that will be referenced in relationships
+      const sequence1 = {
+        id: 'sequence1',
+        type: 'STATE' as const,
+        held: [37], // Left key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 }
+      }
+
+      const sequence2 = {
+        id: 'sequence2',
+        type: 'STATE' as const,
+        held: [39], // Right key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 }
+      }
+
+      // Add a sequence with multiple relationships
+      const complexSequence = {
+        id: 'complex-move',
+        type: 'STATE' as const,
+        held: [38], // Up key
+        toleranceMs: 100,
+        duration: { triggerMs: 100 },
+        relationships: [
+          {
+            type: 'REQUIRES' as const,
+            targetSequenceId: 'sequence1',
+            timeWindowMs: 1000 // Increased window to allow for the PREVENTS to expire
+          },
+          {
+            type: 'PREVENTS' as const,
+            targetSequenceId: 'sequence2',
+            timeWindowMs: 500
+          }
+        ]
+      }
+
+      matcher.addSequence(sequence1)
+      matcher.addSequence(sequence2)
+      matcher.addSequence(complexSequence)
+
+      // Execute sequence1 (required) at t=1000
+      pressKey(matcher, 37, 1000, 0)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 37, 1100, 1)
+      vi.advanceTimersByTime(100)
+
+      // Execute sequence2 (preventing) at t=1200
+      releaseKey(matcher, 37, [39], 1200, 2)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 39, 1300, 3)
+      vi.advanceTimersByTime(100)
+
+      // Try complex sequence (should fail due to sequence2) at t=1400
+      releaseKey(matcher, 39, [38], 1400, 4)
+      vi.advanceTimersByTime(100)
+      holdKey(matcher, 38, 1500, 5)
+      vi.advanceTimersByTime(300)
+
+      // Wait for prevention window to expire but still within REQUIRES window
+      // sequence2 completed at t=1300, so try after t=1800 (500ms prevention window)
+      // but before t=2000 (1000ms requires window from sequence1 at t=1000)
+      pressKey(matcher, 38, 1850, 6)
+      vi.advanceTimersByTime(50)
+      holdKey(matcher, 38, 1900, 7)
+      vi.advanceTimersByTime(100)
+
+      expect(completedSequences).toEqual(['sequence1', 'sequence2', 'complex-move'])
     })
   })
 })

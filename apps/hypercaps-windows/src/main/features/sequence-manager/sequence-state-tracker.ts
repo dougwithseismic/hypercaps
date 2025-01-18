@@ -27,8 +27,8 @@ export class SequenceStateTracker extends EventEmitter {
   private buffer: InputBuffer
   private activeMatches: Map<string, SequenceMatch>
   private sequences: Map<string, InputSequence>
+  private consumedInputs: Set<string> = new Set() // now "frameIndex-key-sequenceId"
   private sequenceHistory: SequenceHistory[] = []
-  private consumedInputs: Set<string> = new Set() // Track consumed inputs
   private debugEnabled = false
   private frameRate: number
 
@@ -82,19 +82,9 @@ export class SequenceStateTracker extends EventEmitter {
     this.addFrame(frame)
     const matches: SequenceMatch[] = []
 
-    // First check sequence type matches
+    // 1) Attempt matching all sequences
     const sequenceMatches = this.checkSequences(frame)
     matches.push(...sequenceMatches)
-
-    // Then check state type sequences
-    for (const [id, sequence] of this.sequences) {
-      if (sequence.type === 'STATE') {
-        const match = this.matchStateSequence(sequence)
-        if (match) {
-          matches.push(match)
-        }
-      }
-    }
 
     // Emit events for all matches and update history
     for (const match of matches) {
@@ -113,6 +103,8 @@ export class SequenceStateTracker extends EventEmitter {
       if (this.sequenceHistory.length > 100) {
         this.sequenceHistory = this.sequenceHistory.slice(-100)
       }
+
+      this.debug(`Added sequence ${match.sequenceId} to history at time ${frame.timestamp}`)
 
       this.emit('sequence:complete', {
         id: match.sequenceId,
@@ -137,6 +129,7 @@ export class SequenceStateTracker extends EventEmitter {
   private checkSequences(frame: KeyboardFrame): SequenceMatch[] {
     const matches: SequenceMatch[] = []
     const sortedSequences = Array.from(this.sequences.entries()).sort(([, a], [, b]) => {
+      // Sort descending by "complexity" (# of steps)
       const aSteps = a.type === 'SEQUENCE' ? a.steps?.length || 0 : 0
       const bSteps = b.type === 'SEQUENCE' ? b.steps?.length || 0 : 0
       return bSteps - aSteps
@@ -148,34 +141,8 @@ export class SequenceStateTracker extends EventEmitter {
 
       const match = this.tryMatchSequence(sequence, frame)
       if (match) {
-        // Check relationships before adding the match
-        const canExecute = !sequence.relationships?.some((relationship) => {
-          const targetHistory = this.sequenceHistory.find(
-            (h) => h.id === relationship.targetSequenceId
-          )
-          if (!targetHistory) return relationship.type === 'REQUIRES'
-
-          const timeSinceTarget = frame.timestamp - targetHistory.timestamp
-          return relationship.type === 'REQUIRES'
-            ? timeSinceTarget > relationship.timeWindowMs
-            : timeSinceTarget <= relationship.timeWindowMs
-        })
-
-        if (canExecute) {
-          matches.push(match)
-          this.sequenceHistory.push({
-            id,
-            timestamp: frame.timestamp,
-            frameNumber: frame.frameNumber,
-            duration: match.endFrame - match.startFrame
-          })
-        }
+        matches.push(match)
       }
-    }
-
-    // Trim history to prevent memory growth
-    while (this.sequenceHistory.length > 100) {
-      this.sequenceHistory.shift()
     }
 
     if (matches.length > 0) {
@@ -198,25 +165,32 @@ export class SequenceStateTracker extends EventEmitter {
   }
 
   private tryMatchSequence(sequence: InputSequence, frame: KeyboardFrame): SequenceMatch | null {
-    // Check relationships first if they exist
-    if (sequence.relationships && sequence.relationships.length > 0) {
-      const allRelationshipsValid = sequence.relationships.every((relationship) =>
-        this.checkRelationship(relationship, frame.timestamp)
-      )
-
-      if (!allRelationshipsValid) {
-        this.debug(`Sequence ${sequence.id} failed relationship checks`)
-        return null
-      }
-    }
-
-    // Check relationships before attempting to match
-    if (!this.checkRelationships(sequence, frame)) {
-      return null
-    }
-
     if (sequence.type === 'STATE') {
-      return this.matchStateSequence(sequence)
+      const match = this.matchStateSequence(sequence)
+      if (match) {
+        // Consume inputs even if relationships block the sequence
+        for (const frameIndex of match.consumedInputs) {
+          const matchFrame = this.buffer.frames[frameIndex]
+          if (matchFrame) {
+            matchFrame.justPressed.forEach((key) => {
+              this.consumeInput(frameIndex, key, sequence.id)
+            })
+          }
+        }
+
+        // Check relationships after consuming inputs
+        if (!this.checkRelationships(sequence, frame)) {
+          this.resetPartialMatch(sequence.id)
+          this.emit('sequence:failed', {
+            id: sequence.id,
+            reason: 'wrong_order',
+            startTime: match.startFrame
+          })
+          return null
+        }
+        return match
+      }
+      return null
     }
 
     let currentStep = 0
@@ -229,7 +203,7 @@ export class SequenceStateTracker extends EventEmitter {
       const frame = this.buffer.frames[i]
       if (!frame) continue
 
-      // Check if any key in this frame is already consumed
+      // Check if any key is already consumed e.g. "frameIndex-key-sequenceId"
       const anyKeyConsumed = Array.from(frame.justPressed).some((key) =>
         this.isInputConsumed(i, key)
       )
@@ -255,7 +229,7 @@ export class SequenceStateTracker extends EventEmitter {
             }
           }
 
-          return {
+          const match = {
             sequenceId: sequence.id,
             confidence: 1.0,
             startFrame: matchStart,
@@ -263,6 +237,19 @@ export class SequenceStateTracker extends EventEmitter {
             consumedInputs,
             matchedKeys
           }
+
+          // Check relationships after consuming inputs
+          if (!this.checkRelationships(sequence, frame)) {
+            this.resetPartialMatch(sequence.id)
+            this.emit('sequence:failed', {
+              id: sequence.id,
+              reason: 'wrong_order',
+              startTime: matchStart
+            })
+            return null
+          }
+
+          return match
         }
       }
     }
@@ -412,12 +399,33 @@ export class SequenceStateTracker extends EventEmitter {
   }
 
   private isInputConsumed(frameIndex: number, key: number): boolean {
-    return this.consumedInputs.has(`${frameIndex}-${key}`)
+    // Return true if we find any consumed key matching frameIndex-key
+    // Now we store them as: frameIndex-key-sequenceId
+    return Array.from(this.consumedInputs).some((consumed) => {
+      const [f, consumedKey /*, seqId*/] = consumed.split('-')
+      return f === frameIndex.toString() && consumedKey === key.toString()
+    })
   }
 
   private consumeInput(frameIndex: number, key: number, sequenceId: string): void {
-    this.consumedInputs.add(`${frameIndex}-${key}`)
+    // Store also the sequenceId so we can un-consume it if that partial match is reset
+    this.consumedInputs.add(`${frameIndex}-${key}-${sequenceId}`)
     this.debug(`Consuming input at frame ${frameIndex}: ${key} for sequence ${sequenceId}`)
+  }
+
+  private resetPartialMatch(sequenceId: string): void {
+    // Remove from activeMatches so partial progress is discarded
+    this.activeMatches.delete(sequenceId)
+
+    // Remove consumed inputs for this sequence
+    this.consumedInputs = new Set(
+      Array.from(this.consumedInputs).filter((key) => {
+        const [, , consumedBySequence] = key.split('-')
+        return consumedBySequence !== sequenceId
+      })
+    )
+
+    this.debug(`Reset partial match for sequence ${sequenceId}`)
   }
 
   private cleanup(currentFrame: number): void {
@@ -470,8 +478,10 @@ export class SequenceStateTracker extends EventEmitter {
   }
 
   private checkRelationship(relationship: SequenceRelationship, currentTime: number): boolean {
-    // Find the most recent completion of the target sequence
-    const targetHistory = this.sequenceHistory.find((h) => h.id === relationship.targetSequenceId)
+    // Find the most recent completion of the target sequence by searching from the end
+    const targetHistory = [...this.sequenceHistory]
+      .reverse()
+      .find((h) => h.id === relationship.targetSequenceId)
 
     if (relationship.type === 'REQUIRES') {
       // For REQUIRES, we need a recent completion within the time window
@@ -490,6 +500,7 @@ export class SequenceStateTracker extends EventEmitter {
     } else if (relationship.type === 'PREVENTS') {
       // For PREVENTS, we must NOT have a recent completion within the time window
       if (!targetHistory) {
+        this.debug(`No preventing sequence ${relationship.targetSequenceId} found in history`)
         return true
       }
       const timeSinceCompletion = currentTime - targetHistory.timestamp

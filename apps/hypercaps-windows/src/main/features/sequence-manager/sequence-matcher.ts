@@ -17,6 +17,10 @@ export class SequenceMatcher extends EventEmitter {
     this.tracker.on('sequence:complete', (event) => {
       this.emit('sequence:complete', event)
     })
+
+    this.tracker.on('sequence:failed', (event) => {
+      this.emit('sequence:failed', event)
+    })
   }
 
   setDebug(enabled: boolean): void {
