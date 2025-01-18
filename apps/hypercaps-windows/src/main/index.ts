@@ -4,9 +4,9 @@ process.env.NODE_OPTIONS = '--force-node-api-uncaught-exceptions-policy=true'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { mainWindow } from './features/main-window'
-import { keyboardService } from './service/keyboard/keyboard-service'
 import trayFeature from './features/tray'
-import { shortcutFeature } from './features/shortcut-manager'
+import { keyboardService } from './service/keyboard/keyboard-service'
+import { sequenceManagerFeature } from './features/sequence-manager'
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -27,7 +27,7 @@ app.whenReady().then(async () => {
 
   await keyboardService.initialize()
   await trayFeature.initialize()
-  await shortcutFeature.initialize()
+  await sequenceManagerFeature.initialize()
 
   mainWindow.initialize()
 

@@ -1,0 +1,9 @@
+{
+	"isEnabled": true,
+	"bufferSize": 60,
+	"maxActiveSequences": 3,
+	"chordTolerance": 2,
+	"debugMode": false,
+	"sequences": {},
+	"frameRate": 60
+}
