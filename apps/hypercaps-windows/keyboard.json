@@ -1,9 +1,11 @@
 {
 	"service": {
 		"enabled": true,
-		"bufferWindow": 3000,
+		"frameRate": 60,
+		"frameBufferSize": 60,
 		"frameHistory": {
 			"maxSize": 100,
+			"retentionFrames": 300,
 			"retentionMs": 5000
 		}
 	},

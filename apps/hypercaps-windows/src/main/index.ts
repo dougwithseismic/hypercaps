@@ -1,3 +1,6 @@
+// Set N-API uncaught exceptions policy before any requires
+process.env.NODE_OPTIONS = '--force-node-api-uncaught-exceptions-policy=true'
+
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { mainWindow } from './features/main-window'

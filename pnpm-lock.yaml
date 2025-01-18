@@ -604,6 +604,9 @@ importers:
       '@electron-toolkit/utils':
         specifier: ^3.0.0
         version: 3.0.0(electron@31.7.7)
+      cross-env:
+        specifier: ^7.0.3
+        version: 7.0.3
       electron-trpc:
         specifier: ^0.7.1
         version: 0.7.1(@trpc/client@10.45.2(@trpc/server@10.45.2))(@trpc/server@10.45.2)(electron@31.7.7)

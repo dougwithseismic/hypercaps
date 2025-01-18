@@ -7,7 +7,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        external: ['@hypercaps/keyboard-monitor']
+        external: ['@hypercaps/keyboard-monitor'],
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts')
+        }
       }
     }
   },

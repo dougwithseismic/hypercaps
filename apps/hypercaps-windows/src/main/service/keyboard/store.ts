@@ -7,10 +7,11 @@ import { createStore } from '../store'
 const keyboardConfigSchema = z.object({
   service: z.object({
     enabled: z.boolean(),
-    bufferWindow: z.number(),
+    frameRate: z.number(),
+    frameBufferSize: z.number(),
     frameHistory: z.object({
       maxSize: z.number(),
-      retentionMs: z.number()
+      retentionFrames: z.number()
     })
   }),
   monitoring: z.object({
@@ -47,10 +48,11 @@ export const keyboardStore = createStore<KeyboardConfig, KeyboardEvents>({
   defaultConfig: {
     service: {
       enabled: true,
-      bufferWindow: 3000, // 3 seconds
+      frameRate: 60,
+      frameBufferSize: 60,
       frameHistory: {
         maxSize: 100,
-        retentionMs: 5000 // 5 seconds
+        retentionFrames: 300
       }
     },
     monitoring: {
@@ -88,6 +90,28 @@ export const keyboard = {
   },
 
   /**
+   * Update frame rate
+   */
+  setFrameRate(frameRate: number) {
+    keyboardStore.update({
+      update: (config) => {
+        config.service.frameRate = frameRate
+      }
+    })
+  },
+
+  /**
+   * Update frame buffer size
+   */
+  setFrameBufferSize(size: number) {
+    keyboardStore.update({
+      update: (config) => {
+        config.service.frameBufferSize = size
+      }
+    })
+  },
+
+  /**
    * Update frame history settings
    */
   setFrameHistory(settings: Partial<KeyboardConfig['service']['frameHistory']>) {
@@ -105,17 +129,6 @@ export const keyboard = {
     keyboardStore.update({
       update: (config) => {
         Object.assign(config.monitoring, settings)
-      }
-    })
-  },
-
-  /**
-   * Update buffer window
-   */
-  setBufferWindow(bufferWindow: number) {
-    keyboardStore.update({
-      update: (config) => {
-        config.service.bufferWindow = bufferWindow
       }
     })
   }
