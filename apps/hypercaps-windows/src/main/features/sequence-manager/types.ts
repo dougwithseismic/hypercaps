@@ -52,6 +52,7 @@ export interface SequenceState {
   elapsedFrames: number
   matchedKeys: Set<number>
   confidence: number
+  pressedKeysPerStep: Map<number, Set<number>>
 }
 
 /**

@@ -12,7 +12,8 @@ const sequenceManagerConfigSchema = z.object({
   chordTolerance: z.number().min(1).max(5),
   debugMode: z.boolean(),
   sequences: z.record(z.string(), z.custom<InputSequence>()),
-  frameRate: z.number().min(30).max(240)
+  frameRate: z.number().min(30).max(240),
+  cooldownMs: z.number().min(0).max(2000) // Cooldown in milliseconds, max 2 seconds
 })
 
 /**
@@ -41,6 +42,7 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
     maxActiveSequences: 3,
     chordTolerance: 2,
     debugMode: true,
+    cooldownMs: 500, // Default 500ms cooldown
     sequences: {
       // Street Fighter Hadouken: Down, Down-Right, Right + Punch
       hadouken: {
@@ -303,6 +305,17 @@ export const sequenceManager = {
     sequenceStore.update({
       update: (config) => {
         config.frameRate = rate
+      }
+    })
+  },
+
+  /**
+   * Update cooldown duration
+   */
+  setCooldown(ms: number) {
+    sequenceStore.update({
+      update: (config) => {
+        config.cooldownMs = ms
       }
     })
   }

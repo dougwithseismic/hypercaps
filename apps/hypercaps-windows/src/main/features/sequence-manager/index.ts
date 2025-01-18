@@ -182,6 +182,8 @@ export class SequenceManager extends EventEmitter {
           this.handleSequenceComplete(id, state, frame)
         } else {
           state.currentStep++
+          // Initialize new step's pressed keys tracking
+          state.pressedKeysPerStep.set(state.currentStep, new Set())
           // Reset matched keys for next step
           state.matchedKeys = new Set()
           this.emitProgress(id, state)
@@ -206,7 +208,16 @@ export class SequenceManager extends EventEmitter {
 
     // Check each sequence for potential start
     for (const [id, sequence] of Object.entries(config.sequences)) {
+      // Skip if sequence is active or in cooldown
       if (this.activeStates.has(id) || this.pendingMatches.has(id)) {
+        if (this.debugEnabled) {
+          console.log(`[SequenceManager] Skipping sequence "${id}":`, {
+            reason: this.activeStates.has(id) ? 'already active' : 'in cooldown',
+            cooldownRemaining: this.pendingMatches.get(id)?.expiresAt
+              ? Math.max(0, this.pendingMatches.get(id)!.expiresAt - frame.timestamp)
+              : 0
+          })
+        }
         continue
       }
 
@@ -249,7 +260,8 @@ export class SequenceManager extends EventEmitter {
         startFrame: frame.frameNumber,
         elapsedFrames: 0,
         matchedKeys: new Set(),
-        confidence: 0
+        confidence: 0,
+        pressedKeysPerStep: new Map()
       })
 
       if (result.isMatch) {
@@ -260,7 +272,8 @@ export class SequenceManager extends EventEmitter {
           startFrame: frame.frameNumber,
           elapsedFrames: 0,
           matchedKeys: result.matchedKeys,
-          confidence: result.timingScore * 100
+          confidence: result.timingScore * 100,
+          pressedKeysPerStep: new Map([[0, new Set(frame.justPressed)]])
         }
         this.activeStates.set(id, newState)
 
@@ -270,7 +283,7 @@ export class SequenceManager extends EventEmitter {
             isComplete: result.isComplete,
             matchedKeys: Array.from(result.matchedKeys),
             confidence: newState.confidence,
-            pressedKeys
+            pressedKeys: Array.from(frame.justPressed)
           })
         }
       }
@@ -302,6 +315,7 @@ export class SequenceManager extends EventEmitter {
    */
   private handleSequenceComplete(id: string, state: SequenceState, frame: KeyboardFrame): void {
     const sequence = sequenceStore.get().sequences[id]
+    const config = sequenceStore.get()
 
     if (this.debugEnabled) {
       console.log(`
@@ -315,9 +329,48 @@ export class SequenceManager extends EventEmitter {
       console.log(`[SequenceManager] Sequence "${id}" completed successfully:`, {
         durationFrames: state.elapsedFrames,
         confidence: state.confidence,
-        matchedKeys: Array.from(state.matchedKeys)
+        matchedKeys: Array.from(state.matchedKeys),
+        pressedKeysPerStep: Array.from(state.pressedKeysPerStep.entries()).map(([step, keys]) => ({
+          step: step + 1,
+          keys: Array.from(keys)
+        })),
+        otherActiveSequences: Array.from(this.activeStates.keys()).filter((s) => s !== id),
+        cooldownMs: config.cooldownMs
       })
     }
+
+    // Get all keys used in the sequence
+    const usedKeys = new Set<number>()
+    sequence.steps.forEach((step) => {
+      switch (step.type) {
+        case 'CHORD':
+          step.keys.forEach((k) => usedKeys.add(k))
+          break
+        case 'SEQUENCE':
+          step.keys.forEach((k) => usedKeys.add(k))
+          break
+        case 'HOLD':
+          step.holdKeys.forEach((k) => usedKeys.add(k))
+          step.pressKeys.forEach((k) => usedKeys.add(k))
+          break
+      }
+    })
+
+    // Add a cooldown for this sequence using config
+    this.pendingMatches.set(id, {
+      sequenceId: id,
+      state,
+      expiresAt: frame.timestamp + config.cooldownMs,
+      priority: 0
+    })
+
+    // Clear frame buffer of used keys
+    this.frameBuffer = this.frameBuffer.map((f) => ({
+      ...f,
+      heldKeys: new Set([...f.heldKeys].filter((k) => !usedKeys.has(k))),
+      justPressed: new Set([...f.justPressed].filter((k) => !usedKeys.has(k))),
+      justReleased: new Set([...f.justReleased].filter((k) => !usedKeys.has(k)))
+    }))
 
     this.emit('sequence:detected', {
       id,
@@ -513,6 +566,12 @@ export class SequenceManager extends EventEmitter {
     let isMatch = false
     let isComplete = false
 
+    // Get or create the set of pressed keys for this step
+    if (!state.pressedKeysPerStep.has(state.currentStep)) {
+      state.pressedKeysPerStep.set(state.currentStep, new Set())
+    }
+    const stepPressedKeys = state.pressedKeysPerStep.get(state.currentStep)!
+
     // Check if all hold keys are held
     const allHoldKeysHeld = step.holdKeys.every((key) => frame.heldKeys.has(key))
     if (allHoldKeysHeld) {
@@ -521,13 +580,28 @@ export class SequenceManager extends EventEmitter {
 
       // Check if we've held long enough
       if (state.elapsedFrames >= step.minHoldFrames) {
-        // Check if press keys are pressed
-        const pressKeysPressed = step.pressKeys.every((key) => frame.justPressed.has(key))
-        if (pressKeysPressed) {
-          // Add press keys to matched keys
-          step.pressKeys.forEach((key) => matchedKeys.add(key))
+        // Check if press keys are pressed AND haven't been used in this step
+        const newPressKeys = step.pressKeys.filter(
+          (key) => frame.justPressed.has(key) && !stepPressedKeys.has(key)
+        )
+
+        if (newPressKeys.length === step.pressKeys.length) {
+          // Add press keys to matched keys and track them
+          newPressKeys.forEach((key) => {
+            matchedKeys.add(key)
+            stepPressedKeys.add(key)
+          })
           isMatch = true
           isComplete = true
+
+          if (this.debugEnabled) {
+            console.log(`[SequenceManager] Hold step completed:`, {
+              step: state.currentStep + 1,
+              newPressKeys,
+              allPressedKeys: Array.from(stepPressedKeys),
+              heldKeys: Array.from(frame.heldKeys)
+            })
+          }
         }
       } else {
         isMatch = true

@@ -144,6 +144,14 @@
 			"id": "g-h-combo",
 			"steps": [
 				{
+					"type": "SEQUENCE",
+					"keys": [
+						71
+					],
+					"maxFrameGap": 5,
+					"allowExtraInputs": false
+				},
+				{
 					"type": "HOLD",
 					"holdKeys": [
 						71
