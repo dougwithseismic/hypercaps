@@ -21,37 +21,18 @@ const sequenceManagerConfigSchema = z.object({
 type SequenceManagerConfig = z.infer<typeof sequenceManagerConfigSchema>
 
 /**
- * Sequence manager events
+ * Sequence manager store events
  */
-interface SequenceManagerEvents {
+interface SequenceManagerStoreEvents {
   'store:changed': { config: SequenceManagerConfig }
   'store:error': { error: Error }
   'store:reset': undefined
-  'sequence:detected': {
-    id: string
-    sequence: InputSequence
-    durationFrames: number
-    startFrame: number
-    endFrame: number
-    timestamp: number
-  }
-  'sequence:failed': {
-    id: string
-    reason: 'timeout' | 'invalid_input' | 'wrong_order'
-    failedAtStep: number
-  }
-  'sequence:progress': {
-    id: string
-    currentStep: number
-    totalSteps: number
-    elapsedFrames: number
-  }
 }
 
 /**
  * Create sequence manager store instance
  */
-export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerEvents>({
+export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerStoreEvents>({
   name: 'sequence-manager',
   schema: sequenceManagerConfigSchema,
   defaultConfig: {
@@ -59,8 +40,157 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerE
     bufferSize: 60,
     maxActiveSequences: 3,
     chordTolerance: 2,
-    debugMode: false,
-    sequences: {},
+    debugMode: true,
+    sequences: {
+      // Street Fighter Hadouken: Down, Down-Right, Right + Punch
+      hadouken: {
+        id: 'hadouken',
+        steps: [
+          {
+            type: 'SEQUENCE',
+            keys: [40], // Down
+            maxFrameGap: 10,
+            allowExtraInputs: false
+          },
+          {
+            type: 'CHORD',
+            keys: [40, 39], // Down + Right
+            toleranceFrames: 3
+          },
+          {
+            type: 'SEQUENCE',
+            keys: [39], // Right
+            maxFrameGap: 10,
+            allowExtraInputs: false
+          },
+          {
+            type: 'SEQUENCE',
+            keys: [80], // P
+            maxFrameGap: 10,
+            allowExtraInputs: false
+          }
+        ],
+        timeoutFrames: 30,
+        strictOrder: true
+      },
+
+      // Quick launcher: Ctrl+Space, hold for 500ms
+      'quick-launcher': {
+        id: 'quick-launcher',
+        steps: [
+          {
+            type: 'CHORD',
+            keys: [17, 32], // Ctrl + Space
+            toleranceFrames: 2
+          },
+          {
+            type: 'HOLD',
+            holdKeys: [17, 32], // Hold both Ctrl + Space
+            pressKeys: [], // No additional keys needed
+            minHoldFrames: 30 // 500ms at 60fps
+            // maxHoldFrames: 60 // Optional max hold time
+          }
+        ],
+        timeoutFrames: 90,
+        strictOrder: true
+      },
+
+      // Konami Code: Up, Up, Down, Down, Left, Right, Left, Right, B, A
+      'konami-code': {
+        id: 'konami-code',
+        steps: [
+          {
+            type: 'SEQUENCE',
+            keys: [38, 38, 40, 40, 37, 39, 37, 39], // Up, Up, Down, Down, Left, Right, Left, Right
+            maxFrameGap: 15,
+            allowExtraInputs: false
+          },
+          {
+            type: 'SEQUENCE',
+            keys: [66, 65], // B, A
+            maxFrameGap: 10,
+            allowExtraInputs: false
+          }
+        ],
+        timeoutFrames: 120,
+        strictOrder: true
+      },
+
+      // Power mode: Hold Shift + Alt, then press P while holding
+      'power-mode': {
+        id: 'power-mode',
+        steps: [
+          {
+            type: 'HOLD',
+            holdKeys: [16, 18], // Shift + Alt
+            pressKeys: [80], // P
+            minHoldFrames: 15
+          }
+        ],
+        timeoutFrames: 60,
+        strictOrder: true
+      },
+
+      // Multi-chord: Ctrl+K, then Ctrl+B
+      'toggle-sidebar': {
+        id: 'toggle-sidebar',
+        steps: [
+          {
+            type: 'CHORD',
+            keys: [17, 75], // Ctrl + K
+            toleranceFrames: 2
+          },
+          {
+            type: 'CHORD',
+            keys: [17, 66], // Ctrl + B
+            toleranceFrames: 2
+          }
+        ],
+        timeoutFrames: 30,
+        strictOrder: true
+      },
+
+      // Complex combo: Hold G, press H twice while holding G, then release G
+      'g-h-combo': {
+        id: 'g-h-combo',
+        steps: [
+          {
+            type: 'HOLD',
+            holdKeys: [71], // Hold G
+            pressKeys: [72], // Press H first time
+            minHoldFrames: 5
+          },
+          {
+            type: 'HOLD',
+            holdKeys: [71], // Keep holding G
+            pressKeys: [72], // Press H second time
+            minHoldFrames: 5
+          }
+        ],
+        timeoutFrames: 45,
+        strictOrder: true
+      },
+
+      // Mixed sequence: Ctrl+K, hold Ctrl, press 1,2,3 in sequence
+      'number-sequence': {
+        id: 'number-sequence',
+        steps: [
+          {
+            type: 'CHORD',
+            keys: [17, 75], // Ctrl + K
+            toleranceFrames: 2
+          },
+          {
+            type: 'HOLD',
+            holdKeys: [17], // Hold Ctrl
+            pressKeys: [49, 50, 51], // 1,2,3
+            minHoldFrames: 10
+          }
+        ],
+        timeoutFrames: 60,
+        strictOrder: true
+      }
+    },
     frameRate: 60
   }
 })

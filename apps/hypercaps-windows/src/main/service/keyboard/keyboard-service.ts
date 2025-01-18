@@ -216,8 +216,8 @@ export class KeyboardService extends EventEmitter {
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
     const processedFrame = processFrame(data)
 
-    console.log('[KeyboardService] Emitting frame event')
-    console.dir(processedFrame, { depth: null })
+    // console.log('[KeyboardService] Emitting frame event', processedFrame.state.held)
+    // console.dir(processedFrame, { depth: null })
 
     // Update state
     this.setState({
