@@ -29,6 +29,12 @@ app.whenReady().then(async () => {
   await trayFeature.initialize()
   await sequenceManagerFeature.initialize()
 
+  sequenceManagerFeature.on('sequence-detected', (sequence) => {
+    console.log('sequence-detected', sequence)
+  })
+
+  await sequenceManagerFeature.initialize()
+
   mainWindow.initialize()
 
   app.on('activate', function () {

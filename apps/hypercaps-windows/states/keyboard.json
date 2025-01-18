@@ -1,0 +1,16 @@
+{
+	"service": {
+		"enabled": true,
+		"frameRate": 60,
+		"frameBufferSize": 60,
+		"frameHistory": {
+			"maxSize": 100,
+			"retentionFrames": 300
+		}
+	},
+	"monitoring": {
+		"enabled": true,
+		"capsLockBehavior": "BlockToggle",
+		"debug": false
+	}
+}

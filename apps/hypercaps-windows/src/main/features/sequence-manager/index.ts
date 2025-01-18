@@ -1,18 +1,10 @@
 import { EventEmitter } from 'events'
-import type {
-  KeyboardFrame,
-  InputSequence,
-  SequenceState,
-  PendingMatch,
-  StepMatchResult,
-  ChordStep,
-  SequenceStep,
-  HoldStep
-} from './types'
-import { sequenceStore, sequenceManager } from './store'
+import type { KeyboardFrameEvent } from '../../service/keyboard/types'
+import { sequenceStore } from './store'
 import { keyboardStore } from '../../service/keyboard/store'
 import { keyboardService } from '../../service/keyboard/keyboard-service'
-import type { KeyboardFrameEvent } from '../../service/keyboard/types'
+import { SequenceMatcher } from './sequence-matcher'
+import type { InputSequence } from './types'
 
 export interface SequenceEvents {
   'sequence:detected': {
@@ -41,54 +33,94 @@ export interface SequenceEvents {
 }
 
 export class SequenceManager extends EventEmitter {
-  private activeStates = new Map<string, SequenceState>()
-  private pendingMatches = new Map<string, PendingMatch>()
-  private frameBuffer: KeyboardFrame[] = []
+  private matcher: SequenceMatcher
   private isInitialized = false
   private debugEnabled = false
 
   constructor() {
     super()
+    this.matcher = new SequenceMatcher()
     this.handleFrame = this.handleFrame.bind(this)
+    this.setupEventHandlers()
   }
 
-  /**
-   * Initialize the sequence manager
-   */
+  private setupEventHandlers(): void {
+    this.matcher.on('sequence:complete', (event) => {
+      const sequence = sequenceStore.get().sequences[event.id]
+      if (!sequence) return
+
+      if (this.debugEnabled) {
+        console.log('[SequenceManager] Sequence detected:', {
+          id: event.id,
+          sequence,
+          duration: event.duration,
+          startTime: event.startTime,
+          endTime: event.endTime
+        })
+      }
+
+      this.emit('sequence:detected', {
+        id: event.id,
+        sequence,
+        durationFrames: event.duration,
+        startFrame: event.startTime,
+        endFrame: event.endTime,
+        timestamp: event.endTime
+      })
+    })
+
+    this.matcher.on('sequence:failed', (event) => {
+      if (this.debugEnabled) {
+        console.log('[SequenceManager] Sequence failed:', {
+          id: event.id,
+          reason: event.reason,
+          startTime: event.startTime
+        })
+      }
+
+      this.emit('sequence:failed', {
+        id: event.id,
+        reason: event.reason,
+        failedAtStep: 0 // TODO: Track step number in matcher
+      })
+    })
+  }
+
   async initialize(): Promise<void> {
-    if (this.isInitialized) {
-      return
-    }
+    if (this.isInitialized) return
 
     try {
-      // Subscribe to keyboard store changes
       keyboardStore.subscribe((config) => {
         if (config.service.enabled) {
-          sequenceManager.setFrameRate(config.service.frameRate)
-          sequenceManager.setBufferSize(config.service.frameBufferSize)
+          this.matcher.setFrameRate(config.service.frameRate)
         }
       })
 
-      // Subscribe to sequence store changes
       sequenceStore.subscribe((config) => {
         this.debugEnabled = config.debugMode
+        this.matcher.setDebug(config.debugMode)
+
         if (!config.isEnabled) {
-          this.reset()
+          this.matcher.dispose()
+          this.matcher = new SequenceMatcher()
+          this.setupEventHandlers()
+          this.matcher.setDebug(config.debugMode)
+        } else {
+          // Add all sequences to matcher
+          Object.values(config.sequences).forEach((sequence) => {
+            this.matcher.addSequence(sequence)
+          })
         }
       })
 
-      // Subscribe to keyboard frames
       keyboardService.on('keyboard:frame', this.handleFrame)
 
-      // Initialize frame buffer
+      // Add initial sequences
       const config = sequenceStore.get()
       this.debugEnabled = config.debugMode
-      this.frameBuffer = new Array(config.bufferSize).fill({
-        timestamp: 0,
-        frameNumber: 0,
-        heldKeys: new Set(),
-        justPressed: new Set(),
-        justReleased: new Set()
+      this.matcher.setDebug(config.debugMode)
+      Object.values(config.sequences).forEach((sequence) => {
+        this.matcher.addSequence(sequence)
       })
 
       this.isInitialized = true
@@ -99,448 +131,37 @@ export class SequenceManager extends EventEmitter {
     }
   }
 
-  /**
-   * Handle a new keyboard frame
-   */
-  private handleFrame = (event: KeyboardFrameEvent): void => {
+  private handleFrame(event: KeyboardFrameEvent): void {
     const config = sequenceStore.get()
-    if (!config.isEnabled) {
-      return
+    if (!config.isEnabled) return
+
+    if (this.debugEnabled) {
+      console.log('[SequenceManager] Received frame:', {
+        frame: event.frame,
+        timestamp: event.timestamp,
+        held: event.state.held,
+        justPressed: event.state.justPressed,
+        justReleased: event.state.justReleased
+      })
     }
 
-    const frame: KeyboardFrame = {
+    this.matcher.handleFrame({
       timestamp: event.timestamp,
       frameNumber: event.frame,
       heldKeys: new Set(event.state.held.map(Number)),
       justPressed: new Set(event.state.justPressed.map(Number)),
       justReleased: new Set(event.state.justReleased.map(Number))
-    }
-
-    // Update frame buffer
-    this.frameBuffer.push(frame)
-    if (this.frameBuffer.length > config.bufferSize) {
-      this.frameBuffer.shift()
-    }
-
-    // Process active sequences
-    this.processActiveSequences(frame)
-
-    // Check for new sequence starts
-    this.checkNewSequences(frame)
-
-    // Clean up expired states and matches
-    this.cleanup(frame.timestamp)
-  }
-
-  /**
-   * Process active sequences
-   */
-  private processActiveSequences(frame: KeyboardFrame): void {
-    for (const [id, state] of this.activeStates) {
-      const sequence = sequenceStore.get().sequences[id]
-      if (!sequence) {
-        this.activeStates.delete(id)
-        continue
-      }
-
-      // Calculate elapsed time from frame timestamps
-      const elapsedMs = frame.timestamp - state.startTime
-
-      // Check for timeout
-      if (elapsedMs > sequence.timeoutMs) {
-        this.handleSequenceFailed(id, state, 'timeout')
-        continue
-      }
-
-      // Update state with elapsed time
-      state.elapsedMs = elapsedMs
-
-      // Process current step
-      const currentStep = sequence.steps[state.currentStep]
-      const result = this.evaluateStep(currentStep, frame, state)
-
-      // Update state with new matched keys
-      state.matchedKeys = result.matchedKeys
-
-      if (result.isComplete) {
-        if (this.debugEnabled) {
-          console.log(
-            `[SequenceManager] Step ${state.currentStep + 1} complete for sequence "${id}"`
-          )
-        }
-
-        // Move to next step or complete sequence
-        if (state.currentStep === sequence.steps.length - 1) {
-          this.handleSequenceComplete(id, state, frame)
-        } else {
-          state.currentStep++
-          // Initialize new step's pressed keys tracking
-          state.pressedKeysPerStep.set(state.currentStep, new Set())
-          // Reset matched keys for next step
-          state.matchedKeys = new Set()
-          this.emitProgress(id, state)
-        }
-      } else if (!result.isMatch && sequence.strictOrder) {
-        // Only fail if we actually pressed wrong keys and past first step
-        if (frame.justPressed.size > 0 && state.currentStep > 0) {
-          this.handleSequenceFailed(id, state, 'wrong_order')
-        }
-      }
-    }
-  }
-
-  /**
-   * Check for new sequences starting
-   */
-  private checkNewSequences(frame: KeyboardFrame): void {
-    const config = sequenceStore.get()
-    if (this.activeStates.size >= config.maxActiveSequences) {
-      return
-    }
-
-    // Check each sequence for potential start
-    for (const [id, sequence] of Object.entries(config.sequences)) {
-      // Skip if sequence is active or in cooldown
-      if (this.activeStates.has(id) || this.pendingMatches.has(id)) {
-        continue
-      }
-
-      const firstStep = sequence.steps[0]
-
-      // Only evaluate if we've pressed a key that's actually in the first step
-      const pressedKeys = Array.from(frame.justPressed)
-      const relevantKeyPressed = pressedKeys.some((key) => {
-        switch (firstStep.type) {
-          case 'CHORD':
-            return firstStep.keys.includes(key)
-          case 'SEQUENCE':
-            // For sequences, only the first key matters
-            return firstStep.keys[0] === key
-          case 'HOLD':
-            // For hold steps, we need either a hold key or press key
-            return firstStep.holdKeys.includes(key) || firstStep.pressKeys.includes(key)
-          default:
-            return false
-        }
-      })
-
-      if (!relevantKeyPressed) {
-        continue
-      }
-
-      const result = this.evaluateStep(firstStep, frame, {
-        id,
-        currentStep: 0,
-        startTime: frame.timestamp,
-        elapsedMs: 0,
-        matchedKeys: new Set(),
-        confidence: 0,
-        pressedKeysPerStep: new Map()
-      })
-
-      if (result.isMatch) {
-        // Start tracking this sequence
-        const newState = {
-          id,
-          currentStep: result.isComplete ? 1 : 0,
-          startTime: frame.timestamp,
-          elapsedMs: 0,
-          matchedKeys: result.matchedKeys,
-          confidence: result.timingScore * 100,
-          pressedKeysPerStep: new Map([[0, new Set(frame.justPressed)]])
-        }
-        this.activeStates.set(id, newState)
-      }
-    }
-  }
-
-  /**
-   * Clean up expired states and matches
-   */
-  private cleanup(timestamp: number): void {
-    // Clean up pending matches
-    for (const [id, match] of this.pendingMatches) {
-      if (timestamp >= match.expiresAt) {
-        this.pendingMatches.delete(id)
-      }
-    }
-
-    // Clean up expired states
-    for (const [id, state] of this.activeStates) {
-      const sequence = sequenceStore.get().sequences[id]
-      if (!sequence || state.elapsedMs > sequence.timeoutMs) {
-        this.activeStates.delete(id)
-      }
-    }
-  }
-
-  /**
-   * Handle sequence completion
-   */
-  private handleSequenceComplete(id: string, state: SequenceState, frame: KeyboardFrame): void {
-    const sequence = sequenceStore.get().sequences[id]
-    const config = sequenceStore.get()
-
-    if (this.debugEnabled) {
-      console.log(`
-      ███████╗███████╗ ██████╗ ██╗   ██╗███████╗███╗   ██╗ ██████╗███████╗
-      ██╔════╝██╔════╝██╔═══██╗██║   ██║██╔════╝████╗  ██║██╔════╝██╔════╝
-      ███████╗█████╗  ██║   ██║██║   ██║█████╗  ██╔██╗ ██║██║     █████╗  
-      ╚════██║██╔══╝  ██║▄▄ ██║██║   ██║██╔══╝  ██║╚██╗██║██║     ██╔══╝  
-      ███████║███████╗╚██████╔╝╚██████╔╝███████╗██║ ╚████║╚██████╗███████╗
-      ╚══════╝╚══════╝ ╚══▀▀═╝  ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚══════╝
-      `)
-      console.log(`[SequenceManager] Sequence "${id}" completed successfully:`, {
-        durationFrames: state.elapsedMs,
-        confidence: state.confidence,
-        matchedKeys: Array.from(state.matchedKeys),
-        pressedKeysPerStep: Array.from(state.pressedKeysPerStep.entries()).map(([step, keys]) => ({
-          step: step + 1,
-          keys: Array.from(keys)
-        })),
-        otherActiveSequences: Array.from(this.activeStates.keys()).filter((s) => s !== id),
-        cooldownMs: config.cooldownMs
-      })
-    }
-
-    // Get all keys used in the sequence
-    const usedKeys = new Set<number>()
-    sequence.steps.forEach((step) => {
-      switch (step.type) {
-        case 'CHORD':
-          step.keys.forEach((k) => usedKeys.add(k))
-          break
-        case 'SEQUENCE':
-          step.keys.forEach((k) => usedKeys.add(k))
-          break
-        case 'HOLD':
-          step.holdKeys.forEach((k) => usedKeys.add(k))
-          step.pressKeys.forEach((k) => usedKeys.add(k))
-          break
-      }
-    })
-
-    // Add a cooldown for this sequence using config
-    this.pendingMatches.set(id, {
-      sequenceId: id,
-      state,
-      expiresAt: frame.timestamp + config.cooldownMs,
-      priority: 0
-    })
-
-    // Clear frame buffer of used keys
-    this.frameBuffer = this.frameBuffer.map((f) => ({
-      ...f,
-      heldKeys: new Set([...f.heldKeys].filter((k) => !usedKeys.has(k))),
-      justPressed: new Set([...f.justPressed].filter((k) => !usedKeys.has(k))),
-      justReleased: new Set([...f.justReleased].filter((k) => !usedKeys.has(k)))
-    }))
-
-    this.emit('sequence:detected', {
-      id,
-      sequence,
-      durationFrames: state.elapsedMs,
-      startFrame: state.startTime,
-      endFrame: frame.timestamp,
-      timestamp: frame.timestamp
-    })
-
-    this.activeStates.delete(id)
-  }
-
-  /**
-   * Handle sequence failure
-   */
-  private handleSequenceFailed(
-    id: string,
-    state: SequenceState,
-    reason: 'timeout' | 'invalid_input' | 'wrong_order'
-  ): void {
-    if (this.debugEnabled && state.currentStep > 0) {
-      // console.log(`[SequenceManager] Sequence "${id}" failed:`, {
-      //   reason,
-      //   step: state.currentStep + 1,
-      //   elapsedFrames: state.elapsedMs,
-      //   matchedKeys: Array.from(state.matchedKeys)
-      // })
-    }
-
-    this.emit('sequence:failed', {
-      id,
-      reason,
-      failedAtStep: state.currentStep
-    })
-
-    this.activeStates.delete(id)
-  }
-
-  /**
-   * Emit sequence progress
-   */
-  private emitProgress(id: string, state: SequenceState): void {
-    const sequence = sequenceStore.get().sequences[id]
-
-    this.emit('sequence:progress', {
-      id,
-      currentStep: state.currentStep,
-      totalSteps: sequence.steps.length,
-      elapsedFrames: state.elapsedMs
     })
   }
 
-  /**
-   * Reset all state
-   */
-  private reset(): void {
-    this.activeStates.clear()
-    this.pendingMatches.clear()
-    this.frameBuffer = []
-  }
-
-  /**
-   * Dispose of resources
-   */
   dispose(): void {
     if (this.isInitialized) {
       keyboardService.off('keyboard:frame', this.handleFrame)
-      this.reset()
+      this.matcher.dispose()
       this.isInitialized = false
       this.removeAllListeners()
     }
   }
-
-  /**
-   * Evaluate a single step
-   */
-  private evaluateStep(
-    step: InputSequence['steps'][number],
-    frame: KeyboardFrame,
-    state: SequenceState
-  ): StepMatchResult {
-    switch (step.type) {
-      case 'CHORD':
-        return this.evaluateChordStep(step, frame, state)
-      case 'SEQUENCE':
-        return this.evaluateSequenceStep(step, frame, state)
-      case 'HOLD':
-        return this.evaluateHoldStep(step, frame, state)
-      default:
-        return { isMatch: false, isComplete: false, matchedKeys: new Set(), timingScore: 0 }
-    }
-  }
-
-  /**
-   * Evaluate a chord step
-   */
-  private evaluateChordStep(
-    step: ChordStep,
-    frame: KeyboardFrame,
-    state: SequenceState
-  ): StepMatchResult {
-    // Check if all required keys are pressed within tolerance
-    const isMatch = step.keys.every((key) => frame.heldKeys.has(key))
-    const timingScore = isMatch
-      ? this.calculateTimingScore(frame, step.toleranceMs, state.startTime)
-      : 0
-
-    return {
-      isMatch,
-      isComplete: isMatch,
-      matchedKeys: new Set(step.keys),
-      timingScore
-    }
-  }
-
-  /**
-   * Evaluate a sequence step
-   */
-  private evaluateSequenceStep(
-    step: SequenceStep,
-    frame: KeyboardFrame,
-    state: SequenceState
-  ): StepMatchResult {
-    // Check if keys are pressed in order with allowed gap
-    const isMatch = step.keys.every((key) => frame.heldKeys.has(key))
-    const timingScore = isMatch
-      ? this.calculateTimingScore(frame, step.maxGapMs, state.startTime)
-      : 0
-
-    return {
-      isMatch,
-      isComplete: isMatch,
-      matchedKeys: new Set(step.keys),
-      timingScore
-    }
-  }
-
-  /**
-   * Evaluate a hold step
-   */
-  private evaluateHoldStep(
-    step: HoldStep,
-    frame: KeyboardFrame,
-    state: SequenceState
-  ): StepMatchResult {
-    const matchedKeys = new Set<number>()
-    let isMatch = false
-    let isComplete = false
-
-    // Get or create the set of pressed keys for this step
-    if (!state.pressedKeysPerStep.has(state.currentStep)) {
-      state.pressedKeysPerStep.set(state.currentStep, new Set())
-    }
-    const stepPressedKeys = state.pressedKeysPerStep.get(state.currentStep)!
-
-    // Check if all hold keys are held
-    const allHoldKeysHeld = step.holdKeys.every((key) => frame.heldKeys.has(key))
-    if (allHoldKeysHeld) {
-      // Add hold keys to matched keys
-      step.holdKeys.forEach((key) => matchedKeys.add(key))
-
-      // Use frame timestamp to check hold duration
-      const holdDuration = frame.timestamp - state.startTime
-      if (holdDuration >= step.minHoldMs) {
-        // Check if press keys are pressed AND haven't been used in this step
-        const newPressKeys = step.pressKeys.filter(
-          (key) => frame.justPressed.has(key) && !stepPressedKeys.has(key)
-        )
-
-        if (newPressKeys.length === step.pressKeys.length) {
-          // Add press keys to matched keys and track them
-          newPressKeys.forEach((key) => {
-            matchedKeys.add(key)
-            stepPressedKeys.add(key)
-          })
-          isMatch = true
-          isComplete = true
-        }
-      } else {
-        isMatch = true
-      }
-    }
-
-    const timingScore = isMatch
-      ? this.calculateTimingScore(frame, step.minHoldMs, state.startTime)
-      : 0
-
-    return {
-      isMatch,
-      isComplete,
-      matchedKeys,
-      timingScore
-    }
-  }
-
-  /**
-   * Calculate timing score (0-1) based on frame timing
-   */
-  private calculateTimingScore(frame: KeyboardFrame, targetMs: number, startTime: number): number {
-    // Calculate timing score based on actual elapsed time from frame timestamps
-    const elapsed = frame.timestamp - startTime
-    // Score decreases linearly as we approach the target time
-    return Math.max(0, 1 - elapsed / targetMs)
-  }
 }
 
-// Export singleton instance
 export const sequenceManagerFeature = new SequenceManager()
