@@ -21,6 +21,7 @@ export interface KeyboardFrameState {
   held: number[]
   justReleased: number[]
   holdDurations: Record<number, number>
+  frameNumber: number
 }
 
 export interface KeyboardFrameEvent extends Omit<KeyboardFrame, 'state'> {
@@ -28,6 +29,7 @@ export interface KeyboardFrameEvent extends Omit<KeyboardFrame, 'state'> {
   processed: boolean
   validationErrors?: string[]
   state: KeyboardFrameState
+  frameTimestamp: number
 }
 
 export interface StateChangeEvent {

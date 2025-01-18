@@ -44,11 +44,11 @@ export class KeyboardService extends EventEmitter {
   }
 
   private cleanupFrameHistory(): void {
-    const now = Date.now()
-    const { maxSize, retentionMs } = this.config.service.frameHistory
+    const { maxSize, retentionFrames } = this.config.service.frameHistory
+    const currentFrame = this.state.currentFrame?.state.frameNumber ?? 0
 
     let frameHistory = this.state.frameHistory.filter(
-      (frame) => now - frame.timestamp < retentionMs
+      (frame) => currentFrame - frame.state.frameNumber < retentionFrames
     )
 
     if (frameHistory.length > maxSize) {
@@ -161,11 +161,13 @@ export class KeyboardService extends EventEmitter {
       id: randomUUID(),
       processed: true,
       validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
+      frameTimestamp: frame.timestamp,
       state: {
         justPressed: frame.state.justPressed,
         held: frame.state.held,
         justReleased: frame.state.justReleased,
-        holdDurations: frame.state.holdDurations
+        holdDurations: frame.state.holdDurations,
+        frameNumber: frame.frameNumber
       }
     }
 
@@ -174,6 +176,9 @@ export class KeyboardService extends EventEmitter {
 
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
     const processedFrame = this.processFrame(data)
+
+    console.log('[KeyboardService] Emitting frame event')
+    console.dir(processedFrame, { depth: null })
 
     // Skip if the frame is identical to the current frame
     if (this.areFramesEqual(this.state.currentFrame, data)) {
@@ -186,8 +191,6 @@ export class KeyboardService extends EventEmitter {
       frameHistory: [...this.state.frameHistory, processedFrame]
     })
 
-    console.log('[KeyboardService] Emitting frame event')
-    console.dir(processedFrame, { depth: null })
     // Emit frame event
     this.emit('keyboard:frame', processedFrame)
 
@@ -238,10 +241,10 @@ export class KeyboardService extends EventEmitter {
       isRemapperEnabled: true,
       remaps: {},
       maxRemapChainLength: 1,
-
       isEnabled: this.config.monitoring.enabled,
       capsLockBehavior: this.config.monitoring.capsLockBehavior,
-      bufferWindow: this.config.service.bufferWindow
+      frameRate: this.config.service.frameRate,
+      frameBufferSize: this.config.service.frameBufferSize
     }
 
     this.keyboardMonitor.setConfig(config)
@@ -272,7 +275,8 @@ export class KeyboardService extends EventEmitter {
       const config: KeyboardConfig = {
         isEnabled: this.config.monitoring.enabled,
         capsLockBehavior: this.config.monitoring.capsLockBehavior,
-        bufferWindow: this.config.service.bufferWindow,
+        frameRate: this.config.service.frameRate,
+        frameBufferSize: this.config.service.frameBufferSize,
         isRemapperEnabled: true,
         remaps: { Capital: ['LShift'] },
         maxRemapChainLength: 1

@@ -7,10 +7,12 @@ import { createStore } from '../store'
 const keyboardConfigSchema = z.object({
   service: z.object({
     enabled: z.boolean(),
-    bufferWindow: z.number(),
+    frameRate: z.number(),
+    frameBufferSize: z.number(),
     frameHistory: z.object({
       maxSize: z.number(),
-      retentionMs: z.number()
+      retentionFrames: z.number(),
+      retentionMs: z.number().optional()
     })
   }),
   monitoring: z.object({
@@ -47,10 +49,12 @@ export const keyboardStore = createStore<KeyboardConfig, KeyboardEvents>({
   defaultConfig: {
     service: {
       enabled: true,
-      bufferWindow: 3000, // 3 seconds
+      frameRate: 60,
+      frameBufferSize: 60,
       frameHistory: {
         maxSize: 100,
-        retentionMs: 5000 // 5 seconds
+        retentionFrames: 300,
+        retentionMs: 5000
       }
     },
     monitoring: {
@@ -88,6 +92,28 @@ export const keyboard = {
   },
 
   /**
+   * Update frame rate
+   */
+  setFrameRate(frameRate: number) {
+    keyboardStore.update({
+      update: (config) => {
+        config.service.frameRate = frameRate
+      }
+    })
+  },
+
+  /**
+   * Update frame buffer size
+   */
+  setFrameBufferSize(size: number) {
+    keyboardStore.update({
+      update: (config) => {
+        config.service.frameBufferSize = size
+      }
+    })
+  },
+
+  /**
    * Update frame history settings
    */
   setFrameHistory(settings: Partial<KeyboardConfig['service']['frameHistory']>) {
@@ -110,12 +136,15 @@ export const keyboard = {
   },
 
   /**
-   * Update buffer window
+   * Update buffer window (deprecated)
    */
   setBufferWindow(bufferWindow: number) {
+    console.warn('setBufferWindow is deprecated. Use setFrameBufferSize instead.')
     keyboardStore.update({
       update: (config) => {
-        config.service.bufferWindow = bufferWindow
+        // Convert milliseconds to frames at current frame rate
+        const frames = Math.ceil(bufferWindow / (1000 / config.service.frameRate))
+        config.service.frameBufferSize = frames
       }
     })
   }

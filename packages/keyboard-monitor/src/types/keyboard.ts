@@ -19,6 +19,7 @@ export interface KeyState {
 
 export interface KeyboardFrame {
   frame: number;
+  frameNumber: number;
   timestamp: number;
   event: KeyEvent;
   state: KeyState;
@@ -51,5 +52,7 @@ export interface KeyboardConfig {
 
   // Behavior configuration
   capsLockBehavior: CapsLockBehavior;
-  bufferWindow: number;
+  frameRate: number;
+  frameBufferSize: number;
+  bufferWindow?: number;
 }

@@ -8,6 +8,7 @@
 #include <chrono>
 #include <string>
 #include <vector>
+#include <array>
 
 // Forward declare the polling thread function
 DWORD WINAPI PollingThreadProc(LPVOID param);
@@ -16,7 +17,7 @@ struct KeyboardFrame {
     std::set<DWORD> justPressed;
     std::set<DWORD> held;
     std::set<DWORD> justReleased;
-    std::map<DWORD, long long> holdDurations;
+    std::map<DWORD, int> holdDurations;
     long long timestamp;
     int frameNumber;
     struct {
@@ -33,7 +34,8 @@ public:
 
 private:
     static KeyboardMonitor* instance;
-    static const int FRAME_TIME = 16.67;
+    int FRAME_TIME_MICROS = 16667;  // Default to 60 FPS (1/60th second in microseconds)
+    static const int BUFFER_SIZE = 60;
     static const int POLLING_INTERVAL = 1;
 
     // Thread-safe function for callbacks
@@ -47,15 +49,15 @@ private:
     
     // Configuration
     std::map<std::string, std::vector<std::string>> remaps;
-    int bufferWindow = 3000;
     int maxRemapChainLength = 5;
     
     // Frame management
-    std::queue<KeyboardFrame> frames;
-    int currentFrame = 0;
+    std::array<KeyboardFrame, BUFFER_SIZE> frameBuffer;
+    int currentFrameIndex = 0;
+    int totalFrames = 0;
     std::chrono::steady_clock::time_point lastFrameTime;
     std::chrono::steady_clock::time_point lastPollTime;
-    std::map<DWORD, long long> keyPressStartTimes;
+    std::map<DWORD, int> keyPressStartFrames;
 
     // Methods
     Napi::Value Start(const Napi::CallbackInfo& info);
@@ -63,9 +65,10 @@ private:
     Napi::Value SetConfig(const Napi::CallbackInfo& info);
     
     void PollKeyboardState();
-    void CreateNewFrame(long long timestamp);
+    void CreateNewFrame();
     void EmitFrame(const KeyboardFrame& frame);
     void ProcessKeyEvent(DWORD vkCode, bool isKeyDown);
+    int GetFramesSince(int startFrame) const;
 
     friend DWORD WINAPI PollingThreadProc(LPVOID param);
 }; 
