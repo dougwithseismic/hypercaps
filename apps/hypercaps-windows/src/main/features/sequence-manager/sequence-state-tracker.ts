@@ -2,11 +2,10 @@ import { EventEmitter } from 'events'
 import type {
   InputSequence,
   KeyboardFrame,
-  StateStep,
-  Step,
-  SequenceState,
   SequenceHistory,
-  SequenceRelationship
+  SequenceRelationship,
+  StateStep,
+  Step
 } from './types'
 
 interface InputBuffer {
@@ -29,6 +28,7 @@ export class SequenceStateTracker extends EventEmitter {
   private activeMatches: Map<string, SequenceMatch>
   private sequences: Map<string, InputSequence>
   private sequenceHistory: SequenceHistory[] = []
+  private consumedInputs: Set<string> = new Set() // Track consumed inputs
   private debugEnabled = false
   private frameRate: number
 
@@ -136,9 +136,11 @@ export class SequenceStateTracker extends EventEmitter {
 
   private checkSequences(frame: KeyboardFrame): SequenceMatch[] {
     const matches: SequenceMatch[] = []
-    const sortedSequences = Array.from(this.sequences.entries()).sort(
-      ([, a], [, b]) => (b.steps?.length || 0) - (a.steps?.length || 0)
-    )
+    const sortedSequences = Array.from(this.sequences.entries()).sort(([, a], [, b]) => {
+      const aSteps = a.type === 'SEQUENCE' ? a.steps?.length || 0 : 0
+      const bSteps = b.type === 'SEQUENCE' ? b.steps?.length || 0 : 0
+      return bSteps - aSteps
+    })
 
     for (const [id, sequence] of sortedSequences) {
       // Skip if we've already matched this sequence in this frame
@@ -149,7 +151,7 @@ export class SequenceStateTracker extends EventEmitter {
         // Check relationships before adding the match
         const canExecute = !sequence.relationships?.some((relationship) => {
           const targetHistory = this.sequenceHistory.find(
-            (h) => h.sequenceId === relationship.targetSequenceId
+            (h) => h.id === relationship.targetSequenceId
           )
           if (!targetHistory) return relationship.type === 'REQUIRES'
 
@@ -162,8 +164,10 @@ export class SequenceStateTracker extends EventEmitter {
         if (canExecute) {
           matches.push(match)
           this.sequenceHistory.push({
-            sequenceId: id,
-            timestamp: frame.timestamp
+            id,
+            timestamp: frame.timestamp,
+            frameNumber: frame.frameNumber,
+            duration: match.endFrame - match.startFrame
           })
         }
       }
@@ -225,7 +229,11 @@ export class SequenceStateTracker extends EventEmitter {
       const frame = this.buffer.frames[i]
       if (!frame) continue
 
-      if (this.isInputConsumed(i)) continue
+      // Check if any key in this frame is already consumed
+      const anyKeyConsumed = Array.from(frame.justPressed).some((key) =>
+        this.isInputConsumed(i, key)
+      )
+      if (anyKeyConsumed) continue
 
       const step = sequence.steps[currentStep]
       const stepMatch = this.matchesStep(frame, step)
@@ -237,6 +245,16 @@ export class SequenceStateTracker extends EventEmitter {
         currentStep++
 
         if (currentStep === sequence.steps.length) {
+          // Mark all matched inputs as consumed
+          for (let j = matchStart; j <= i; j++) {
+            const matchFrame = this.buffer.frames[j]
+            if (matchFrame) {
+              matchFrame.justPressed.forEach((key) => {
+                this.consumeInput(j, key, sequence.id)
+              })
+            }
+          }
+
           return {
             sequenceId: sequence.id,
             confidence: 1.0,
@@ -393,24 +411,13 @@ export class SequenceStateTracker extends EventEmitter {
     return { isMatch: true, matchedKeys }
   }
 
-  private isInputConsumed(frameIndex: number): boolean {
-    for (const match of this.activeMatches.values()) {
-      if (match.consumedInputs.has(frameIndex)) return true
-    }
-    return false
+  private isInputConsumed(frameIndex: number, key: number): boolean {
+    return this.consumedInputs.has(`${frameIndex}-${key}`)
   }
 
-  private consumeInputs(frameIndices: Set<number>): void {
-    // Only consume inputs for SEQUENCE type sequences
-    // STATE type sequences can share inputs
-    for (const index of frameIndices) {
-      for (const [id, match] of this.activeMatches) {
-        const sequence = this.sequences.get(id)
-        if (sequence?.type === 'SEQUENCE') {
-          match.consumedInputs.add(index)
-        }
-      }
-    }
+  private consumeInput(frameIndex: number, key: number, sequenceId: string): void {
+    this.consumedInputs.add(`${frameIndex}-${key}`)
+    this.debug(`Consuming input at frame ${frameIndex}: ${key} for sequence ${sequenceId}`)
   }
 
   private cleanup(currentFrame: number): void {
@@ -422,8 +429,16 @@ export class SequenceStateTracker extends EventEmitter {
       }
     }
 
-    // Clear old frames from buffer
+    // Clear old consumed inputs
     const oldestValidFrame = currentFrame - this.buffer.maxSize
+    this.consumedInputs = new Set(
+      Array.from(this.consumedInputs).filter((key) => {
+        const frameIndex = parseInt(key.split('-')[0])
+        return frameIndex >= oldestValidFrame
+      })
+    )
+
+    // Clear old frames from buffer
     this.buffer.frames = this.buffer.frames.filter(
       (frame) => frame && frame.frameNumber >= oldestValidFrame
     )
