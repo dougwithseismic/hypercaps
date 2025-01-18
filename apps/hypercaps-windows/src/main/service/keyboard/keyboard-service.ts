@@ -1,9 +1,11 @@
-import { KeyboardConfig, KeyboardMonitor, type KeyboardFrame } from '@hypercaps/keyboard-monitor'
+import { KeyboardMonitor, type KeyboardFrame } from '@hypercaps/keyboard-monitor'
 import { dialog } from 'electron'
 import { EventEmitter } from 'events'
-import { randomUUID } from 'crypto'
 import { keyboardStore } from './store'
 import { ErrorState, KeyboardFrameEvent, KeyboardServiceState, StateChangeEvent } from './types'
+import { processFrame } from './utils/frame-utils'
+import { cleanupFrameHistory } from './utils/frame-history-utils'
+import { createMonitorConfig } from './utils/monitor-config-utils'
 
 export class KeyboardService extends EventEmitter {
   private static instance: KeyboardService
@@ -110,15 +112,7 @@ export class KeyboardService extends EventEmitter {
     })
 
     try {
-      const config: KeyboardConfig = {
-        isEnabled: this.config.monitoring.enabled,
-        capsLockBehavior: this.config.monitoring.capsLockBehavior,
-        frameRate: this.config.service.frameRate,
-        frameBufferSize: this.config.service.frameBufferSize,
-        isRemapperEnabled: true,
-        remaps: { Capital: ['LShift'] },
-        maxRemapChainLength: 1
-      }
+      const config = createMonitorConfig(this.config)
 
       this.keyboardMonitor = new KeyboardMonitor((eventName: string, data: KeyboardFrame) => {
         if (eventName === 'frame') {
@@ -192,17 +186,7 @@ export class KeyboardService extends EventEmitter {
 
   private updateMonitorConfig(): void {
     if (!this.keyboardMonitor) return
-
-    const config: KeyboardConfig = {
-      isRemapperEnabled: true,
-      remaps: {},
-      maxRemapChainLength: 1,
-      isEnabled: this.config.monitoring.enabled,
-      capsLockBehavior: this.config.monitoring.capsLockBehavior,
-      frameRate: this.config.service.frameRate,
-      frameBufferSize: this.config.service.frameBufferSize
-    }
-
+    const config = createMonitorConfig(this.config)
     this.keyboardMonitor.setConfig(config)
   }
 
@@ -217,79 +201,20 @@ export class KeyboardService extends EventEmitter {
   }
 
   private cleanupFrameHistory(): void {
-    const { maxSize, retentionFrames } = this.config.service.frameHistory
-    const currentFrame = this.state.currentFrame?.state.frameNumber ?? 0
-
-    let frameHistory = this.state.frameHistory.filter(
-      (frame) => currentFrame - frame.state.frameNumber < retentionFrames
+    const cleanedHistory = cleanupFrameHistory(
+      this.state.frameHistory,
+      this.config.service.frameHistory,
+      this.state.currentFrame?.state.frameNumber
     )
 
-    if (frameHistory.length > maxSize) {
-      frameHistory = frameHistory.slice(-maxSize)
+    if (cleanedHistory.length !== this.state.frameHistory.length) {
+      this.setState({ frameHistory: cleanedHistory })
+      this.emit('keyboard:frameHistory', cleanedHistory)
     }
-
-    if (frameHistory.length !== this.state.frameHistory.length) {
-      this.setState({ frameHistory })
-      this.emit('keyboard:frameHistory', frameHistory)
-    }
-  }
-
-  private validateFrame(frame: KeyboardFrame): string[] {
-    const validations = [
-      {
-        check: () => !frame.timestamp,
-        message: 'Frame missing timestamp'
-      },
-      {
-        check: () => !frame.state,
-        message: 'Frame missing state'
-      },
-      {
-        check: () => frame.state && !Array.isArray(frame.state.justPressed),
-        message: 'Invalid justPressed state'
-      },
-      {
-        check: () => frame.state && !Array.isArray(frame.state.held),
-        message: 'Invalid held state'
-      },
-      {
-        check: () => frame.state && !Array.isArray(frame.state.justReleased),
-        message: 'Invalid justReleased state'
-      },
-      {
-        check: () => frame.state && typeof frame.state.holdDurations !== 'object',
-        message: 'Invalid holdDurations state'
-      }
-    ]
-
-    return validations
-      .filter((validation) => validation.check())
-      .map((validation) => validation.message)
-  }
-
-  private processFrame(frame: KeyboardFrame): KeyboardFrameEvent {
-    const validationErrors = this.validateFrame(frame)
-
-    const processedFrame: KeyboardFrameEvent = {
-      ...frame,
-      id: randomUUID(),
-      processed: true,
-      validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
-      frameTimestamp: frame.timestamp,
-      state: {
-        justPressed: frame.state.justPressed,
-        held: frame.state.held,
-        justReleased: frame.state.justReleased,
-        holdDurations: frame.state.holdDurations,
-        frameNumber: frame.frameNumber
-      }
-    }
-
-    return processedFrame
   }
 
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
-    const processedFrame = this.processFrame(data)
+    const processedFrame = processFrame(data)
 
     console.log('[KeyboardService] Emitting frame event')
     console.dir(processedFrame, { depth: null })

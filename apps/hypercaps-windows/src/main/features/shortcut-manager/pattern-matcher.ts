@@ -1,11 +1,10 @@
 import type { KeyboardFrame } from './types'
 import type {
+  PatternMatchResult,
   PatternNode,
   PatternState,
-  PatternMatchResult,
-  StepMatchResult,
   PendingMatch,
-  ShortcutPattern
+  StepMatchResult
 } from './types/patterns'
 
 export class PatternMatcher {
