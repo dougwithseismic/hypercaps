@@ -186,6 +186,8 @@ export class KeyboardService extends EventEmitter {
       frameHistory: [...this.state.frameHistory, processedFrame]
     })
 
+    console.log('[KeyboardService] Emitting frame event')
+    console.dir(processedFrame, { depth: null })
     // Emit frame event
     this.emit('keyboard:frame', processedFrame)
 

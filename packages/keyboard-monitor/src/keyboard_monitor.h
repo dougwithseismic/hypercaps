@@ -33,8 +33,8 @@ public:
 
 private:
     static KeyboardMonitor* instance;
-    static const int FRAME_TIME = 16;
-    static const int POLLING_INTERVAL = 8;
+    static const int FRAME_TIME = 16.67;
+    static const int POLLING_INTERVAL = 1;
 
     // Thread-safe function for callbacks
     Napi::ThreadSafeFunction tsfn;
