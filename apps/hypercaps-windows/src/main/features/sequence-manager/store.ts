@@ -42,8 +42,40 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
     maxActiveSequences: 3,
     chordTolerance: 2,
     debugMode: true,
-    cooldownMs: 500, // Default 500ms cooldown
+    cooldownMs: 100, // Default 500ms cooldown
     sequences: {
+      // Street Fighter Dragon Punch: Forward, Down, Down-Forward + Punch
+      'dragon-punch': {
+        id: 'dragon-punch',
+        steps: [
+          {
+            type: 'SEQUENCE',
+            keys: [39], // Forward
+            maxGapMs: 200,
+            allowExtraInputs: false
+          },
+          {
+            type: 'SEQUENCE',
+            keys: [40], // Down
+            maxGapMs: 200,
+            allowExtraInputs: false
+          },
+          {
+            type: 'CHORD',
+            keys: [40, 39], // Down + Forward
+            toleranceMs: 50
+          },
+          {
+            type: 'SEQUENCE',
+            keys: [80], // P
+            maxGapMs: 200,
+            allowExtraInputs: false
+          }
+        ],
+        timeoutMs: 1000,
+        strictOrder: true
+      },
+
       // Street Fighter Hadouken: Down, Down-Right, Right + Punch
       hadouken: {
         id: 'hadouken',
@@ -51,28 +83,28 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
           {
             type: 'SEQUENCE',
             keys: [40], // Down
-            maxFrameGap: 10,
+            maxGapMs: 200, // 200ms between inputs
             allowExtraInputs: false
           },
           {
             type: 'CHORD',
             keys: [40, 39], // Down + Right
-            toleranceFrames: 3
+            toleranceMs: 50 // 50ms tolerance for "simultaneous" press
           },
           {
             type: 'SEQUENCE',
             keys: [39], // Right
-            maxFrameGap: 10,
+            maxGapMs: 200,
             allowExtraInputs: false
           },
           {
             type: 'SEQUENCE',
             keys: [80], // P
-            maxFrameGap: 10,
+            maxGapMs: 200,
             allowExtraInputs: false
           }
         ],
-        timeoutFrames: 30,
+        timeoutMs: 1000, // Complete within 1 second
         strictOrder: true
       },
 
@@ -83,17 +115,16 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
           {
             type: 'CHORD',
             keys: [17, 32], // Ctrl + Space
-            toleranceFrames: 2
+            toleranceMs: 50
           },
           {
             type: 'HOLD',
             holdKeys: [17, 32], // Hold both Ctrl + Space
             pressKeys: [], // No additional keys needed
-            minHoldFrames: 30 // 500ms at 60fps
-            // maxHoldFrames: 60 // Optional max hold time
+            minHoldMs: 500 // Hold for 500ms
           }
         ],
-        timeoutFrames: 90,
+        timeoutMs: 1000,
         strictOrder: true
       },
 
@@ -104,17 +135,17 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
           {
             type: 'SEQUENCE',
             keys: [38, 38, 40, 40, 37, 39, 37, 39], // Up, Up, Down, Down, Left, Right, Left, Right
-            maxFrameGap: 15,
+            maxGapMs: 500,
             allowExtraInputs: false
           },
           {
             type: 'SEQUENCE',
             keys: [66, 65], // B, A
-            maxFrameGap: 10,
+            maxGapMs: 500,
             allowExtraInputs: false
           }
         ],
-        timeoutFrames: 120,
+        timeoutMs: 5000, // 5 seconds total
         strictOrder: true
       },
 
@@ -126,10 +157,10 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
             type: 'HOLD',
             holdKeys: [16, 18], // Shift + Alt
             pressKeys: [80], // P
-            minHoldFrames: 15
+            minHoldMs: 250
           }
         ],
-        timeoutFrames: 60,
+        timeoutMs: 1000,
         strictOrder: true
       },
 
@@ -140,19 +171,19 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
           {
             type: 'CHORD',
             keys: [17, 75], // Ctrl + K
-            toleranceFrames: 2
+            toleranceMs: 50
           },
           {
             type: 'CHORD',
             keys: [17, 66], // Ctrl + B
-            toleranceFrames: 2
+            toleranceMs: 50
           }
         ],
-        timeoutFrames: 30,
+        timeoutMs: 500,
         strictOrder: true
       },
 
-      // Complex combo: Hold G, press H twice while holding G, then release G
+      // Complex combo: Hold G, press H twice while holding G
       'g-h-combo': {
         id: 'g-h-combo',
         steps: [
@@ -160,16 +191,16 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
             type: 'HOLD',
             holdKeys: [71], // Hold G
             pressKeys: [72], // Press H first time
-            minHoldFrames: 5
+            minHoldMs: 100
           },
           {
             type: 'HOLD',
             holdKeys: [71], // Keep holding G
             pressKeys: [72], // Press H second time
-            minHoldFrames: 5
+            minHoldMs: 100
           }
         ],
-        timeoutFrames: 45,
+        timeoutMs: 1000,
         strictOrder: true
       },
 
@@ -180,16 +211,16 @@ export const sequenceStore = createStore<SequenceManagerConfig, SequenceManagerS
           {
             type: 'CHORD',
             keys: [17, 75], // Ctrl + K
-            toleranceFrames: 2
+            toleranceMs: 50
           },
           {
             type: 'HOLD',
             holdKeys: [17], // Hold Ctrl
             pressKeys: [49, 50, 51], // 1,2,3
-            minHoldFrames: 10
+            minHoldMs: 200
           }
         ],
-        timeoutFrames: 60,
+        timeoutMs: 1000,
         strictOrder: true
       }
     },

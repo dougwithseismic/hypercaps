@@ -143,40 +143,32 @@ export class SequenceManager extends EventEmitter {
         continue
       }
 
-      // Update elapsed frames
-      state.elapsedFrames++
+      // Calculate elapsed time from frame timestamps
+      const elapsedMs = frame.timestamp - state.startTime
 
       // Check for timeout
-      if (state.elapsedFrames > sequence.timeoutFrames) {
+      if (elapsedMs > sequence.timeoutMs) {
         this.handleSequenceFailed(id, state, 'timeout')
         continue
       }
+
+      // Update state with elapsed time
+      state.elapsedMs = elapsedMs
 
       // Process current step
       const currentStep = sequence.steps[state.currentStep]
       const result = this.evaluateStep(currentStep, frame, state)
 
-      if (this.debugEnabled) {
-        // console.log(`[SequenceManager] Processing sequence "${id}":`, {
-        //   step: state.currentStep + 1,
-        //   totalSteps: sequence.steps.length,
-        //   stepType: currentStep.type,
-        //   isMatch: result.isMatch,
-        //   isComplete: result.isComplete,
-        //   matchedKeys: Array.from(result.matchedKeys),
-        //   confidence: state.confidence,
-        //   elapsedFrames: state.elapsedFrames,
-        //   currentKeys: {
-        //     justPressed: Array.from(frame.justPressed),
-        //     heldKeys: Array.from(frame.heldKeys)
-        //   }
-        // })
-      }
-
       // Update state with new matched keys
       state.matchedKeys = result.matchedKeys
 
       if (result.isComplete) {
+        if (this.debugEnabled) {
+          console.log(
+            `[SequenceManager] Step ${state.currentStep + 1} complete for sequence "${id}"`
+          )
+        }
+
         // Move to next step or complete sequence
         if (state.currentStep === sequence.steps.length - 1) {
           this.handleSequenceComplete(id, state, frame)
@@ -189,8 +181,8 @@ export class SequenceManager extends EventEmitter {
           this.emitProgress(id, state)
         }
       } else if (!result.isMatch && sequence.strictOrder) {
-        // Only fail if we actually pressed wrong keys
-        if (frame.justPressed.size > 0) {
+        // Only fail if we actually pressed wrong keys and past first step
+        if (frame.justPressed.size > 0 && state.currentStep > 0) {
           this.handleSequenceFailed(id, state, 'wrong_order')
         }
       }
@@ -210,14 +202,6 @@ export class SequenceManager extends EventEmitter {
     for (const [id, sequence] of Object.entries(config.sequences)) {
       // Skip if sequence is active or in cooldown
       if (this.activeStates.has(id) || this.pendingMatches.has(id)) {
-        if (this.debugEnabled) {
-          console.log(`[SequenceManager] Skipping sequence "${id}":`, {
-            reason: this.activeStates.has(id) ? 'already active' : 'in cooldown',
-            cooldownRemaining: this.pendingMatches.get(id)?.expiresAt
-              ? Math.max(0, this.pendingMatches.get(id)!.expiresAt - frame.timestamp)
-              : 0
-          })
-        }
         continue
       }
 
@@ -241,24 +225,14 @@ export class SequenceManager extends EventEmitter {
       })
 
       if (!relevantKeyPressed) {
-        // if (this.debugEnabled) {
-        //   console.log(`[SequenceManager] Ignoring sequence "${id}" - no relevant keys pressed:`, {
-        //     pressedKeys,
-        //     stepType: firstStep.type,
-        //     requiredKeys:
-        //       firstStep.type === 'HOLD'
-        //         ? { holdKeys: firstStep.holdKeys, pressKeys: firstStep.pressKeys }
-        //         : firstStep.keys
-        //   })
-        // }
         continue
       }
 
       const result = this.evaluateStep(firstStep, frame, {
         id,
         currentStep: 0,
-        startFrame: frame.frameNumber,
-        elapsedFrames: 0,
+        startTime: frame.timestamp,
+        elapsedMs: 0,
         matchedKeys: new Set(),
         confidence: 0,
         pressedKeysPerStep: new Map()
@@ -269,23 +243,13 @@ export class SequenceManager extends EventEmitter {
         const newState = {
           id,
           currentStep: result.isComplete ? 1 : 0,
-          startFrame: frame.frameNumber,
-          elapsedFrames: 0,
+          startTime: frame.timestamp,
+          elapsedMs: 0,
           matchedKeys: result.matchedKeys,
           confidence: result.timingScore * 100,
           pressedKeysPerStep: new Map([[0, new Set(frame.justPressed)]])
         }
         this.activeStates.set(id, newState)
-
-        if (this.debugEnabled) {
-          console.log(`[SequenceManager] Started new sequence "${id}":`, {
-            stepType: firstStep.type,
-            isComplete: result.isComplete,
-            matchedKeys: Array.from(result.matchedKeys),
-            confidence: newState.confidence,
-            pressedKeys: Array.from(frame.justPressed)
-          })
-        }
       }
     }
   }
@@ -304,7 +268,7 @@ export class SequenceManager extends EventEmitter {
     // Clean up expired states
     for (const [id, state] of this.activeStates) {
       const sequence = sequenceStore.get().sequences[id]
-      if (!sequence || state.elapsedFrames > sequence.timeoutFrames) {
+      if (!sequence || state.elapsedMs > sequence.timeoutMs) {
         this.activeStates.delete(id)
       }
     }
@@ -327,7 +291,7 @@ export class SequenceManager extends EventEmitter {
       ╚══════╝╚══════╝ ╚══▀▀═╝  ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚══════╝
       `)
       console.log(`[SequenceManager] Sequence "${id}" completed successfully:`, {
-        durationFrames: state.elapsedFrames,
+        durationFrames: state.elapsedMs,
         confidence: state.confidence,
         matchedKeys: Array.from(state.matchedKeys),
         pressedKeysPerStep: Array.from(state.pressedKeysPerStep.entries()).map(([step, keys]) => ({
@@ -375,9 +339,9 @@ export class SequenceManager extends EventEmitter {
     this.emit('sequence:detected', {
       id,
       sequence,
-      durationFrames: state.elapsedFrames,
-      startFrame: state.startFrame,
-      endFrame: frame.frameNumber,
+      durationFrames: state.elapsedMs,
+      startFrame: state.startTime,
+      endFrame: frame.timestamp,
       timestamp: frame.timestamp
     })
 
@@ -392,13 +356,13 @@ export class SequenceManager extends EventEmitter {
     state: SequenceState,
     reason: 'timeout' | 'invalid_input' | 'wrong_order'
   ): void {
-    if (this.debugEnabled) {
-      console.log(`[SequenceManager] Sequence "${id}" failed:`, {
-        reason,
-        step: state.currentStep + 1,
-        elapsedFrames: state.elapsedFrames,
-        matchedKeys: Array.from(state.matchedKeys)
-      })
+    if (this.debugEnabled && state.currentStep > 0) {
+      // console.log(`[SequenceManager] Sequence "${id}" failed:`, {
+      //   reason,
+      //   step: state.currentStep + 1,
+      //   elapsedFrames: state.elapsedMs,
+      //   matchedKeys: Array.from(state.matchedKeys)
+      // })
     }
 
     this.emit('sequence:failed', {
@@ -416,20 +380,11 @@ export class SequenceManager extends EventEmitter {
   private emitProgress(id: string, state: SequenceState): void {
     const sequence = sequenceStore.get().sequences[id]
 
-    if (this.debugEnabled) {
-      console.log(`[SequenceManager] Sequence "${id}" progress:`, {
-        step: state.currentStep + 1,
-        totalSteps: sequence.steps.length,
-        elapsedFrames: state.elapsedFrames,
-        confidence: state.confidence
-      })
-    }
-
     this.emit('sequence:progress', {
       id,
       currentStep: state.currentStep,
       totalSteps: sequence.steps.length,
-      elapsedFrames: state.elapsedFrames
+      elapsedFrames: state.elapsedMs
     })
   }
 
@@ -464,7 +419,7 @@ export class SequenceManager extends EventEmitter {
   ): StepMatchResult {
     switch (step.type) {
       case 'CHORD':
-        return this.evaluateChordStep(step, frame)
+        return this.evaluateChordStep(step, frame, state)
       case 'SEQUENCE':
         return this.evaluateSequenceStep(step, frame, state)
       case 'HOLD':
@@ -477,26 +432,21 @@ export class SequenceManager extends EventEmitter {
   /**
    * Evaluate a chord step
    */
-  private evaluateChordStep(step: ChordStep, frame: KeyboardFrame): StepMatchResult {
-    const config = sequenceStore.get()
-    const tolerance = step.toleranceFrames ?? config.chordTolerance
-    const matchedKeys = new Set<number>()
+  private evaluateChordStep(
+    step: ChordStep,
+    frame: KeyboardFrame,
+    state: SequenceState
+  ): StepMatchResult {
+    // Check if all required keys are pressed within tolerance
+    const isMatch = step.keys.every((key) => frame.heldKeys.has(key))
+    const timingScore = isMatch
+      ? this.calculateTimingScore(frame, step.toleranceMs, state.startTime)
+      : 0
 
-    // Check if all required keys are either just pressed or held
-    for (const key of step.keys) {
-      if (frame.justPressed.has(key) || frame.heldKeys.has(key)) {
-        matchedKeys.add(key)
-      }
-    }
-
-    const isMatch = matchedKeys.size === step.keys.length
-    const timingScore = isMatch ? this.calculateTimingScore(frame, tolerance) : 0
-
-    // For chords, we're either complete or not matching at all
     return {
       isMatch,
       isComplete: isMatch,
-      matchedKeys,
+      matchedKeys: new Set(step.keys),
       timingScore
     }
   }
@@ -509,47 +459,16 @@ export class SequenceManager extends EventEmitter {
     frame: KeyboardFrame,
     state: SequenceState
   ): StepMatchResult {
-    const matchedKeys = new Set(state.matchedKeys) // Start with existing matched keys
-    let isMatch = false
-    let isComplete = false
-
-    // Get the next required key in sequence
-    const nextKey = step.keys[matchedKeys.size]
-
-    if (nextKey) {
-      // Check if the next key is pressed
-      if (frame.justPressed.has(nextKey)) {
-        matchedKeys.add(nextKey)
-        isMatch = true
-
-        // Check if sequence is complete
-        isComplete = matchedKeys.size === step.keys.length
-      } else if (!step.allowExtraInputs && frame.justPressed.size > 0) {
-        // If we don't allow extra inputs and pressed something wrong, fail immediately
-        isMatch = false
-      } else {
-        // No new keys pressed, maintain current state
-        isMatch = matchedKeys.size > 0
-      }
-
-      if (this.debugEnabled && frame.justPressed.size > 0) {
-        console.log(`[SequenceManager] Sequence step evaluation:`, {
-          nextExpectedKey: nextKey,
-          pressedKeys: Array.from(frame.justPressed),
-          currentMatched: Array.from(matchedKeys),
-          isMatch,
-          isComplete,
-          allowExtraInputs: step.allowExtraInputs
-        })
-      }
-    }
-
-    const timingScore = isMatch ? this.calculateTimingScore(frame, step.maxFrameGap) : 0
+    // Check if keys are pressed in order with allowed gap
+    const isMatch = step.keys.every((key) => frame.heldKeys.has(key))
+    const timingScore = isMatch
+      ? this.calculateTimingScore(frame, step.maxGapMs, state.startTime)
+      : 0
 
     return {
       isMatch,
-      isComplete,
-      matchedKeys,
+      isComplete: isMatch,
+      matchedKeys: new Set(step.keys),
       timingScore
     }
   }
@@ -578,8 +497,9 @@ export class SequenceManager extends EventEmitter {
       // Add hold keys to matched keys
       step.holdKeys.forEach((key) => matchedKeys.add(key))
 
-      // Check if we've held long enough
-      if (state.elapsedFrames >= step.minHoldFrames) {
+      // Use frame timestamp to check hold duration
+      const holdDuration = frame.timestamp - state.startTime
+      if (holdDuration >= step.minHoldMs) {
         // Check if press keys are pressed AND haven't been used in this step
         const newPressKeys = step.pressKeys.filter(
           (key) => frame.justPressed.has(key) && !stepPressedKeys.has(key)
@@ -593,22 +513,15 @@ export class SequenceManager extends EventEmitter {
           })
           isMatch = true
           isComplete = true
-
-          if (this.debugEnabled) {
-            console.log(`[SequenceManager] Hold step completed:`, {
-              step: state.currentStep + 1,
-              newPressKeys,
-              allPressedKeys: Array.from(stepPressedKeys),
-              heldKeys: Array.from(frame.heldKeys)
-            })
-          }
         }
       } else {
         isMatch = true
       }
     }
 
-    const timingScore = isMatch ? this.calculateTimingScore(frame, step.minHoldFrames) : 0
+    const timingScore = isMatch
+      ? this.calculateTimingScore(frame, step.minHoldMs, state.startTime)
+      : 0
 
     return {
       isMatch,
@@ -621,10 +534,11 @@ export class SequenceManager extends EventEmitter {
   /**
    * Calculate timing score (0-1) based on frame timing
    */
-  private calculateTimingScore(frame: KeyboardFrame, targetFrames: number): number {
-    // Simple linear score based on frame timing
-    // Could be made more sophisticated with curve/weighting
-    return Math.max(0, 1 - frame.frameNumber / targetFrames)
+  private calculateTimingScore(frame: KeyboardFrame, targetMs: number, startTime: number): number {
+    // Calculate timing score based on actual elapsed time from frame timestamps
+    const elapsed = frame.timestamp - startTime
+    // Score decreases linearly as we approach the target time
+    return Math.max(0, 1 - elapsed / targetMs)
   }
 }
 

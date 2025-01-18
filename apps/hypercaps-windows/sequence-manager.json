@@ -4,16 +4,25 @@
 	"maxActiveSequences": 3,
 	"chordTolerance": 2,
 	"debugMode": true,
+	"cooldownMs": 100,
 	"sequences": {
-		"hadouken": {
-			"id": "hadouken",
+		"dragon-punch": {
+			"id": "dragon-punch",
 			"steps": [
+				{
+					"type": "SEQUENCE",
+					"keys": [
+						39
+					],
+					"maxGapMs": 200,
+					"allowExtraInputs": false
+				},
 				{
 					"type": "SEQUENCE",
 					"keys": [
 						40
 					],
-					"maxFrameGap": 10,
+					"maxGapMs": 200,
 					"allowExtraInputs": false
 				},
 				{
@@ -22,14 +31,45 @@
 						40,
 						39
 					],
-					"toleranceFrames": 3
+					"toleranceMs": 50
+				},
+				{
+					"type": "SEQUENCE",
+					"keys": [
+						80
+					],
+					"maxGapMs": 200,
+					"allowExtraInputs": false
+				}
+			],
+			"timeoutMs": 1000,
+			"strictOrder": true
+		},
+		"hadouken": {
+			"id": "hadouken",
+			"steps": [
+				{
+					"type": "SEQUENCE",
+					"keys": [
+						40
+					],
+					"maxGapMs": 200,
+					"allowExtraInputs": false
+				},
+				{
+					"type": "CHORD",
+					"keys": [
+						40,
+						39
+					],
+					"toleranceMs": 50
 				},
 				{
 					"type": "SEQUENCE",
 					"keys": [
 						39
 					],
-					"maxFrameGap": 10,
+					"maxGapMs": 200,
 					"allowExtraInputs": false
 				},
 				{
@@ -37,11 +77,11 @@
 					"keys": [
 						80
 					],
-					"maxFrameGap": 10,
+					"maxGapMs": 200,
 					"allowExtraInputs": false
 				}
 			],
-			"timeoutFrames": 30,
+			"timeoutMs": 1000,
 			"strictOrder": true
 		},
 		"quick-launcher": {
@@ -53,7 +93,7 @@
 						17,
 						32
 					],
-					"toleranceFrames": 2
+					"toleranceMs": 50
 				},
 				{
 					"type": "HOLD",
@@ -62,10 +102,10 @@
 						32
 					],
 					"pressKeys": [],
-					"minHoldFrames": 30
+					"minHoldMs": 500
 				}
 			],
-			"timeoutFrames": 90,
+			"timeoutMs": 1000,
 			"strictOrder": true
 		},
 		"konami-code": {
@@ -83,7 +123,7 @@
 						37,
 						39
 					],
-					"maxFrameGap": 15,
+					"maxGapMs": 500,
 					"allowExtraInputs": false
 				},
 				{
@@ -92,11 +132,11 @@
 						66,
 						65
 					],
-					"maxFrameGap": 10,
+					"maxGapMs": 500,
 					"allowExtraInputs": false
 				}
 			],
-			"timeoutFrames": 120,
+			"timeoutMs": 5000,
 			"strictOrder": true
 		},
 		"power-mode": {
@@ -111,10 +151,10 @@
 					"pressKeys": [
 						80
 					],
-					"minHoldFrames": 15
+					"minHoldMs": 250
 				}
 			],
-			"timeoutFrames": 60,
+			"timeoutMs": 1000,
 			"strictOrder": true
 		},
 		"toggle-sidebar": {
@@ -126,7 +166,7 @@
 						17,
 						75
 					],
-					"toleranceFrames": 2
+					"toleranceMs": 50
 				},
 				{
 					"type": "CHORD",
@@ -134,22 +174,24 @@
 						17,
 						66
 					],
-					"toleranceFrames": 2
+					"toleranceMs": 50
 				}
 			],
-			"timeoutFrames": 30,
+			"timeoutMs": 500,
 			"strictOrder": true
 		},
 		"g-h-combo": {
 			"id": "g-h-combo",
 			"steps": [
 				{
-					"type": "SEQUENCE",
-					"keys": [
+					"type": "HOLD",
+					"holdKeys": [
 						71
 					],
-					"maxFrameGap": 5,
-					"allowExtraInputs": false
+					"pressKeys": [
+						72
+					],
+					"minHoldMs": 100
 				},
 				{
 					"type": "HOLD",
@@ -159,20 +201,10 @@
 					"pressKeys": [
 						72
 					],
-					"minHoldFrames": 5
-				},
-				{
-					"type": "HOLD",
-					"holdKeys": [
-						71
-					],
-					"pressKeys": [
-						72
-					],
-					"minHoldFrames": 5
+					"minHoldMs": 100
 				}
 			],
-			"timeoutFrames": 45,
+			"timeoutMs": 1000,
 			"strictOrder": true
 		},
 		"number-sequence": {
@@ -184,7 +216,7 @@
 						17,
 						75
 					],
-					"toleranceFrames": 2
+					"toleranceMs": 50
 				},
 				{
 					"type": "HOLD",
@@ -196,10 +228,10 @@
 						50,
 						51
 					],
-					"minHoldFrames": 10
+					"minHoldMs": 200
 				}
 			],
-			"timeoutFrames": 60,
+			"timeoutMs": 1000,
 			"strictOrder": true
 		}
 	},

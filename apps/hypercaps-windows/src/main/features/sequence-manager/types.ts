@@ -8,7 +8,7 @@
 export interface ChordStep {
   type: 'CHORD'
   keys: number[]
-  toleranceFrames: number
+  toleranceMs: number
 }
 
 /**
@@ -17,7 +17,7 @@ export interface ChordStep {
 export interface SequenceStep {
   type: 'SEQUENCE'
   keys: number[]
-  maxFrameGap: number
+  maxGapMs: number
   allowExtraInputs: boolean
 }
 
@@ -28,8 +28,8 @@ export interface HoldStep {
   type: 'HOLD'
   holdKeys: number[]
   pressKeys: number[]
-  minHoldFrames: number
-  maxHoldFrames?: number
+  minHoldMs: number
+  maxHoldMs?: number
 }
 
 /**
@@ -38,7 +38,7 @@ export interface HoldStep {
 export interface InputSequence {
   id: string
   steps: (ChordStep | SequenceStep | HoldStep)[]
-  timeoutFrames: number
+  timeoutMs: number
   strictOrder: boolean
 }
 
@@ -48,8 +48,8 @@ export interface InputSequence {
 export interface SequenceState {
   id: string
   currentStep: number
-  startFrame: number
-  elapsedFrames: number
+  startTime: number
+  elapsedMs: number
   matchedKeys: Set<number>
   confidence: number
   pressedKeysPerStep: Map<number, Set<number>>
