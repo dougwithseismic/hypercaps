@@ -33,34 +33,6 @@ export class KeyboardService extends EventEmitter {
     return KeyboardService.instance
   }
 
-  private startFrameCleanup(): void {
-    if (this.frameCleanupInterval) {
-      clearInterval(this.frameCleanupInterval)
-    }
-
-    this.frameCleanupInterval = setInterval(() => {
-      this.cleanupFrameHistory()
-    }, 1000) // Check every second
-  }
-
-  private cleanupFrameHistory(): void {
-    const { maxSize, retentionFrames } = this.config.service.frameHistory
-    const currentFrame = this.state.currentFrame?.state.frameNumber ?? 0
-
-    let frameHistory = this.state.frameHistory.filter(
-      (frame) => currentFrame - frame.state.frameNumber < retentionFrames
-    )
-
-    if (frameHistory.length > maxSize) {
-      frameHistory = frameHistory.slice(-maxSize)
-    }
-
-    if (frameHistory.length !== this.state.frameHistory.length) {
-      this.setState({ frameHistory })
-      this.emit('keyboard:frameHistory', frameHistory)
-    }
-  }
-
   private setupStoreListeners(): void {
     keyboardStore.on({
       event: 'store:changed',
@@ -103,106 +75,6 @@ export class KeyboardService extends EventEmitter {
     return this.state
   }
 
-  private validateFrame(frame: KeyboardFrame): string[] {
-    const errors: string[] = []
-
-    if (!frame.timestamp) {
-      errors.push('Frame missing timestamp')
-    }
-
-    if (!frame.state) {
-      errors.push('Frame missing state')
-    } else {
-      if (!Array.isArray(frame.state.justPressed)) {
-        errors.push('Invalid justPressed state')
-      }
-      if (!Array.isArray(frame.state.held)) {
-        errors.push('Invalid held state')
-      }
-      if (!Array.isArray(frame.state.justReleased)) {
-        errors.push('Invalid justReleased state')
-      }
-      if (typeof frame.state.holdDurations !== 'object') {
-        errors.push('Invalid holdDurations state')
-      }
-    }
-
-    return errors
-  }
-
-  private areFramesEqual(frame1?: KeyboardFrameEvent, frame2?: KeyboardFrame): boolean {
-    if (!frame1 || !frame2) return false
-
-    const state1 = frame1.state
-    const state2 = frame2.state
-
-    const areArraysEqual = (a: number[], b: number[]) =>
-      a.length === b.length && a.every((val, idx) => b[idx] === val)
-
-    const areDurationsEqual = (a: Record<string, number>, b: Record<string, number>) => {
-      const keys1 = Object.keys(a)
-      const keys2 = Object.keys(b)
-      return keys1.length === keys2.length && keys1.every((key) => a[key] === b[key])
-    }
-
-    return (
-      areArraysEqual(state1.justPressed, state2.justPressed) &&
-      areArraysEqual(state1.held, state2.held) &&
-      areArraysEqual(state1.justReleased, state2.justReleased) &&
-      areDurationsEqual(state1.holdDurations, state2.holdDurations)
-    )
-  }
-
-  private processFrame(frame: KeyboardFrame): KeyboardFrameEvent {
-    const validationErrors = this.validateFrame(frame)
-
-    const processedFrame: KeyboardFrameEvent = {
-      ...frame,
-      id: randomUUID(),
-      processed: true,
-      validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
-      frameTimestamp: frame.timestamp,
-      state: {
-        justPressed: frame.state.justPressed,
-        held: frame.state.held,
-        justReleased: frame.state.justReleased,
-        holdDurations: frame.state.holdDurations,
-        frameNumber: frame.frameNumber
-      }
-    }
-
-    return processedFrame
-  }
-
-  private handleKeyboardFrame = (data: KeyboardFrame): void => {
-    const processedFrame = this.processFrame(data)
-
-    console.log('[KeyboardService] Emitting frame event')
-    console.dir(processedFrame, { depth: null })
-
-    // Skip if the frame is identical to the current frame
-    if (this.areFramesEqual(this.state.currentFrame, data)) {
-      return
-    }
-
-    // Update state
-    this.setState({
-      currentFrame: processedFrame,
-      frameHistory: [...this.state.frameHistory, processedFrame]
-    })
-
-    // Emit frame event
-    this.emit('keyboard:frame', processedFrame)
-
-    // Handle validation errors if any
-    if (processedFrame.validationErrors?.length) {
-      this.emitError(
-        `Frame validation errors: ${processedFrame.validationErrors.join(', ')}`,
-        'FRAME_VALIDATION'
-      )
-    }
-  }
-
   public async initialize(): Promise<void> {
     console.log('[KeyboardService] Initializing...')
 
@@ -214,40 +86,6 @@ export class KeyboardService extends EventEmitter {
     if (this.config.monitoring.enabled) {
       await this.startListening()
     }
-  }
-
-  private handleConfigChange(): void {
-    console.log('[KeyboardService] Config changed:', this.config)
-
-    if (!this.config.service.enabled) {
-      this.stopListening()
-      return
-    }
-
-    if (this.config.monitoring.enabled && !this.isRunning()) {
-      this.startListening()
-    } else if (!this.config.monitoring.enabled && this.isRunning()) {
-      this.stopListening()
-    } else if (this.isRunning()) {
-      // Update monitor config
-      this.updateMonitorConfig()
-    }
-  }
-
-  private updateMonitorConfig(): void {
-    if (!this.keyboardMonitor) return
-
-    const config: KeyboardConfig = {
-      isRemapperEnabled: true,
-      remaps: {},
-      maxRemapChainLength: 1,
-      isEnabled: this.config.monitoring.enabled,
-      capsLockBehavior: this.config.monitoring.capsLockBehavior,
-      frameRate: this.config.service.frameRate,
-      frameBufferSize: this.config.service.frameBufferSize
-    }
-
-    this.keyboardMonitor.setConfig(config)
   }
 
   public async startListening(): Promise<void> {
@@ -332,6 +170,146 @@ export class KeyboardService extends EventEmitter {
 
   public isRunning(): boolean {
     return this.keyboardMonitor !== null && this.state.isListening
+  }
+
+  private handleConfigChange(): void {
+    console.log('[KeyboardService] Config changed:', this.config)
+
+    if (!this.config.service.enabled) {
+      this.stopListening()
+      return
+    }
+
+    if (this.config.monitoring.enabled && !this.isRunning()) {
+      this.startListening()
+    } else if (!this.config.monitoring.enabled && this.isRunning()) {
+      this.stopListening()
+    } else if (this.isRunning()) {
+      // Update monitor config
+      this.updateMonitorConfig()
+    }
+  }
+
+  private updateMonitorConfig(): void {
+    if (!this.keyboardMonitor) return
+
+    const config: KeyboardConfig = {
+      isRemapperEnabled: true,
+      remaps: {},
+      maxRemapChainLength: 1,
+      isEnabled: this.config.monitoring.enabled,
+      capsLockBehavior: this.config.monitoring.capsLockBehavior,
+      frameRate: this.config.service.frameRate,
+      frameBufferSize: this.config.service.frameBufferSize
+    }
+
+    this.keyboardMonitor.setConfig(config)
+  }
+
+  private startFrameCleanup(): void {
+    if (this.frameCleanupInterval) {
+      clearInterval(this.frameCleanupInterval)
+    }
+
+    this.frameCleanupInterval = setInterval(() => {
+      this.cleanupFrameHistory()
+    }, 1000) // Check every second
+  }
+
+  private cleanupFrameHistory(): void {
+    const { maxSize, retentionFrames } = this.config.service.frameHistory
+    const currentFrame = this.state.currentFrame?.state.frameNumber ?? 0
+
+    let frameHistory = this.state.frameHistory.filter(
+      (frame) => currentFrame - frame.state.frameNumber < retentionFrames
+    )
+
+    if (frameHistory.length > maxSize) {
+      frameHistory = frameHistory.slice(-maxSize)
+    }
+
+    if (frameHistory.length !== this.state.frameHistory.length) {
+      this.setState({ frameHistory })
+      this.emit('keyboard:frameHistory', frameHistory)
+    }
+  }
+
+  private validateFrame(frame: KeyboardFrame): string[] {
+    const validations = [
+      {
+        check: () => !frame.timestamp,
+        message: 'Frame missing timestamp'
+      },
+      {
+        check: () => !frame.state,
+        message: 'Frame missing state'
+      },
+      {
+        check: () => frame.state && !Array.isArray(frame.state.justPressed),
+        message: 'Invalid justPressed state'
+      },
+      {
+        check: () => frame.state && !Array.isArray(frame.state.held),
+        message: 'Invalid held state'
+      },
+      {
+        check: () => frame.state && !Array.isArray(frame.state.justReleased),
+        message: 'Invalid justReleased state'
+      },
+      {
+        check: () => frame.state && typeof frame.state.holdDurations !== 'object',
+        message: 'Invalid holdDurations state'
+      }
+    ]
+
+    return validations
+      .filter((validation) => validation.check())
+      .map((validation) => validation.message)
+  }
+
+  private processFrame(frame: KeyboardFrame): KeyboardFrameEvent {
+    const validationErrors = this.validateFrame(frame)
+
+    const processedFrame: KeyboardFrameEvent = {
+      ...frame,
+      id: randomUUID(),
+      processed: true,
+      validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
+      frameTimestamp: frame.timestamp,
+      state: {
+        justPressed: frame.state.justPressed,
+        held: frame.state.held,
+        justReleased: frame.state.justReleased,
+        holdDurations: frame.state.holdDurations,
+        frameNumber: frame.frameNumber
+      }
+    }
+
+    return processedFrame
+  }
+
+  private handleKeyboardFrame = (data: KeyboardFrame): void => {
+    const processedFrame = this.processFrame(data)
+
+    console.log('[KeyboardService] Emitting frame event')
+    console.dir(processedFrame, { depth: null })
+
+    // Update state
+    this.setState({
+      currentFrame: processedFrame,
+      frameHistory: [...this.state.frameHistory, processedFrame]
+    })
+
+    // Emit frame event
+    this.emit('keyboard:frame', processedFrame)
+
+    // Handle validation errors if any
+    if (processedFrame.validationErrors?.length) {
+      this.emitError(
+        `Frame validation errors: ${processedFrame.validationErrors.join(', ')}`,
+        'FRAME_VALIDATION'
+      )
+    }
   }
 
   public dispose(): void {

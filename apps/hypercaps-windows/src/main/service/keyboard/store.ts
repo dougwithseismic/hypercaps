@@ -11,8 +11,7 @@ const keyboardConfigSchema = z.object({
     frameBufferSize: z.number(),
     frameHistory: z.object({
       maxSize: z.number(),
-      retentionFrames: z.number(),
-      retentionMs: z.number().optional()
+      retentionFrames: z.number()
     })
   }),
   monitoring: z.object({
@@ -53,8 +52,7 @@ export const keyboardStore = createStore<KeyboardConfig, KeyboardEvents>({
       frameBufferSize: 60,
       frameHistory: {
         maxSize: 100,
-        retentionFrames: 300,
-        retentionMs: 5000
+        retentionFrames: 300
       }
     },
     monitoring: {
@@ -131,20 +129,6 @@ export const keyboard = {
     keyboardStore.update({
       update: (config) => {
         Object.assign(config.monitoring, settings)
-      }
-    })
-  },
-
-  /**
-   * Update buffer window (deprecated)
-   */
-  setBufferWindow(bufferWindow: number) {
-    console.warn('setBufferWindow is deprecated. Use setFrameBufferSize instead.')
-    keyboardStore.update({
-      update: (config) => {
-        // Convert milliseconds to frames at current frame rate
-        const frames = Math.ceil(bufferWindow / (1000 / config.service.frameRate))
-        config.service.frameBufferSize = frames
       }
     })
   }
