@@ -2,20 +2,11 @@
  * Step types for input sequences
  */
 
-export type RelationshipType = 'REQUIRES' | 'PREVENTS'
-
 export interface SequenceHistory {
   id: string
   timestamp: number
   frameNumber: number
   duration: number
-}
-
-export interface SequenceRelationship {
-  type: RelationshipType
-  targetSequenceId: string
-  timeWindowMs: number
-  condition?: (history: SequenceHistory[]) => boolean
 }
 
 /**
@@ -63,7 +54,6 @@ export type Step = StateStep | SequenceStep
  */
 export type InputSequence = {
   id: string
-  relationships?: SequenceRelationship[]
   cooldownMs?: number
 } & (
   | ({ type: 'STATE' } & Omit<StateStep, 'type'>)
@@ -102,7 +92,11 @@ export interface KeyboardFrame {
 export interface StepMatchResult {
   isMatch: boolean
   isComplete: boolean
-  matchedKeys: Set<number>
+  matchedKeys: {
+    pressed: Set<number>
+    held: Set<number>
+    released: Set<number>
+  }
   timingScore: number
 }
 
@@ -134,7 +128,11 @@ export interface SequenceMatch {
   startFrame: number
   endFrame: number
   consumedInputs: Set<number>
-  matchedKeys: Set<number>
+  matchedKeys: {
+    pressed: Set<number>
+    held: Set<number>
+    released: Set<number>
+  }
 }
 
 /**
@@ -147,11 +145,15 @@ export interface SequenceMatchEvents {
     startTime: number
     endTime: number
     confidence: number
-    matchedKeys: Set<number>
+    matchedKeys: {
+      pressed: Set<number>
+      held: Set<number>
+      released: Set<number>
+    }
   }
   'sequence:failed': {
     id: string
-    reason: 'timeout' | 'invalid_input' | 'wrong_order'
+    reason: 'timeout' | 'invalid_input' | 'state_lost' | 'duration_exceeded'
     startTime: number
   }
 }

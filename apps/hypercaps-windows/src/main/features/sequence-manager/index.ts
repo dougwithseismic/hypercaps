@@ -17,7 +17,7 @@ export interface SequenceEvents {
   }
   'sequence:failed': {
     id: string
-    reason: 'timeout' | 'invalid_input' | 'wrong_order'
+    reason: 'timeout' | 'invalid_input' | 'state_lost' | 'duration_exceeded'
     failedAtStep: number
   }
   'sequence:progress': {

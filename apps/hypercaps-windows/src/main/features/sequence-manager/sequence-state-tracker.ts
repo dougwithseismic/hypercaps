@@ -1,12 +1,5 @@
 import { EventEmitter } from 'events'
-import type {
-  InputSequence,
-  KeyboardFrame,
-  SequenceHistory,
-  SequenceRelationship,
-  StateStep,
-  Step
-} from './types'
+import type { InputSequence, KeyboardFrame, SequenceHistory, StateStep, Step } from './types'
 
 interface InputBuffer {
   frames: KeyboardFrame[]
@@ -14,23 +7,33 @@ interface InputBuffer {
   currentIndex: number
 }
 
+// Add new type for sequence states
+type SequenceState = 'ACTIVE' | 'FAILED' | 'COMPLETE' | 'COOLDOWN'
+
 interface SequenceMatch {
   sequenceId: string
   confidence: number
   startFrame: number
   endFrame: number
   consumedInputs: Set<number>
-  matchedKeys: Set<number>
+  matchedKeys: {
+    pressed: Set<number>
+    held: Set<number>
+    released: Set<number>
+  }
+  state: SequenceState // Add state tracking
+  cooldownUntil?: number // Add cooldown timestamp
 }
 
 export class SequenceStateTracker extends EventEmitter {
   private buffer: InputBuffer
   private activeMatches: Map<string, SequenceMatch>
   private sequences: Map<string, InputSequence>
-  private consumedInputs: Set<string> = new Set() // now "frameIndex-key-sequenceId"
+  private consumedInputs: Set<string> = new Set() // now "frameIndex-key-sequenceId-state"
   private sequenceHistory: SequenceHistory[] = []
   private debugEnabled = false
   private frameRate: number
+  private readonly DEFAULT_COOLDOWN_MS = 250 // Add default cooldown duration
 
   constructor(bufferSize: number = 15, frameRate: number = 60) {
     super()
@@ -91,6 +94,8 @@ export class SequenceStateTracker extends EventEmitter {
       const sequence = this.sequences.get(match.sequenceId)
       if (!sequence) continue
 
+      console.log('match', match)
+
       // Add to history before emitting
       this.sequenceHistory.push({
         id: match.sequenceId,
@@ -99,9 +104,9 @@ export class SequenceStateTracker extends EventEmitter {
         duration: match.endFrame - match.startFrame
       })
 
-      // Trim history to prevent memory growth
-      if (this.sequenceHistory.length > 100) {
-        this.sequenceHistory = this.sequenceHistory.slice(-100)
+      // Keep more history for complex sequence relationships
+      if (this.sequenceHistory.length > 1000) {
+        this.sequenceHistory = this.sequenceHistory.slice(-1000)
       }
 
       this.debug(`Added sequence ${match.sequenceId} to history at time ${frame.timestamp}`)
@@ -168,25 +173,9 @@ export class SequenceStateTracker extends EventEmitter {
     if (sequence.type === 'STATE') {
       const match = this.matchStateSequence(sequence)
       if (match) {
-        // Consume inputs even if relationships block the sequence
+        // Consume inputs
         for (const frameIndex of match.consumedInputs) {
-          const matchFrame = this.buffer.frames[frameIndex]
-          if (matchFrame) {
-            matchFrame.justPressed.forEach((key) => {
-              this.consumeInput(frameIndex, key, sequence.id)
-            })
-          }
-        }
-
-        // Check relationships after consuming inputs
-        if (!this.checkRelationships(sequence, frame)) {
-          this.resetPartialMatch(sequence.id)
-          this.emit('sequence:failed', {
-            id: sequence.id,
-            reason: 'wrong_order',
-            startTime: match.startFrame
-          })
-          return null
+          this.consumeInputsForMatch(match, frameIndex)
         }
         return match
       }
@@ -196,16 +185,20 @@ export class SequenceStateTracker extends EventEmitter {
     let currentStep = 0
     let matchStart = -1
     const consumedInputs = new Set<number>()
-    const matchedKeys = new Set<number>()
+    const matchedKeys = {
+      pressed: new Set<number>(),
+      held: new Set<number>(),
+      released: new Set<number>()
+    }
 
     // Look through buffer for matching steps
     for (let i = 0; i < this.buffer.frames.length; i++) {
       const frame = this.buffer.frames[i]
       if (!frame) continue
 
-      // Check if any key is already consumed e.g. "frameIndex-key-sequenceId"
+      // Check if any key is already consumed e.g. "frameIndex-key-sequenceId-state"
       const anyKeyConsumed = Array.from(frame.justPressed).some((key) =>
-        this.isInputConsumed(i, key)
+        this.isInputConsumed(i, key, 'pressed')
       )
       if (anyKeyConsumed) continue
 
@@ -215,7 +208,10 @@ export class SequenceStateTracker extends EventEmitter {
       if (stepMatch.isMatch) {
         if (matchStart === -1) matchStart = i
         consumedInputs.add(i)
-        stepMatch.matchedKeys.forEach((key) => matchedKeys.add(key))
+        // Merge matched keys from each state
+        stepMatch.matchedKeys.pressed.forEach((key) => matchedKeys.pressed.add(key))
+        stepMatch.matchedKeys.held.forEach((key) => matchedKeys.held.add(key))
+        stepMatch.matchedKeys.released.forEach((key) => matchedKeys.released.add(key))
         currentStep++
 
         if (currentStep === sequence.steps.length) {
@@ -223,8 +219,15 @@ export class SequenceStateTracker extends EventEmitter {
           for (let j = matchStart; j <= i; j++) {
             const matchFrame = this.buffer.frames[j]
             if (matchFrame) {
-              matchFrame.justPressed.forEach((key) => {
-                this.consumeInput(j, key, sequence.id)
+              // Consume all matched keys from each state
+              matchedKeys.pressed.forEach((key) => {
+                this.consumeInput(j, key, sequence.id, 'pressed')
+              })
+              matchedKeys.held.forEach((key) => {
+                this.consumeInput(j, key, sequence.id, 'held')
+              })
+              matchedKeys.released.forEach((key) => {
+                this.consumeInput(j, key, sequence.id, 'released')
               })
             }
           }
@@ -235,34 +238,40 @@ export class SequenceStateTracker extends EventEmitter {
             startFrame: matchStart,
             endFrame: i,
             consumedInputs,
-            matchedKeys
-          }
-
-          // Check relationships after consuming inputs
-          if (!this.checkRelationships(sequence, frame)) {
-            this.resetPartialMatch(sequence.id)
-            this.emit('sequence:failed', {
-              id: sequence.id,
-              reason: 'wrong_order',
-              startTime: matchStart
-            })
-            return null
+            matchedKeys,
+            state: 'ACTIVE' as SequenceState
           }
 
           return match
         }
       }
     }
-
     return null
   }
 
   private matchStateSequence(sequence: StateStep): SequenceMatch | null {
-    // Get existing match if any
-    const existingMatch = this.activeMatches.get(sequence.id || 'unknown')
-    const matchedKeys = new Set<number>()
+    const sequenceId = sequence.id || 'unknown'
+    const existingMatch = this.activeMatches.get(sequenceId)
+
+    // Check if in cooldown or complete
+    if (existingMatch?.cooldownUntil && existingMatch.cooldownUntil > Date.now()) {
+      if (existingMatch.state === 'COOLDOWN' || existingMatch.state === 'COMPLETE') {
+        return null
+      }
+    }
+
+    // Only reset if failed (not if complete)
+    if (existingMatch?.state === 'FAILED') {
+      this.resetAllMatchesForSequence(sequenceId)
+    }
+
+    const matchedKeys = {
+      pressed: new Set<number>(),
+      held: new Set<number>(),
+      released: new Set<number>()
+    }
     const consumedInputs = new Set<number>()
-    let startFrame = existingMatch?.startFrame ?? -1
+    let startFrame = -1
     let startTime = -1
 
     // Find the first frame where the state is matched
@@ -277,140 +286,277 @@ export class SequenceStateTracker extends EventEmitter {
           startTime = frame.timestamp
         }
         consumedInputs.add(i)
-        match.matchedKeys.forEach((key) => matchedKeys.add(key))
+        // Merge matched keys from each state
+        match.matchedKeys.pressed.forEach((key) => matchedKeys.pressed.add(key))
+        match.matchedKeys.held.forEach((key) => matchedKeys.held.add(key))
+        match.matchedKeys.released.forEach((key) => matchedKeys.released.add(key))
       } else if (startFrame !== -1 && !this.isStatePartiallyMaintained(frame, sequence)) {
-        // Only reset if we've lost the state completely and we're not in a trigger window
+        // State is lost - check if we're in a valid trigger window before resetting
         const elapsed = frame.timestamp - startTime
         const inTriggerWindow =
           sequence.duration?.triggerMs &&
           Math.abs(elapsed - sequence.duration.triggerMs) <= (sequence.toleranceMs || 100)
 
         if (!inTriggerWindow) {
-          this.debug(`Sequence ${sequence.id}: RESET - state lost at time ${frame.timestamp}`)
+          this.debug(`Sequence ${sequenceId}: RESET - state lost at time ${frame.timestamp}`)
+          this.emit('sequence:failed', {
+            id: sequenceId,
+            reason: 'state_lost',
+            startTime
+          })
           startFrame = -1
           startTime = -1
           consumedInputs.clear()
-          matchedKeys.clear()
+          matchedKeys.pressed.clear()
+          matchedKeys.held.clear()
+          matchedKeys.released.clear()
+          this.resetPartialMatch(sequenceId)
         }
       }
 
-      // Check if we've reached a trigger point
+      // Only check durations if we have a valid start time
       if (startFrame !== -1 && sequence.duration) {
         const elapsed = frame.timestamp - startTime
         this.debug(
-          `Sequence ${sequence.id}: elapsed=${elapsed}ms, startTime=${startTime}, currentTime=${frame.timestamp}`
+          `Sequence ${sequenceId}: elapsed=${elapsed}ms, startTime=${startTime}, currentTime=${frame.timestamp}`
         )
 
-        // For triggerMs based sequences
+        // 1. Check minMs first - fail early if not met
+        if (sequence.duration.minMs && elapsed < sequence.duration.minMs) {
+          continue // Keep checking frames
+        }
+
+        // 2. Check maxMs next - fail if exceeded
+        if (sequence.duration.maxMs && elapsed > sequence.duration.maxMs) {
+          this.debug(`Sequence ${sequenceId}: FAILED - exceeded maxMs`)
+          this.emit('sequence:failed', {
+            id: sequenceId,
+            reason: 'duration_exceeded',
+            startTime
+          })
+          this.resetPartialMatch(sequenceId)
+          startFrame = -1
+          startTime = -1
+          consumedInputs.clear()
+          matchedKeys.pressed.clear()
+          matchedKeys.held.clear()
+          matchedKeys.released.clear()
+          continue
+        }
+
+        // 3. Check triggerMs last - only if previous checks pass
         if (sequence.duration.triggerMs) {
           const tolerance = sequence.toleranceMs || 100
           const timeDiff = Math.abs(elapsed - sequence.duration.triggerMs)
-          this.debug(
-            `Sequence ${sequence.id}: triggerMs=${sequence.duration.triggerMs}, timeDiff=${timeDiff}, tolerance=${tolerance}`
-          )
 
           if (timeDiff <= tolerance) {
             const sequenceMatch = {
-              sequenceId: sequence.id || 'unknown',
+              sequenceId,
               confidence: 1.0 - timeDiff / tolerance,
               startFrame,
               endFrame: i,
               consumedInputs,
-              matchedKeys
+              matchedKeys,
+              state: 'COMPLETE' as SequenceState,
+              cooldownUntil: Date.now() + this.DEFAULT_COOLDOWN_MS
             }
 
             // Only emit if we haven't already emitted this sequence at this trigger time
             const lastMatch = this.activeMatches.get(sequenceMatch.sequenceId)
             if (!lastMatch || Math.abs(lastMatch.endFrame - i) > 1) {
               this.debug(
-                `Sequence ${sequence.id}: MATCHED at time ${frame.timestamp} with confidence ${sequenceMatch.confidence}`
+                `Sequence ${sequenceId}: MATCHED at time ${frame.timestamp} with confidence ${sequenceMatch.confidence}`
               )
+
+              // Reset all state for this sequence to prevent multiple triggers
+              this.resetAllMatchesForSequence(sequenceId)
               this.activeMatches.set(sequenceMatch.sequenceId, sequenceMatch)
+
+              // Add to history before returning
+              this.sequenceHistory.push({
+                id: sequenceId,
+                timestamp: frame.timestamp,
+                frameNumber: frame.frameNumber,
+                duration: i - startFrame
+              })
+
               return sequenceMatch
-            } else {
-              this.debug(`Sequence ${sequence.id}: SKIPPED - already matched recently`)
             }
-          } else {
-            this.debug(`Sequence ${sequence.id}: NOT MATCHED - outside tolerance`)
           }
         } else {
-          // For duration range sequences
+          // 4. If no triggerMs, check if we're within minMs and maxMs
           if (
-            elapsed >= (sequence.duration.minMs || 0) &&
-            elapsed <= (sequence.duration.maxMs || Infinity)
+            (!sequence.duration.minMs || elapsed >= sequence.duration.minMs) &&
+            (!sequence.duration.maxMs || elapsed <= sequence.duration.maxMs)
           ) {
             const sequenceMatch = {
-              sequenceId: sequence.id || 'unknown',
+              sequenceId,
               confidence: 1.0,
               startFrame,
               endFrame: i,
               consumedInputs,
-              matchedKeys
+              matchedKeys,
+              state: 'COMPLETE' as SequenceState,
+              cooldownUntil: Date.now() + this.DEFAULT_COOLDOWN_MS
             }
-            this.debug(`Sequence ${sequence.id}: MATCHED duration range at time ${frame.timestamp}`)
+
+            this.debug(`Sequence ${sequenceId}: MATCHED duration range at time ${frame.timestamp}`)
+
+            // Reset all state for this sequence
+            this.resetAllMatchesForSequence(sequenceId)
             this.activeMatches.set(sequenceMatch.sequenceId, sequenceMatch)
+
+            // Add to history before returning
+            this.sequenceHistory.push({
+              id: sequenceId,
+              timestamp: frame.timestamp,
+              frameNumber: frame.frameNumber,
+              duration: i - startFrame
+            })
+
             return sequenceMatch
           }
         }
       }
     }
-
     return null
+  }
+
+  private resetAllMatchesForSequence(sequenceId: string): void {
+    // Clear active matches
+    this.activeMatches.delete(sequenceId)
+
+    // Clear consumed inputs
+    this.consumedInputs = new Set(
+      Array.from(this.consumedInputs).filter((key) => {
+        const [, , consumedBySequence] = key.split('-')
+        return consumedBySequence !== sequenceId
+      })
+    )
+
+    // Clear any partial matches
+    this.resetPartialMatch(sequenceId)
+
+    this.debug(`Reset all matches for sequence ${sequenceId}`)
   }
 
   private matchesStep(
     frame: KeyboardFrame,
     step: Step
-  ): { isMatch: boolean; matchedKeys: Set<number> } {
+  ): {
+    isMatch: boolean
+    matchedKeys: {
+      pressed: Set<number>
+      held: Set<number>
+      released: Set<number>
+    }
+  } {
     if (step.type === 'STATE') {
       return this.matchesStateStep(frame, step)
     }
-    return { isMatch: false, matchedKeys: new Set() }
+    return {
+      isMatch: false,
+      matchedKeys: {
+        pressed: new Set<number>(),
+        held: new Set<number>(),
+        released: new Set<number>()
+      }
+    }
   }
 
   private matchesStateStep(
     frame: KeyboardFrame,
     step: StateStep
-  ): { isMatch: boolean; matchedKeys: Set<number> } {
-    const matchedKeys = new Set<number>()
+  ): {
+    isMatch: boolean
+    matchedKeys: {
+      pressed: Set<number>
+      held: Set<number>
+      released: Set<number>
+    }
+  } {
+    const matchedKeys = {
+      pressed: new Set<number>(),
+      held: new Set<number>(),
+      released: new Set<number>()
+    }
 
     // Check pressed keys
     if (step.pressed?.length) {
       const allPressed = step.pressed.every((key) => frame.justPressed.has(key))
       if (!allPressed) return { isMatch: false, matchedKeys }
-      step.pressed.forEach((key) => matchedKeys.add(key))
+      step.pressed.forEach((key) => matchedKeys.pressed.add(key))
     }
 
     // Check held keys
     if (step.held?.length) {
       const allHeld = step.held.every((key) => frame.heldKeys.has(key))
       if (!allHeld) return { isMatch: false, matchedKeys }
-      step.held.forEach((key) => matchedKeys.add(key))
+      step.held.forEach((key) => matchedKeys.held.add(key))
     }
 
     // Check released keys
     if (step.released?.length) {
       const allReleased = step.released.every((key) => frame.justReleased.has(key))
       if (!allReleased) return { isMatch: false, matchedKeys }
-      step.released.forEach((key) => matchedKeys.add(key))
+      step.released.forEach((key) => matchedKeys.released.add(key))
     }
 
     return { isMatch: true, matchedKeys }
   }
 
-  private isInputConsumed(frameIndex: number, key: number): boolean {
-    // Return true if we find any consumed key matching frameIndex-key
-    // Now we store them as: frameIndex-key-sequenceId
-    return Array.from(this.consumedInputs).some((consumed) => {
-      const [f, consumedKey /*, seqId*/] = consumed.split('-')
-      return f === frameIndex.toString() && consumedKey === key.toString()
+  private consumeInputsForMatch(match: SequenceMatch, frameIndex: number): void {
+    const matchFrame = this.buffer.frames[frameIndex]
+    if (!matchFrame) return
+
+    // Only consume pressed keys in their press frame
+    match.matchedKeys.pressed.forEach((key) => {
+      if (matchFrame.justPressed.has(key)) {
+        this.consumeInput(frameIndex, key, match.sequenceId, 'pressed')
+      }
+    })
+
+    // Only consume released keys in their release frame
+    match.matchedKeys.released.forEach((key) => {
+      if (matchFrame.justReleased.has(key)) {
+        this.consumeInput(frameIndex, key, match.sequenceId, 'released')
+      }
+    })
+
+    // Consume held keys in every frame they're held
+    match.matchedKeys.held.forEach((key) => {
+      if (matchFrame.heldKeys.has(key)) {
+        this.consumeInput(frameIndex, key, match.sequenceId, 'held')
+      }
     })
   }
 
-  private consumeInput(frameIndex: number, key: number, sequenceId: string): void {
-    // Store also the sequenceId so we can un-consume it if that partial match is reset
-    this.consumedInputs.add(`${frameIndex}-${key}-${sequenceId}`)
-    this.debug(`Consuming input at frame ${frameIndex}: ${key} for sequence ${sequenceId}`)
+  private consumeInput(
+    frameIndex: number,
+    key: number,
+    sequenceId: string,
+    state: 'pressed' | 'held' | 'released'
+  ): void {
+    // Only consume pressed/released events, allow held to be shared
+    if (state === 'held') return
+
+    // Store with state information: "frameIndex-key-sequenceId-state"
+    this.consumedInputs.add(`${frameIndex}-${key}-${sequenceId}-${state}`)
+    this.debug(`Consuming ${state} input at frame ${frameIndex}: ${key} for sequence ${sequenceId}`)
+  }
+
+  private isInputConsumed(
+    frameIndex: number,
+    key: number,
+    state: 'pressed' | 'held' | 'released'
+  ): boolean {
+    // Allow held states to be shared between sequences
+    if (state === 'held') return false
+
+    return Array.from(this.consumedInputs).some((consumed) => {
+      const [f, k, , s] = consumed.split('-')
+      return f === frameIndex.toString() && k === key.toString() && s === state
+    })
   }
 
   private resetPartialMatch(sequenceId: string): void {
@@ -429,16 +575,20 @@ export class SequenceStateTracker extends EventEmitter {
   }
 
   private cleanup(currentFrame: number): void {
-    // Remove old matches that aren't active state sequences
+    const now = Date.now()
+    const oldestValidFrame = currentFrame - this.buffer.maxSize
+
+    // Clear old matches and update states
     for (const [id, match] of this.activeMatches) {
-      const sequence = this.sequences.get(id)
-      if (sequence?.type === 'SEQUENCE' && match.endFrame < currentFrame - this.buffer.maxSize) {
-        this.activeMatches.delete(id)
+      if (match.endFrame < oldestValidFrame) {
+        this.resetAllMatchesForSequence(id)
+      } else if (match.state === 'COOLDOWN' && match.cooldownUntil && match.cooldownUntil < now) {
+        // Cooldown expired, remove the match
+        this.resetAllMatchesForSequence(id)
       }
     }
 
-    // Clear old consumed inputs
-    const oldestValidFrame = currentFrame - this.buffer.maxSize
+    // Clear old inputs and frames
     this.consumedInputs = new Set(
       Array.from(this.consumedInputs).filter((key) => {
         const frameIndex = parseInt(key.split('-')[0])
@@ -446,71 +596,28 @@ export class SequenceStateTracker extends EventEmitter {
       })
     )
 
-    // Clear old frames from buffer
     this.buffer.frames = this.buffer.frames.filter(
       (frame) => frame && frame.frameNumber >= oldestValidFrame
     )
   }
 
   private isStatePartiallyMaintained(frame: KeyboardFrame, step: StateStep): boolean {
-    // For held keys, we want to be more lenient
+    // For held keys, we must maintain ALL required keys
     if (step.held?.length) {
-      const someHeld = step.held.some((key) => frame.heldKeys.has(key))
-      if (someHeld) return true
-    }
-    return false
-  }
-
-  private checkRelationships(sequence: InputSequence, frame: KeyboardFrame): boolean {
-    if (!sequence.relationships) return true
-
-    for (const relationship of sequence.relationships) {
-      const isValid = this.checkRelationship(relationship, frame.timestamp)
-      if (!isValid) {
-        this.debug(
-          `Sequence ${sequence.id}: Failed relationship check for ${relationship.targetSequenceId}`
-        )
-        return false
-      }
+      const allHeldMaintained = step.held.every((key) => frame.heldKeys.has(key))
+      if (!allHeldMaintained) return false
     }
 
-    return true
-  }
+    // For pressed keys, they must not be released until the state is complete
+    if (step.pressed?.length) {
+      const anyPressedReleased = step.pressed.some((key) => frame.justReleased.has(key))
+      if (anyPressedReleased) return false
+    }
 
-  private checkRelationship(relationship: SequenceRelationship, currentTime: number): boolean {
-    // Find the most recent completion of the target sequence by searching from the end
-    const targetHistory = [...this.sequenceHistory]
-      .reverse()
-      .find((h) => h.id === relationship.targetSequenceId)
-
-    if (relationship.type === 'REQUIRES') {
-      // For REQUIRES, we need a recent completion within the time window
-      if (!targetHistory) {
-        this.debug(`Required sequence ${relationship.targetSequenceId} not found in history`)
-        return false
-      }
-      const timeSinceCompletion = currentTime - targetHistory.timestamp
-      const isValid = timeSinceCompletion <= relationship.timeWindowMs
-      if (!isValid) {
-        this.debug(
-          `Required sequence ${relationship.targetSequenceId} was too old (${timeSinceCompletion}ms > ${relationship.timeWindowMs}ms)`
-        )
-      }
-      return isValid
-    } else if (relationship.type === 'PREVENTS') {
-      // For PREVENTS, we must NOT have a recent completion within the time window
-      if (!targetHistory) {
-        this.debug(`No preventing sequence ${relationship.targetSequenceId} found in history`)
-        return true
-      }
-      const timeSinceCompletion = currentTime - targetHistory.timestamp
-      const isValid = timeSinceCompletion > relationship.timeWindowMs
-      if (!isValid) {
-        this.debug(
-          `Prevented by sequence ${relationship.targetSequenceId} (${timeSinceCompletion}ms <= ${relationship.timeWindowMs}ms)`
-        )
-      }
-      return isValid
+    // For released keys, they must stay released
+    if (step.released?.length) {
+      const anyReleasedPressed = step.released.some((key) => frame.justPressed.has(key))
+      if (anyReleasedPressed) return false
     }
 
     return true

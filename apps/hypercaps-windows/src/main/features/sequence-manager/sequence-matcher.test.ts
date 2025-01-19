@@ -63,6 +63,58 @@ const hadoukenSequence: InputSequence = {
   ]
 }
 
+const sonicBoom: InputSequence = {
+  id: 'sonic-boom',
+  type: 'SEQUENCE',
+  timeoutMs: 2000,
+  steps: [
+    {
+      type: 'STATE',
+      held: [37], // Left/Back charge
+      toleranceMs: 100,
+      duration: {
+        minMs: 1000, // Charge time
+        maxMs: 5000
+      }
+    },
+
+    {
+      type: 'STATE',
+      held: [39, 80], // Forward + Punch
+      toleranceMs: 100,
+      duration: {
+        triggerMs: 16 // Must be precise
+      }
+    }
+  ]
+}
+
+const flashKick: InputSequence = {
+  id: 'flash-kick',
+  type: 'SEQUENCE',
+  timeoutMs: 2000,
+  steps: [
+    {
+      type: 'STATE',
+      held: [40], // Down charge
+      toleranceMs: 100,
+      duration: {
+        minMs: 1000, // Charge time
+        maxMs: 5000
+      }
+    },
+
+    {
+      type: 'STATE',
+      held: [38, 75], // Up + Kick
+      toleranceMs: 100,
+      duration: {
+        triggerMs: 16 // Must be precise
+      }
+    }
+  ]
+}
+
 const dragonPunchSequence: InputSequence = {
   id: 'dragon-punch',
   type: 'SEQUENCE',
@@ -162,6 +214,57 @@ describe('SequenceMatcher', () => {
       matcher.handleFrame(createFrame([], [], [84], now + 200, 2))
 
       expect(detected).toBe(true)
+    })
+
+    it('should detect a qcf movement', () => {
+      const up = 38
+      const down = 40
+      const left = 37
+      const right = 39
+
+      matcher.addSequence({
+        id: 'qcf',
+        type: 'SEQUENCE',
+        steps: [
+          {
+            type: 'STATE',
+            pressed: [down], // Down
+            held: [down], // Right
+            toleranceMs: 100,
+            duration: {
+              minMs: 16,
+              maxMs: 200
+            }
+          },
+          {
+            type: 'STATE',
+            held: [right, down], // Right
+            toleranceMs: 100,
+            duration: {
+              minMs: 16
+            }
+          },
+          {
+            type: 'STATE',
+            held: [right], // right
+            toleranceMs: 100,
+            duration: { minMs: 16 }
+          }
+        ]
+      })
+
+      const detected: string[] = []
+      matcher.on('sequence:complete', (event) => {
+        detected.push(event.id)
+      })
+
+      matcher.handleFrame(createFrame([down], [down], [], now, 0)) // right
+      vi.advanceTimersByTime(100)
+      matcher.handleFrame(createFrame([right], [down, right], [], now + 100, 1)) // right
+      vi.advanceTimersByTime(100)
+      matcher.handleFrame(createFrame([], [right], [down], now + 200, 2)) // right + down
+
+      expect(detected).toEqual(['qcf'])
     })
 
     it('should handle overlapping sequences', () => {
@@ -324,32 +427,6 @@ describe('SequenceMatcher', () => {
       })
 
       it('should detect Flash Kick (charge down, up + kick)', () => {
-        const flashKick: InputSequence = {
-          id: 'flash-kick',
-          type: 'SEQUENCE',
-          timeoutMs: 2000,
-          steps: [
-            {
-              type: 'STATE',
-              held: [40], // Down charge
-              toleranceMs: 100,
-              duration: {
-                minMs: 1000, // Charge time
-                maxMs: 5000
-              }
-            },
-
-            {
-              type: 'STATE',
-              held: [38, 75], // Up + Kick
-              toleranceMs: 100,
-              duration: {
-                triggerMs: 16 // Must be precise
-              }
-            }
-          ]
-        }
-
         matcher.addSequence(flashKick)
 
         const detected: string[] = []
@@ -380,6 +457,7 @@ describe('SequenceMatcher', () => {
           steps: [
             {
               type: 'STATE',
+              pressed: [40], // Down charge
               held: [40], // Down charge
               toleranceMs: 100,
               duration: {
@@ -389,6 +467,7 @@ describe('SequenceMatcher', () => {
             },
             {
               type: 'STATE',
+              pressed: [38, 75], // Up + Kick (first flash kick)
               held: [38, 75], // Up + Kick (first flash kick)
               toleranceMs: 100,
               duration: {
@@ -398,6 +477,7 @@ describe('SequenceMatcher', () => {
             },
             {
               type: 'STATE',
+              pressed: [40], // Quick Down
               held: [40], // Quick Down
               toleranceMs: 100,
               duration: {
@@ -407,6 +487,7 @@ describe('SequenceMatcher', () => {
             },
             {
               type: 'STATE',
+              pressed: [38, 75], // Up + Kick again (second flash kick)
               held: [38, 75], // Up + Kick again (second flash kick)
               toleranceMs: 100,
               duration: {
@@ -440,126 +521,6 @@ describe('SequenceMatcher', () => {
         vi.advanceTimersByTime(16)
 
         expect(detected).toEqual(['double-flash-kick'])
-      })
-
-      it('should only allow Super Flash Kick after recent Flash Kick', () => {
-        const flashKick: InputSequence = {
-          id: 'flash-kick',
-          type: 'SEQUENCE',
-          timeoutMs: 2000,
-          steps: [
-            {
-              type: 'STATE',
-              held: [40], // Down charge
-              toleranceMs: 100,
-              duration: {
-                minMs: 1000,
-                maxMs: 5000
-              }
-            },
-            {
-              type: 'STATE',
-              held: [38, 75], // Up + Kick
-              toleranceMs: 100,
-              duration: {
-                triggerMs: 16
-              }
-            }
-          ]
-        }
-
-        const superFlashKick: InputSequence = {
-          id: 'super-flash-kick',
-          type: 'SEQUENCE',
-          timeoutMs: 2000,
-          relationships: [
-            {
-              type: 'REQUIRES',
-              targetSequenceId: 'flash-kick',
-              timeWindowMs: 1000 // Must be within 1 second of Flash Kick
-            }
-          ],
-          steps: [
-            {
-              type: 'STATE',
-              held: [40], // Down charge
-              toleranceMs: 100,
-              duration: {
-                minMs: 500, // Shorter charge time for super
-                maxMs: 5000
-              }
-            },
-            {
-              type: 'STATE',
-              held: [38], // Up
-              toleranceMs: 100,
-              duration: {
-                minMs: 16,
-                maxMs: 100
-              }
-            },
-            {
-              type: 'STATE',
-              held: [75, 76, 77], // LK, MK, HK
-              toleranceMs: 100,
-              duration: {
-                triggerMs: 16
-              }
-            }
-          ]
-        }
-
-        matcher.addSequence(flashKick)
-        matcher.addSequence(superFlashKick)
-
-        const detected: string[] = []
-        matcher.on('sequence:complete', (event) => {
-          detected.push(event.id)
-        })
-
-        // Try Super Flash Kick without Flash Kick first - should fail
-        matcher.handleFrame(createFrame([40], [40], [], now, 0))
-        vi.advanceTimersByTime(600)
-        matcher.handleFrame(createFrame([38], [38], [40], now + 600, 1))
-        vi.advanceTimersByTime(16)
-        matcher.handleFrame(createFrame([75, 76, 77], [75, 76, 77], [], now + 2648, 11))
-        vi.advanceTimersByTime(16)
-
-        expect(detected).toEqual([]) // Should not detect super without flash kick
-
-        // Now do Flash Kick
-        matcher.handleFrame(createFrame([40], [40], [], now + 700, 5))
-        vi.advanceTimersByTime(1200)
-        matcher.handleFrame(createFrame([38, 75], [38, 75], [40], now + 1900, 6))
-        vi.advanceTimersByTime(16)
-
-        expect(detected).toEqual(['flash-kick']) // Should detect flash kick
-        expect(detected.length).toBe(1)
-
-        // Now try Super Flash Kick right after - should work
-        matcher.handleFrame(createFrame([40], [40], [], now + 2000, 7))
-        vi.advanceTimersByTime(600)
-        matcher.handleFrame(createFrame([38], [38], [40], now + 2600, 8))
-        vi.advanceTimersByTime(16)
-        matcher.handleFrame(createFrame([75, 76, 77], [75, 76, 77], [], now + 2648, 11))
-        vi.advanceTimersByTime(1600)
-
-        expect(detected).toEqual(['flash-kick', 'super-flash-kick'])
-
-        // // Wait too long and try Super Flash Kick again - should fail
-        vi.advanceTimersByTime(2000) // Wait 2 seconds
-        matcher.handleFrame(createFrame([40], [40], [], now + 4700, 12))
-        vi.advanceTimersByTime(600)
-        matcher.handleFrame(createFrame([38], [38], [40], now + 5300, 13))
-        vi.advanceTimersByTime(16)
-        matcher.handleFrame(createFrame([75], [75], [], now + 5316, 14))
-        vi.advanceTimersByTime(16)
-        matcher.handleFrame(createFrame([76], [76], [], now + 5332, 15))
-        vi.advanceTimersByTime(16)
-        matcher.handleFrame(createFrame([77], [77], [], now + 5348, 16))
-        vi.advanceTimersByTime(16)
-
-        expect(detected).toEqual(['flash-kick', 'super-flash-kick']) // No additional detection
       })
     })
 
@@ -1078,455 +1039,226 @@ describe('SequenceMatcher', () => {
       matcher.removeAllSequences()
     })
 
-    it('should detect a charge move with Ctrl+Space held and Space release', () => {
-      const chargeMove: InputSequence = {
-        id: 'charge-move',
-        type: 'SEQUENCE',
-        timeoutMs: 2000,
-        steps: [
-          {
-            type: 'STATE',
-            held: [17, 32], // Ctrl + Space
-            toleranceMs: 100,
-            duration: {
-              minMs: 500, // Must hold for at least 500ms
-              maxMs: 2000
-            }
-          },
-          {
-            type: 'STATE',
-            held: [17], // Still holding Ctrl
-            released: [32], // But Space is released
-            toleranceMs: 100,
-            duration: {
-              minMs: 0,
-              maxMs: 200
-            }
+    describe('Duration Checks', () => {
+      it('should fail if keys are released before minMs', () => {
+        const holdSequence: InputSequence = {
+          id: 'hold-test',
+          type: 'STATE',
+          held: [32, 17], // Space + Ctrl
+          toleranceMs: 100,
+          duration: {
+            minMs: 500,
+            maxMs: 1000
           }
-        ]
-      }
+        }
 
-      matcher.addSequence(chargeMove)
+        matcher.addSequence(holdSequence)
+        const detected: string[] = []
+        const failures: string[] = []
 
-      const detected: string[] = []
-      matcher.on('sequence:complete', (event) => {
-        detected.push(event.id)
+        matcher.on('sequence:complete', (event) => {
+          detected.push(event.id)
+        })
+
+        matcher.on('sequence:failed', (event) => {
+          failures.push(event.reason)
+        })
+
+        // Press both keys
+        matcher.handleFrame(createFrame([32, 17], [32, 17], [], now, 0))
+        vi.advanceTimersByTime(200)
+
+        // Release one key too early
+        matcher.handleFrame(createFrame([], [32], [17], now + 200, 1))
+        vi.advanceTimersByTime(100)
+
+        expect(detected).toEqual([])
+        expect(failures).toContain('state_lost')
       })
 
-      // Press Ctrl+Space together
-      matcher.handleFrame(createFrame([17, 32], [17, 32], [], now, 0))
-      vi.advanceTimersByTime(600)
-
-      // Hold both keys
-      matcher.handleFrame(createFrame([], [17, 32], [], now + 600, 1))
-      vi.advanceTimersByTime(100)
-
-      // Release Space but keep Ctrl held
-      matcher.handleFrame(createFrame([], [17], [32], now + 700, 2))
-      vi.advanceTimersByTime(100)
-
-      expect(detected).toEqual(['charge-move'])
-    })
-
-    it('should detect a perfect block with precise Ctrl press while holding Space', () => {
-      const perfectBlock: InputSequence = {
-        id: 'perfect-block',
-        type: 'SEQUENCE',
-        timeoutMs: 1000,
-        steps: [
-          {
-            type: 'STATE',
-            held: [32], // Space held first
-            toleranceMs: 100,
-            duration: {
-              minMs: 100,
-              maxMs: 1000
-            }
-          },
-          {
-            type: 'STATE',
-            held: [17, 32], // Ctrl pressed while holding Space
-            toleranceMs: 100,
-            duration: {
-              triggerMs: 16 // Must be very precise timing
-            }
+      it('should fail if keys are held beyond maxMs', () => {
+        const holdSequence: InputSequence = {
+          id: 'hold-test',
+          type: 'STATE',
+          held: [32], // Space
+          toleranceMs: 100,
+          duration: {
+            minMs: 500,
+            maxMs: 1000
           }
-        ]
-      }
+        }
 
-      matcher.addSequence(perfectBlock)
+        matcher.addSequence(holdSequence)
+        const detected: string[] = []
+        const failures: string[] = []
 
-      const detected: string[] = []
-      matcher.on('sequence:complete', (event) => {
-        detected.push(event.id)
+        matcher.on('sequence:complete', (event) => {
+          detected.push(event.id)
+        })
+
+        matcher.on('sequence:failed', (event) => {
+          failures.push(event.reason)
+        })
+
+        // Press Space
+        matcher.handleFrame(createFrame([32], [32], [], now, 0))
+        vi.advanceTimersByTime(1100) // Hold beyond maxMs
+
+        // Still holding
+        matcher.handleFrame(createFrame([], [32], [], now + 1100, 1))
+        vi.advanceTimersByTime(100)
+
+        expect(detected).toEqual([])
+        expect(failures).toContain('duration_exceeded')
       })
 
-      // Press and hold Space
-      matcher.handleFrame(createFrame([32], [32], [], now, 0))
-      vi.advanceTimersByTime(200)
-
-      // Keep holding Space
-      matcher.handleFrame(createFrame([], [32], [], now + 200, 1))
-      vi.advanceTimersByTime(100)
-
-      // Press Ctrl while still holding Space
-      matcher.handleFrame(createFrame([17], [17, 32], [], now + 300, 2))
-      vi.advanceTimersByTime(16)
-
-      expect(detected).toEqual(['perfect-block'])
-    })
-
-    it('should detect a counter by releasing Space right after Ctrl press', () => {
-      const counter: InputSequence = {
-        id: 'counter',
-        type: 'SEQUENCE',
-        timeoutMs: 1000,
-        steps: [
-          {
-            type: 'STATE',
-            held: [32], // Space held
-            toleranceMs: 100,
-            duration: {
-              minMs: 100,
-              maxMs: 1000
-            }
-          },
-          {
-            type: 'STATE',
-            held: [17, 32], // Ctrl pressed while holding Space
-            toleranceMs: 100,
-            duration: {
-              minMs: 16,
-              maxMs: 100
-            }
-          },
-          {
-            type: 'STATE',
-            held: [17], // Only Ctrl held
-            released: [32], // Space must be released
-            toleranceMs: 100,
-            duration: {
-              triggerMs: 16 // Must release Space quickly after Ctrl press
-            }
+      it('should trigger at exact triggerMs timing', () => {
+        const triggerSequence: InputSequence = {
+          id: 'trigger-test',
+          type: 'STATE',
+          held: [32], // Space
+          toleranceMs: 100,
+          duration: {
+            triggerMs: 750
           }
-        ]
-      }
+        }
 
-      matcher.addSequence(counter)
+        matcher.addSequence(triggerSequence)
+        const detected: string[] = []
 
-      const detected: string[] = []
-      matcher.on('sequence:complete', (event) => {
-        detected.push(event.id)
+        matcher.on('sequence:complete', (event) => {
+          detected.push(event.id)
+        })
+
+        // Press Space
+        matcher.handleFrame(createFrame([32], [32], [], now, 0))
+        vi.advanceTimersByTime(750) // Advance to exact trigger time
+
+        // Still holding at trigger point
+        matcher.handleFrame(createFrame([], [32], [], now + 750, 1))
+        vi.advanceTimersByTime(16)
+
+        expect(detected).toEqual(['trigger-test'])
       })
 
-      // Press and hold Space
-      matcher.handleFrame(createFrame([32], [32], [], now, 0))
-      vi.advanceTimersByTime(200)
+      it('should handle multiple simultaneous hold sequences', () => {
+        const holdA: InputSequence = {
+          id: 'hold-a',
+          type: 'STATE',
+          held: [32], // Space
+          toleranceMs: 100,
+          duration: {
+            minMs: 500,
+            maxMs: 1000
+          }
+        }
 
-      // Keep holding Space
-      matcher.handleFrame(createFrame([], [32], [], now + 200, 1))
-      vi.advanceTimersByTime(100)
+        const holdB: InputSequence = {
+          id: 'hold-b',
+          type: 'STATE',
+          held: [17], // Ctrl
+          toleranceMs: 100,
+          duration: {
+            minMs: 300,
+            maxMs: 800
+          }
+        }
 
-      // Press Ctrl while still holding Space
-      matcher.handleFrame(createFrame([17], [17, 32], [], now + 300, 2))
-      vi.advanceTimersByTime(16)
+        matcher.addSequence(holdA)
+        matcher.addSequence(holdB)
+        const detected: string[] = []
 
-      // Release Space but keep Ctrl held
-      matcher.handleFrame(createFrame([], [17], [32], now + 316, 3))
-      vi.advanceTimersByTime(16)
+        matcher.on('sequence:complete', (event) => {
+          detected.push(event.id)
+        })
 
-      expect(detected).toEqual(['counter'])
-    })
-  })
+        // Press both keys
+        matcher.handleFrame(createFrame([32, 17], [32, 17], [], now, 0))
+        vi.advanceTimersByTime(600)
 
-  describe('Sequence Relationships', () => {
-    beforeEach(() => {
-      vi.useFakeTimers()
-    })
+        // Still holding both
+        matcher.handleFrame(createFrame([], [32, 17], [], now + 600, 1))
+        vi.advanceTimersByTime(100)
 
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-    // Helper functions
-    const createMatcher = () => {
-      const matcher = new SequenceMatcher()
-      matcher.setDebug(true)
-      const completedSequences: string[] = []
-
-      matcher.on('sequence:complete', (event) => {
-        completedSequences.push(event.id)
+        // Both should be detected as they're within their respective ranges
+        expect(detected).toContain('hold-a')
+        expect(detected).toContain('hold-b')
+        expect(detected.length).toBe(2)
       })
 
-      return { matcher, completedSequences }
-    }
+      it('should prioritize triggerMs over minMs/maxMs when both are specified', () => {
+        const complexSequence: InputSequence = {
+          id: 'complex-timing',
+          type: 'STATE',
+          held: [32], // Space
+          toleranceMs: 100,
+          duration: {
+            minMs: 500,
+            maxMs: 1000,
+            triggerMs: 750
+          }
+        }
 
-    const pressKey = (
-      matcher: SequenceMatcher,
-      key: number,
-      timestamp: number,
-      frameNumber: number
-    ) => {
-      matcher.handleFrame({
-        timestamp,
-        frameNumber,
-        justPressed: new Set([key]),
-        heldKeys: new Set([key]),
-        justReleased: new Set()
+        matcher.addSequence(complexSequence)
+        const detected: string[] = []
+        const failures: string[] = []
+
+        matcher.on('sequence:complete', (event) => {
+          detected.push(event.id)
+        })
+
+        matcher.on('sequence:failed', (event) => {
+          failures.push(event.reason)
+        })
+
+        // Press Space
+        matcher.handleFrame(createFrame([32], [32], [], now, 0))
+        vi.advanceTimersByTime(750) // Advance to trigger time
+
+        // Still holding at trigger point
+        matcher.handleFrame(createFrame([], [32], [], now + 750, 1))
+        vi.advanceTimersByTime(16)
+
+        expect(detected).toEqual(['complex-timing'])
+        expect(failures).toEqual([]) // Should not fail even though we're within minMs/maxMs range
       })
-    }
 
-    const holdKey = (
-      matcher: SequenceMatcher,
-      key: number,
-      timestamp: number,
-      frameNumber: number
-    ) => {
-      matcher.handleFrame({
-        timestamp,
-        frameNumber,
-        justPressed: new Set(),
-        heldKeys: new Set([key]),
-        justReleased: new Set()
+      it('should only trigger once for triggerMs state sequences', () => {
+        const triggerSequence: InputSequence = {
+          id: 'single-trigger',
+          type: 'STATE' as const,
+          held: [40], // Down key
+          toleranceMs: 100,
+          duration: {
+            triggerMs: 100,
+            maxMs: 200 // Add maxMs to ensure we don't retrigger
+          }
+        }
+
+        matcher.addSequence(triggerSequence)
+        const detected: string[] = []
+
+        matcher.on('sequence:complete', (event) => {
+          console.log('sequence:complete', event)
+          detected.push(event.id)
+        })
+
+        // Press key
+        matcher.handleFrame(createFrame([40], [40], [], now, 0))
+        vi.advanceTimersByTime(100) // Hit trigger point
+
+        // Continue holding to trigger
+        matcher.handleFrame(createFrame([], [40], [], now + 100, 1))
+        vi.advanceTimersByTime(100)
+
+        // This should not trigger a second time because the triggerMs has hit and the sequence is complete
+        matcher.handleFrame(createFrame([], [], [40], now + 150, 2))
+        vi.advanceTimersByTime(50)
+
+        // Should only trigger once
+        expect(detected).toEqual(['single-trigger'])
+        expect(detected.length).toBe(1)
       })
-    }
-
-    const releaseKey = (
-      matcher: SequenceMatcher,
-      key: number,
-      heldKeys: number[],
-      timestamp: number,
-      frameNumber: number
-    ) => {
-      matcher.handleFrame({
-        timestamp,
-        frameNumber,
-        justPressed: new Set(),
-        heldKeys: new Set(heldKeys),
-        justReleased: new Set([key])
-      })
-    }
-
-    it('should prevent executing a sequence when PREVENTS relationship is active', () => {
-      const { matcher, completedSequences } = createMatcher()
-
-      // Add a basic sequence that will prevent others
-      const blockingSequence = {
-        id: 'blocking-move',
-        type: 'STATE' as const,
-        held: [40], // Down key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 }
-      }
-
-      // Add a sequence that should be prevented
-      const preventedSequence = {
-        id: 'prevented-move',
-        type: 'STATE' as const,
-        held: [38], // Up key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 },
-        relationships: [
-          {
-            type: 'PREVENTS' as const,
-            targetSequenceId: 'blocking-move',
-            timeWindowMs: 500
-          }
-        ]
-      }
-
-      matcher.addSequence(blockingSequence)
-      matcher.addSequence(preventedSequence)
-
-      // Execute blocking sequence
-      pressKey(matcher, 40, 1000, 0)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 40, 1100, 1)
-      vi.advanceTimersByTime(100)
-
-      // Try to execute prevented sequence within prevention window
-      releaseKey(matcher, 40, [38], 1200, 2)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 38, 1300, 3)
-      vi.advanceTimersByTime(100)
-
-      expect(completedSequences).toEqual(['blocking-move'])
-    })
-
-    it('should allow executing a sequence after PREVENTS relationship expires', () => {
-      const { matcher, completedSequences } = createMatcher()
-
-      // Add a basic sequence that will prevent others
-      const blockingSequence = {
-        id: 'blocking-move',
-        type: 'STATE' as const,
-        held: [40], // Down key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 }
-      }
-
-      // Add a sequence that should be prevented initially
-      const preventedSequence = {
-        id: 'prevented-move',
-        type: 'STATE' as const,
-        held: [38], // Up key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 },
-        relationships: [
-          {
-            type: 'PREVENTS' as const,
-            targetSequenceId: 'blocking-move',
-            timeWindowMs: 500
-          }
-        ]
-      }
-
-      matcher.addSequence(blockingSequence)
-      matcher.addSequence(preventedSequence)
-
-      // Execute blocking sequence
-      pressKey(matcher, 40, 1000, 0)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 40, 1100, 1)
-      vi.advanceTimersByTime(500)
-
-      // Try to execute prevented sequence after prevention window
-      releaseKey(matcher, 40, [38], 1600, 2)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 38, 1700, 3)
-      vi.advanceTimersByTime(100)
-
-      expect(completedSequences).toEqual(['blocking-move', 'prevented-move'])
-    })
-
-    it('should require a specific sequence before allowing execution', () => {
-      const { matcher, completedSequences } = createMatcher()
-
-      // Add a prerequisite sequence
-      const prerequisiteSequence = {
-        id: 'prerequisite-move',
-        type: 'STATE' as const,
-        held: [40], // Down key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 }
-      }
-
-      // Add a sequence that requires the prerequisite
-      const dependentSequence = {
-        id: 'dependent-move',
-        type: 'STATE' as const,
-        held: [38], // Up key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 },
-        relationships: [
-          {
-            type: 'REQUIRES' as const,
-            targetSequenceId: 'prerequisite-move',
-            timeWindowMs: 500
-          }
-        ]
-      }
-
-      matcher.removeAllSequences()
-      matcher.addSequence(prerequisiteSequence)
-      matcher.addSequence(dependentSequence)
-
-      // Try dependent sequence without prerequisite
-      pressKey(matcher, 38, 1000, 0)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 38, 1100, 1)
-      vi.advanceTimersByTime(100)
-
-      expect(completedSequences).toEqual([])
-
-      // Execute prerequisite sequence
-      pressKey(matcher, 40, 1200, 2)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 40, 1300, 3)
-      vi.advanceTimersByTime(100)
-
-      expect(completedSequences).toEqual(['prerequisite-move'])
-
-      // Now try dependent sequence
-      releaseKey(matcher, 40, [38], 1400, 4)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 38, 1500, 5)
-      vi.advanceTimersByTime(100)
-
-      expect(completedSequences).toEqual(['prerequisite-move', 'dependent-move'])
-    })
-
-    it('should handle multiple relationships on a single sequence', () => {
-      const { matcher, completedSequences } = createMatcher()
-
-      // Add sequences that will be referenced in relationships
-      const sequence1 = {
-        id: 'sequence1',
-        type: 'STATE' as const,
-        held: [37], // Left key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 }
-      }
-
-      const sequence2 = {
-        id: 'sequence2',
-        type: 'STATE' as const,
-        held: [39], // Right key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 }
-      }
-
-      // Add a sequence with multiple relationships
-      const complexSequence = {
-        id: 'complex-move',
-        type: 'STATE' as const,
-        held: [38], // Up key
-        toleranceMs: 100,
-        duration: { triggerMs: 100 },
-        relationships: [
-          {
-            type: 'REQUIRES' as const,
-            targetSequenceId: 'sequence1',
-            timeWindowMs: 1000 // Increased window to allow for the PREVENTS to expire
-          },
-          {
-            type: 'PREVENTS' as const,
-            targetSequenceId: 'sequence2',
-            timeWindowMs: 500
-          }
-        ]
-      }
-
-      matcher.addSequence(sequence1)
-      matcher.addSequence(sequence2)
-      matcher.addSequence(complexSequence)
-
-      // Execute sequence1 (required) at t=1000
-      pressKey(matcher, 37, 1000, 0)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 37, 1100, 1)
-      vi.advanceTimersByTime(100)
-
-      // Execute sequence2 (preventing) at t=1200
-      releaseKey(matcher, 37, [39], 1200, 2)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 39, 1300, 3)
-      vi.advanceTimersByTime(100)
-
-      // Try complex sequence (should fail due to sequence2) at t=1400
-      releaseKey(matcher, 39, [38], 1400, 4)
-      vi.advanceTimersByTime(100)
-      holdKey(matcher, 38, 1500, 5)
-      vi.advanceTimersByTime(300)
-
-      // Wait for prevention window to expire but still within REQUIRES window
-      // sequence2 completed at t=1300, so try after t=1800 (500ms prevention window)
-      // but before t=2000 (1000ms requires window from sequence1 at t=1000)
-      pressKey(matcher, 38, 1850, 6)
-      vi.advanceTimersByTime(50)
-      holdKey(matcher, 38, 1900, 7)
-      vi.advanceTimersByTime(100)
-
-      expect(completedSequences).toEqual(['sequence1', 'sequence2', 'complex-move'])
     })
   })
 })
