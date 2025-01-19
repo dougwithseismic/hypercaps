@@ -33,8 +33,6 @@ app.whenReady().then(async () => {
     console.log('sequence-detected', sequence)
   })
 
-  await sequenceManagerFeature.initialize()
-
   mainWindow.initialize()
 
   app.on('activate', function () {

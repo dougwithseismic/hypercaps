@@ -4,7 +4,6 @@ import { EventEmitter } from 'events'
 import { keyboardStore } from './store'
 import { ErrorState, KeyboardFrameEvent, KeyboardServiceState, StateChangeEvent } from './types'
 import { processFrame } from './utils/frame-utils'
-import { cleanupFrameHistory } from './utils/frame-history-utils'
 import { createMonitorConfig } from './utils/monitor-config-utils'
 
 export class KeyboardService extends EventEmitter {
@@ -14,18 +13,14 @@ export class KeyboardService extends EventEmitter {
     isListening: false,
     isLoading: false,
     isStarting: false,
-    frameHistory: [],
-    currentFrame: undefined,
     error: undefined,
     lastError: undefined
   }
-  private frameCleanupInterval: NodeJS.Timeout | null = null
   private config = keyboardStore.get()
 
   private constructor() {
     super()
     this.setupStoreListeners()
-    this.startFrameCleanup()
   }
 
   public static getInstance(): KeyboardService {
@@ -113,6 +108,7 @@ export class KeyboardService extends EventEmitter {
 
     try {
       const config = createMonitorConfig(this.config)
+      console.log('KeyboardMonitor config:', config)
 
       this.keyboardMonitor = new KeyboardMonitor((eventName: string, data: KeyboardFrame) => {
         if (eventName === 'frame') {
@@ -190,42 +186,8 @@ export class KeyboardService extends EventEmitter {
     this.keyboardMonitor.setConfig(config)
   }
 
-  private startFrameCleanup(): void {
-    if (this.frameCleanupInterval) {
-      clearInterval(this.frameCleanupInterval)
-    }
-
-    this.frameCleanupInterval = setInterval(() => {
-      this.cleanupFrameHistory()
-    }, 1000) // Check every second
-  }
-
-  private cleanupFrameHistory(): void {
-    const cleanedHistory = cleanupFrameHistory(
-      this.state.frameHistory,
-      this.config.service.frameHistory,
-      this.state.currentFrame?.state.frameNumber
-    )
-
-    if (cleanedHistory.length !== this.state.frameHistory.length) {
-      this.setState({ frameHistory: cleanedHistory })
-      this.emit('keyboard:frameHistory', cleanedHistory)
-    }
-  }
-
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
     const processedFrame = processFrame(data)
-
-    // console.log('[KeyboardService] Emitting frame event', processedFrame.state.held)
-    // console.dir(processedFrame, { depth: null })
-
-    // Update state
-    this.setState({
-      currentFrame: processedFrame,
-      frameHistory: [...this.state.frameHistory, processedFrame]
-    })
-
-    // Emit frame event
     this.emit('keyboard:frame', processedFrame)
 
     // Handle validation errors if any
@@ -239,38 +201,9 @@ export class KeyboardService extends EventEmitter {
 
   public dispose(): void {
     console.log('[KeyboardService] Disposing service...')
-
-    // Stop listening and clean up monitor
     this.stopListening()
-
-    // Clean up resources
-    this.cleanup()
-
-    // Clear singleton instance
     KeyboardService.instance = undefined as unknown as KeyboardService
-
     console.log('[KeyboardService] Service disposed')
-  }
-
-  private cleanup(): void {
-    console.log('[KeyboardService] Cleaning up resources...')
-
-    // Clear intervals
-    if (this.frameCleanupInterval) {
-      clearInterval(this.frameCleanupInterval)
-      this.frameCleanupInterval = null
-    }
-
-    // Clear frame history and state
-    this.setState({
-      frameHistory: [],
-      currentFrame: undefined,
-      error: undefined,
-      lastError: undefined,
-      isListening: false,
-      isLoading: false,
-      isStarting: false
-    })
   }
 }
 

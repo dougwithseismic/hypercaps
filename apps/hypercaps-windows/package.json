@@ -46,7 +46,7 @@
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "dev": "cross-env NODE_OPTIONS='--force-node-api-uncaught-exceptions-policy=true' electron-vite dev",
+    "dev": "cross-env NODE_OPTIONS='--force-node-api-uncaught-exceptions-policy=true' electron-vite dev --watch",
     "format": "prettier --write .",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
     "postinstall": "electron-builder install-app-deps",

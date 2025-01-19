@@ -3,7 +3,7 @@
  * These types are used across both the native module and TypeScript code
  */
 
-export type KeyEventType = 'keydown' | 'keyup' | 'keyhold';
+export type KeyEventType = 'keydown' | 'keyup';
 
 export interface KeyEvent {
   type: KeyEventType;
@@ -11,18 +11,23 @@ export interface KeyEvent {
 }
 
 export interface KeyState {
-  justPressed: number[];
-  held: number[];
-  justReleased: number[];
+  justPressed: string[];
+  held: string[];
+  justReleased: string[];
   holdDurations: Record<string, number>;
+  frameNumber: number;
 }
 
 export interface KeyboardFrame {
-  frame: number;
+  id: string;
   frameNumber: number;
   timestamp: number;
+  frameTimestamp: number;
+  processed: boolean;
+  validationErrors?: string[];
   event: KeyEvent;
   state: KeyState;
+  gateOpen: boolean;
 }
 
 export type CapsLockBehavior = 'None' | 'DoublePress' | 'BlockToggle';
@@ -55,4 +60,7 @@ export interface KeyboardConfig {
   frameRate: number;
   frameBufferSize: number;
   bufferWindow?: number;
+
+  // Gate configuration
+  gateTimeout: number; // Time in ms to keep gate open after last key event
 }
