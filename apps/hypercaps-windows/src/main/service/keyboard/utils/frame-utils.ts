@@ -45,11 +45,12 @@ export const processFrame = (frame: KeyboardFrame): KeyboardFrameEvent => {
     validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
     frameTimestamp: frame.timestamp,
     state: {
-      justPressed: frame.state.justPressed,
-      held: frame.state.held,
-      justReleased: frame.state.justReleased,
+      justPressed: frame.state.justPressed.map((key) => String(key)),
+      held: frame.state.held.map((key) => String(key)),
+      justReleased: frame.state.justReleased.map((key) => String(key)),
       holdDurations: frame.state.holdDurations,
-      frameNumber: frame.frameNumber
+      frameNumber: frame.frameNumber,
+      timestamp: frame.timestamp
     }
   }
 

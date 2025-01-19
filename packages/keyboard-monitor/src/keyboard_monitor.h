@@ -24,6 +24,7 @@ struct KeyboardFrame {
         std::string type;
         DWORD key;
     } event;
+    bool gateOpen;
 };
 
 class KeyboardMonitor : public Napi::ObjectWrap<KeyboardMonitor> {
@@ -50,6 +51,7 @@ private:
     // Configuration
     std::map<std::string, std::vector<std::string>> remaps;
     int maxRemapChainLength = 5;
+    int gateTimeout = 1000; // Default 1000ms timeout
     
     // Frame management
     std::array<KeyboardFrame, BUFFER_SIZE> frameBuffer;
@@ -57,8 +59,12 @@ private:
     int totalFrames = 0;
     std::chrono::steady_clock::time_point lastFrameTime;
     std::chrono::steady_clock::time_point lastPollTime;
+    std::chrono::steady_clock::time_point lastKeyEventTime;
     std::map<DWORD, int> keyPressStartFrames;
 
+    // Gate state
+    bool isGateOpen = false;
+    
     // Methods
     Napi::Value Start(const Napi::CallbackInfo& info);
     Napi::Value Stop(const Napi::CallbackInfo& info);
@@ -69,6 +75,8 @@ private:
     void EmitFrame(const KeyboardFrame& frame);
     void ProcessKeyEvent(DWORD vkCode, bool isKeyDown);
     int GetFramesSince(int startFrame) const;
+    void UpdateGateState();
+    void OpenGate();
 
     friend DWORD WINAPI PollingThreadProc(LPVOID param);
 }; 

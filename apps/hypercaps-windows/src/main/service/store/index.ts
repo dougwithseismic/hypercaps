@@ -116,7 +116,7 @@ export class TypedStore<
       cwd:
         options.cwd ??
         (process.env.NODE_ENV === 'development'
-          ? process.cwd()
+          ? path.join(process.cwd(), 'states')
           : path.join(app.getPath('appData'), 'hypercaps'))
     })
 

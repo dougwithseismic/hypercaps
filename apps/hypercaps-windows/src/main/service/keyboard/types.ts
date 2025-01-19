@@ -10,18 +10,17 @@ export interface KeyboardServiceState {
   isListening: boolean
   isLoading: boolean
   isStarting: boolean
-  frameHistory: KeyboardFrameEvent[]
-  currentFrame?: KeyboardFrameEvent
   error?: string
   lastError?: ErrorState
 }
 
 export interface KeyboardFrameState {
-  justPressed: number[]
-  held: number[]
-  justReleased: number[]
-  holdDurations: Record<number, number>
+  justPressed: string[]
+  held: string[]
+  justReleased: string[]
+  holdDurations: Record<string, number>
   frameNumber: number
+  timestamp: number
 }
 
 export interface KeyboardFrameEvent extends Omit<KeyboardFrame, 'state'> {
@@ -30,6 +29,10 @@ export interface KeyboardFrameEvent extends Omit<KeyboardFrame, 'state'> {
   validationErrors?: string[]
   state: KeyboardFrameState
   frameTimestamp: number
+  event: {
+    type: 'keydown' | 'keyup'
+    key: string
+  }
 }
 
 export interface StateChangeEvent {
@@ -42,5 +45,4 @@ export type KeyboardEventMap = {
   'keyboard:frame': KeyboardFrameEvent
   'keyboard:error': ErrorState
   'keyboard:state': StateChangeEvent
-  'keyboard:frameHistory': KeyboardFrameEvent[]
 }

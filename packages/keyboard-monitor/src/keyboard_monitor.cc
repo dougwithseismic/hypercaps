@@ -1,3 +1,7 @@
+// This is the keyboard monitor implementation file that handles keyboard input monitoring,
+// key event processing, and communication with Node.js through N-API.
+// It maintains a circular buffer of keyboard frames and supports key remapping functionality.
+
 #include "keyboard_monitor.h"
 #include "key_mapping.h"
 
@@ -47,6 +51,13 @@ KeyboardMonitor::~KeyboardMonitor() {
 void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
     if (!isEnabled) return;
 
+    // Skip if the key doesn't have a valid mapping
+    std::string keyName = KeyMapping::GetKeyName(vkCode);
+    if (keyName.empty()) return;
+
+    // Open gate and update last key event time on any key event
+    OpenGate();
+
     auto now = std::chrono::steady_clock::now();
     auto frameDelta = std::chrono::duration_cast<std::chrono::microseconds>(
         now - lastFrameTime
@@ -73,12 +84,20 @@ void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
             currentFrame.justPressed.insert(vkCode);
             currentFrame.held.insert(vkCode);
             keyPressStartFrames[vkCode] = totalFrames;
+            
+            // Update event info
+            currentFrame.event.type = "keydown";
+            currentFrame.event.key = vkCode;
         }
     } else {
         if (currentFrame.held.find(vkCode) != currentFrame.held.end()) {
             currentFrame.justReleased.insert(vkCode);
             currentFrame.held.erase(vkCode);
             keyPressStartFrames.erase(vkCode);
+            
+            // Update event info
+            currentFrame.event.type = "keyup";
+            currentFrame.event.key = vkCode;
         }
     }
 
@@ -99,6 +118,9 @@ void KeyboardMonitor::PollKeyboardState() {
     auto frameDelta = std::chrono::duration_cast<std::chrono::microseconds>(
         now - lastFrameTime
     ).count();
+
+    // Update gate state
+    UpdateGateState();
 
     // Create new frame if needed
     if (frameDelta >= FRAME_TIME_MICROS) {
@@ -137,12 +159,14 @@ void KeyboardMonitor::PollKeyboardState() {
                     currentFrame.justPressed.insert(vk);
                     currentFrame.held.insert(vk);
                     keyPressStartFrames[vk] = totalFrames;
+                    OpenGate(); // Open gate on new key press
                 }
             }
         } else if (currentFrame.held.find(vk) != currentFrame.held.end()) {
             currentFrame.justReleased.insert(vk);
             currentFrame.held.erase(vk);
             keyPressStartFrames.erase(vk);
+            OpenGate(); // Open gate on key release
         }
     }
 
@@ -153,8 +177,8 @@ void KeyboardMonitor::PollKeyboardState() {
         }
     }
 
-    // Emit frame if there's activity
-    if (!currentFrame.justPressed.empty() || !currentFrame.justReleased.empty() || !currentFrame.held.empty()) {
+    // Emit frame if gate is open and we've reached the frame time
+    if (isGateOpen && frameDelta >= FRAME_TIME_MICROS) {
         EmitFrame(currentFrame);
     }
 
@@ -173,11 +197,19 @@ void KeyboardMonitor::CreateNewFrame() {
         std::chrono::steady_clock::now().time_since_epoch()
     ).count();
     newFrame.frameNumber = totalFrames;
+    newFrame.gateOpen = isGateOpen;
 
     // Copy held keys from previous frame
     if (totalFrames > 1) {
         int prevIndex = (currentFrameIndex - 1 + BUFFER_SIZE) % BUFFER_SIZE;
         newFrame.held = frameBuffer[prevIndex].held;
+        
+        // Copy hold durations for held keys
+        for (const auto& key : newFrame.held) {
+            if (keyPressStartFrames.find(key) != keyPressStartFrames.end()) {
+                newFrame.holdDurations[key] = GetFramesSince(keyPressStartFrames[key]);
+            }
+        }
     }
 
     lastFrameTime = std::chrono::steady_clock::now();
@@ -188,51 +220,83 @@ int KeyboardMonitor::GetFramesSince(int startFrame) const {
 }
 
 void KeyboardMonitor::EmitFrame(const KeyboardFrame& frame) {
-    // Create JavaScript frame object
-    auto callback = [frame](Napi::Env env, Napi::Function jsCallback) {
-        auto eventData = Napi::Object::New(env);
-        eventData.Set("frame", frame.frameNumber);
-        eventData.Set("timestamp", frame.timestamp);
+    if (!tsfn || !isEnabled) return;
 
-        // Create state object
-        auto state = Napi::Object::New(env);
-        
-        // Convert sets to arrays
-        auto justPressed = Napi::Array::New(env);
-        int index = 0;
-        for (const auto& key : frame.justPressed) {
-            justPressed[index++] = key;
-        }
-        state.Set("justPressed", justPressed);
+    // Convert VK codes to key names
+    auto jsCallback = [this, frame](Napi::Env env, Napi::Function jsCallback) {
+        Napi::Object frameObj = Napi::Object::New(env);
+        Napi::Object stateObj = Napi::Object::New(env);
+        Napi::Array justPressedArr = Napi::Array::New(env);
+        Napi::Array heldArr = Napi::Array::New(env);
+        Napi::Array justReleasedArr = Napi::Array::New(env);
+        Napi::Object holdDurationsObj = Napi::Object::New(env);
 
-        auto held = Napi::Array::New(env);
-        index = 0;
-        for (const auto& key : frame.held) {
-            held[index++] = key;
+        // Convert justPressed VK codes to key names
+        uint32_t pressedIndex = 0;
+        for (const auto& vk : frame.justPressed) {
+            std::string keyName = KeyMapping::GetKeyName(vk);
+            if (!keyName.empty()) {
+                justPressedArr.Set(pressedIndex++, Napi::String::New(env, keyName));
+            }
         }
-        state.Set("held", held);
 
-        auto justReleased = Napi::Array::New(env);
-        index = 0;
-        for (const auto& key : frame.justReleased) {
-            justReleased[index++] = key;
+        // Convert held VK codes to key names
+        uint32_t heldIndex = 0;
+        for (const auto& vk : frame.held) {
+            std::string keyName = KeyMapping::GetKeyName(vk);
+            if (!keyName.empty()) {
+                heldArr.Set(heldIndex++, Napi::String::New(env, keyName));
+            }
         }
-        state.Set("justReleased", justReleased);
+
+        // Convert justReleased VK codes to key names
+        uint32_t releasedIndex = 0;
+        for (const auto& vk : frame.justReleased) {
+            std::string keyName = KeyMapping::GetKeyName(vk);
+            if (!keyName.empty()) {
+                justReleasedArr.Set(releasedIndex++, Napi::String::New(env, keyName));
+            }
+        }
 
         // Convert hold durations
-        auto holdDurations = Napi::Object::New(env);
-        for (const auto& pair : frame.holdDurations) {
-            holdDurations.Set(std::to_string(pair.first), pair.second);
+        for (const auto& [vk, duration] : frame.holdDurations) {
+            std::string keyName = KeyMapping::GetKeyName(vk);
+            if (!keyName.empty()) {
+                holdDurationsObj.Set(keyName, Napi::Number::New(env, duration));
+            }
         }
-        state.Set("holdDurations", holdDurations);
 
-        eventData.Set("state", state);
+        // Build state object
+        stateObj.Set("justPressed", justPressedArr);
+        stateObj.Set("held", heldArr);
+        stateObj.Set("justReleased", justReleasedArr);
+        stateObj.Set("holdDurations", holdDurationsObj);
+        stateObj.Set("frameNumber", Napi::Number::New(env, frame.frameNumber));
 
-        // Call JavaScript callback
-        jsCallback.Call({Napi::String::New(env, "frame"), eventData});
+        // Build frame object
+        frameObj.Set("frameNumber", Napi::Number::New(env, frame.frameNumber));
+        frameObj.Set("timestamp", Napi::Number::New(env, frame.timestamp));
+        frameObj.Set("frameTimestamp", Napi::Number::New(env, frame.timestamp));
+        frameObj.Set("state", stateObj);
+        frameObj.Set("processed", Napi::Boolean::New(env, false));
+        frameObj.Set("id", Napi::String::New(env, std::to_string(frame.frameNumber)));
+        frameObj.Set("gateOpen", Napi::Boolean::New(env, isGateOpen));
+
+        // Convert event if present
+        if (!frame.event.type.empty()) {
+            Napi::Object eventObj = Napi::Object::New(env);
+            eventObj.Set("type", Napi::String::New(env, frame.event.type));
+            std::string keyName = KeyMapping::GetKeyName(frame.event.key);
+            if (!keyName.empty()) {
+                eventObj.Set("key", Napi::String::New(env, keyName));
+            }
+            frameObj.Set("event", eventObj);
+        }
+
+        jsCallback.Call({Napi::String::New(env, "frame"), frameObj});
     };
 
-    tsfn.NonBlockingCall(callback);
+    tsfn.BlockingCall(jsCallback);
 }
 
 Napi::Value KeyboardMonitor::Start(const Napi::CallbackInfo& info) {
@@ -271,63 +335,64 @@ Napi::Value KeyboardMonitor::Stop(const Napi::CallbackInfo& info) {
 Napi::Value KeyboardMonitor::SetConfig(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     
-    if (!info[0].IsObject()) {
-        Napi::TypeError::New(env, "Config must be an object").ThrowAsJavaScriptException();
+    if (info.Length() < 1 || !info[0].IsObject()) {
+        Napi::TypeError::New(env, "Object expected").ThrowAsJavaScriptException();
         return env.Undefined();
     }
 
     Napi::Object config = info[0].As<Napi::Object>();
-    
-    // Update configuration
-    isEnabled = config.Get("isEnabled").ToBoolean();
-    isRemapperEnabled = config.Get("isRemapperEnabled").ToBoolean();
-    
-    // Get remap configuration
-    Napi::Object remapsObj = config.Get("remaps").ToObject();
-    remaps.clear();
-    
-    auto remapProps = remapsObj.GetPropertyNames();
-    for (uint32_t i = 0; i < remapProps.Length(); i++) {
-        std::string fromKey = remapProps.Get(i).ToString();
-        Napi::Array toKeys = remapsObj.Get(fromKey).As<Napi::Array>();
-        
-        std::vector<std::string> targetKeys;
-        for (uint32_t j = 0; j < toKeys.Length(); j++) {
-            targetKeys.push_back(toKeys.Get(j).ToString());
-        }
-        
-        remaps[fromKey] = targetKeys;
-    }
-    
-    // Get behavior configuration
-    std::string capsLockBehavior = config.Get("capsLockBehavior").ToString();
-    if (capsLockBehavior == "None") {
-        // Handle None behavior
-    } else if (capsLockBehavior == "DoublePress") {
-        // Handle DoublePress behavior
-    } else if (capsLockBehavior == "BlockToggle") {
-        // Handle BlockToggle behavior
-    }
-    
-    // Get timing configuration
-    maxRemapChainLength = config.Get("maxRemapChainLength").ToNumber().Int32Value();
 
-    // Handle frame-based configuration
-    if (config.Has("frameRate")) {
-        int frameRate = config.Get("frameRate").ToNumber().Int32Value();
-        FRAME_TIME_MICROS = static_cast<int>(1000000.0 / frameRate);  // Convert to microseconds
-    }
+    // Get remaps if present
+    if (config.Has("remaps") && config.Get("remaps").IsObject()) {
+        Napi::Object remapsObj = config.Get("remaps").As<Napi::Object>();
+        remaps.clear();
 
-    if (config.Has("frameBufferSize")) {
-        // Note: We can't change BUFFER_SIZE at runtime as it's a static const
-        // But we can use it to validate the configuration
-        int requestedSize = config.Get("frameBufferSize").ToNumber().Int32Value();
-        if (requestedSize > BUFFER_SIZE) {
-            Napi::Error::New(env, "Requested frame buffer size exceeds maximum").ThrowAsJavaScriptException();
-            return env.Undefined();
+        // Convert each remap entry
+        auto remapProps = remapsObj.GetPropertyNames();
+        for (uint32_t i = 0; i < remapProps.Length(); i++) {
+            auto sourceKey = remapProps.Get(i).As<Napi::String>().Utf8Value();
+            auto targetValue = remapsObj.Get(sourceKey);
+
+            if (targetValue.IsArray()) {
+                auto targetArray = targetValue.As<Napi::Array>();
+                std::vector<std::string> targetKeys;
+
+                for (uint32_t j = 0; j < targetArray.Length(); j++) {
+                    if (targetArray.Get(j).IsString()) {
+                        targetKeys.push_back(targetArray.Get(j).As<Napi::String>().Utf8Value());
+                    }
+                }
+
+                if (!targetKeys.empty()) {
+                    remaps[sourceKey] = targetKeys;
+                }
+            }
         }
     }
-    
+
+    // Get maxRemapChainLength if present
+    if (config.Has("maxRemapChainLength") && config.Get("maxRemapChainLength").IsNumber()) {
+        maxRemapChainLength = config.Get("maxRemapChainLength").As<Napi::Number>().Int32Value();
+    }
+
+    // Get frameRate if present
+    if (config.Has("frameRate") && config.Get("frameRate").IsNumber()) {
+        int frameRate = config.Get("frameRate").As<Napi::Number>().Int32Value();
+        if (frameRate > 0) {
+            FRAME_TIME_MICROS = 1000000 / frameRate;
+        }
+    }
+
+    // Enable/disable remapper
+    if (config.Has("enableRemapper") && config.Get("enableRemapper").IsBoolean()) {
+        isRemapperEnabled = config.Get("enableRemapper").As<Napi::Boolean>().Value();
+    }
+
+    // Get gateTimeout if present
+    if (config.Has("gateTimeout") && config.Get("gateTimeout").IsNumber()) {
+        gateTimeout = config.Get("gateTimeout").As<Napi::Number>().Int32Value();
+    }
+
     return env.Undefined();
 }
 
@@ -338,6 +403,24 @@ DWORD WINAPI PollingThreadProc(LPVOID param) {
         Sleep(KeyboardMonitor::POLLING_INTERVAL);
     }
     return 0;
+}
+
+void KeyboardMonitor::OpenGate() {
+    isGateOpen = true;
+    lastKeyEventTime = std::chrono::steady_clock::now();
+}
+
+void KeyboardMonitor::UpdateGateState() {
+    if (!isGateOpen) return;
+
+    auto now = std::chrono::steady_clock::now();
+    auto timeSinceLastEvent = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - lastKeyEventTime
+    ).count();
+
+    if (timeSinceLastEvent >= gateTimeout) {
+        isGateOpen = false;
+    }
 }
 
 // Module initialization

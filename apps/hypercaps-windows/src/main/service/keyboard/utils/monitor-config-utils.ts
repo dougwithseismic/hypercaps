@@ -1,6 +1,8 @@
 import { KeyboardConfig } from '@hypercaps/keyboard-monitor'
 import { KeyboardConfig as StoreConfig } from '../store'
 
+// TODO: CAREFUL! I dont think we should be using this.
+
 export const createMonitorConfig = (storeConfig: StoreConfig): KeyboardConfig => {
   return {
     isRemapperEnabled: true,

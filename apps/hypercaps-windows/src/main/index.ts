@@ -4,9 +4,9 @@ process.env.NODE_OPTIONS = '--force-node-api-uncaught-exceptions-policy=true'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { mainWindow } from './features/main-window'
-import { keyboardService } from './service/keyboard/keyboard-service'
 import trayFeature from './features/tray'
-import { shortcutFeature } from './features/shortcut-manager'
+import { keyboardService } from './service/keyboard/keyboard-service'
+import { sequenceManager } from './features/sequence-manager'
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -27,7 +27,96 @@ app.whenReady().then(async () => {
 
   await keyboardService.initialize()
   await trayFeature.initialize()
-  await shortcutFeature.initialize()
+
+  // Initialize sequence manager
+  sequenceManager.initialize()
+
+  // Add some example moves
+  sequenceManager.addMove({
+    name: 'Ctrl+Space 3s',
+    steps: [
+      {
+        type: 'hold',
+        keys: ['Control', 'Space'],
+        minHoldMs: 3000,
+        maxHoldMs: 5000,
+        completeOnReleaseAfterMinHold: true
+      }
+    ],
+    onComplete: () => console.log('Held ctrl+space for 3s => success!'),
+    onFail: () => console.log('ctrl+space 3s => fail or release too soon')
+  })
+
+  sequenceManager.addMove({
+    name: 'Ctrl+Space 1s',
+    steps: [
+      {
+        type: 'hold',
+        keys: ['Control', 'Space'],
+        minHoldMs: 1000,
+        maxHoldMs: 2000,
+        completeOnReleaseAfterMinHold: true
+      }
+    ],
+    onComplete: () => console.log('Held ctrl+space for 1s => success!'),
+    onFail: () => console.log('ctrl+space 1s => fail or release too soon')
+  })
+
+  sequenceManager.addMove({
+    name: 'Double Shift',
+    steps: [
+      {
+        type: 'press',
+        keys: ['Shift'],
+        maxGapMs: 1000
+      },
+      {
+        type: 'press',
+        keys: ['Shift'],
+        maxGapMs: 1000
+      }
+    ],
+    onComplete: () => console.log('Double shift pressed!'),
+    onFail: () => console.log('Double shift failed.')
+  })
+
+  sequenceManager.addMove({
+    name: 'Hold G + Triple H',
+    steps: [
+      {
+        type: 'hold',
+        keys: ['G'],
+        minHoldMs: 0, // Start holding G
+        completeOnReleaseAfterMinHold: false // Don't complete until all H presses are done
+      },
+      {
+        type: 'press',
+        keys: ['H'],
+        maxGapMs: 500 // First H press within 500ms
+      },
+      {
+        type: 'press',
+        keys: ['H'],
+        maxGapMs: 500 // Second H press within 500ms
+      },
+      {
+        type: 'press',
+        keys: ['H'],
+        maxGapMs: 500 // Third H press within 500ms
+      }
+    ],
+    onComplete: () => console.log('G held + H tapped three times!'),
+    onFail: () => console.log('G+H combo failed.')
+  })
+
+  // Listen for move events
+  sequenceManager.on('move:complete', ({ name }) => {
+    console.log(`Move completed: ${name}`)
+  })
+
+  sequenceManager.on('move:fail', ({ name, reason, step }) => {
+    console.log(`Move failed: ${name} (step ${step}, reason: ${reason})`)
+  })
 
   mainWindow.initialize()
 
