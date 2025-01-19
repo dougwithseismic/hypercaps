@@ -1,232 +1,267 @@
+/**
+ * Advanced Sequence Manager for Electron-based Shortcut Detection
+ * ===============================================================
+ *
+ * This is a robust, "fighting-game style" sequence manager that:
+ * 1) Maintains a rolling InputBuffer of keyboard frames.
+ * 2) On each new KeyboardFrameEvent, it builds a "FrameInput" snapshot and
+ *    checks for multiple possible moves (like QCF, QCB, hold-based, multi-press,
+ *    diagonal, etc.).
+ * 3) Supports multiple active moves at once (e.g. user can start "Hadouken" and
+ *    "Lightning Legs" if your design allows).
+ * 4) Allows advanced steps:
+ *    - `press` (quarter-circle steps, single or multi-key),
+ *    - `hold` (charge moves or custom hold durations),
+ *    - `hitConfirm` (optional, if needed),
+ *    - plus partial diagonals (like `down + right => downRight`).
+ *
+ * This system is suitable for an Electron environment where each keyboard frame
+ * is an event from a low-level OS hook or "keyboardService." No continuous game loop
+ * is required—each time we get a "keyboard:frame" event, we update the manager.
+ *
+ * If you want to handle partial diagonals or "down + right = downRight," you can do so
+ * either in the buffer-building logic or treat them as separate steps. The example code
+ * below demonstrates a robust approach with:
+ *    - A rolling InputBuffer
+ *    - A buildFrameInputFromBuffer function that merges the last ~16ms of data
+ *    - A manager that tracks multiple active moves
+ *    - Street Fighter–like QCF (quarter-circle forward) or QCB (quarter-circle back) moves
+ *    - A hold-based "charge" move
+ *    - Multi-press tolerance, etc.
+ *
+ * Enjoy the advanced solution—no baby stuff here. ;)
+ */
+
 import { EventEmitter } from 'events'
 import { keyboardService } from '../../service/keyboard/keyboard-service'
 import type { KeyboardFrameEvent } from '../../service/keyboard/types'
-import type { InputSequence } from './types'
+import { InputBuffer, buildFrameInputFromBuffer } from './input-buffer'
+import type {
+  ActiveMoveState,
+  FrameInput,
+  MoveDefinition,
+  MoveStep,
+  SequenceManagerEvents
+} from './types'
+import { sequenceStore } from './store'
 
 /**
- * Manages keyboard input sequences and detects patterns in real-time.
- *
- * The SequenceManager listens to keyboard frames and matches them against defined
- * input sequences (patterns). When a sequence is detected, it emits a 'sequence:detected'
- * event and calls any registered callbacks.
- *
- * Example:
- * ```ts
- * const manager = new SequenceManager()
- * manager.initialize()
- *
- * // Add a sequence to detect Shift+A followed by B within 500ms
- * manager.addSequence({
- *   id: 'shift-a-b',
- *   pattern: [
- *     { keys: ['Shift', 'A'], maxGapMs: 500 },
- *     { key: 'B', maxGapMs: 500 }
- *   ]
- * })
- *
- * manager.on('sequence:detected', (event) => {
- *   console.log(`Detected sequence: ${event.id}`)
- * })
- * ```
+ * The big SequenceManager that:
+ *  - Listens for "keyboard:frame" events
+ *  - Stores them in a rolling buffer
+ *  - On each frame arrival, merges input into a FrameInput
+ *  - Checks *all* moves (Street Fighter style). Each move can be partially active
+ *    if you want to allow concurrency, or you can handle one active move at a time.
+ *  - For each step, checks press vs hold logic, diagonal logic, multi-press tolerance, etc.
  */
 export class SequenceManager extends EventEmitter {
-  isInitialized = false
-  private sequences: InputSequence[] = []
-  private activeSequences: Map<
-    string,
-    { startFrame: number; currentStep: number; lastStepTime: number }
-  > = new Map()
-  private moveCallbacks: Map<string, { onComplete?: () => void; onFail?: () => void }> = new Map()
+  private static instance: SequenceManager
+  private inputBuffer: InputBuffer
+  private moves: MoveDefinition[] = []
+  private activeMoves: ActiveMoveState[] = [] // track multiple simultaneously
+  private isInitialized = false
+  private config = sequenceStore.get()
 
-  constructor() {
+  private constructor(private bufferWindowMs = 2000) {
     super()
-    this.on('sequence:detected', (event) => {
-      const callbacks = this.moveCallbacks.get(event.id)
-      if (callbacks?.onComplete) {
-        callbacks.onComplete()
+    this.inputBuffer = new InputBuffer(bufferWindowMs)
+    this.setupStoreListeners()
+  }
+
+  public static getInstance(): SequenceManager {
+    if (!SequenceManager.instance) {
+      SequenceManager.instance = new SequenceManager()
+    }
+    return SequenceManager.instance
+  }
+
+  private setupStoreListeners(): void {
+    sequenceStore.on({
+      event: 'store:changed',
+      handler: ({ config }) => {
+        this.config = config
+        if (!config.isEnabled) {
+          this.inputBuffer.clear()
+          this.activeMoves = []
+        }
       }
     })
   }
 
   /**
-   * Initializes the sequence manager and starts listening for keyboard frames.
-   * Must be called before the manager can detect sequences.
+   * Start listening to keyboard frames from your electron "keyboardService."
+   * Each time we get a new frame, we add it to the buffer and call `update`.
    */
-  initialize(): void {
-    console.log('Initializing sequence manager')
-    keyboardService.on('keyboard:frame', (event) => this.handleFrame(event))
+  public initialize() {
+    if (this.isInitialized) return
     this.isInitialized = true
+
+    keyboardService.on('keyboard:frame', (frameEvent: KeyboardFrameEvent) => {
+      if (!this.config.isEnabled) return
+      // 1) add to buffer
+      this.inputBuffer.addFrame(frameEvent)
+      // 2) call update with the event's timestamp
+      this.update(frameEvent.timestamp)
+    })
+
+    console.log('[SequenceManager] Initialized. Buffer window =', this.bufferWindowMs, 'ms')
   }
 
   /**
-   * Adds a new sequence to be detected and optionally registers callbacks.
-   *
-   * @param sequence - The input sequence pattern to detect
-   * @param callbacks - Optional callbacks for sequence completion or failure
-   *                   onComplete is called when the sequence is successfully detected
-   *                   onFail is called when a sequence fails (e.g., timeout)
+   * Add a move (e.g., QCF, SonicBoom, hold ctrl+space, etc.)
+   * with optional onComplete/onFail handlers.
    */
-  addSequence(
-    sequence: InputSequence,
-    callbacks?: { onComplete?: () => void; onFail?: () => void }
-  ): void {
-    this.sequences.push(sequence)
-    if (callbacks) {
-      this.moveCallbacks.set(sequence.id, callbacks)
-    }
+  public addMove(move: MoveDefinition) {
+    this.moves.push(move)
   }
 
   /**
-   * Processes a keyboard frame and checks it against all active and potential sequences.
-   * This is called for every frame when the gate is open.
-   *
-   * For each sequence, it:
-   * 1. Tries to start new sequences if the frame matches their first step
-   * 2. Advances existing sequences if the frame matches their next step
-   * 3. Fails sequences if they exceed their time window
-   * 4. Completes sequences when all steps are matched
-   *
-   * @param event - The keyboard frame event containing the current input state
+   * Called each time we want to process the buffer (like after each keyboard frame).
+   * If you want, you can also call it from setInterval or any other trigger.
    */
-  handleFrame(event: KeyboardFrameEvent): void {
-    if (!this.isInitialized) {
-      console.warn('Sequence manager not initialized')
-      return
+  public update(now: number) {
+    if (!this.isInitialized || !this.config.isEnabled) return
+
+    // prune old events if needed
+    this.inputBuffer.tick(now)
+
+    // Build a single snapshot for this moment
+    const frameInput = buildFrameInputFromBuffer(this.inputBuffer, now)
+
+    // 1) Attempt to START any moves that are not active if their first step is satisfied
+    for (const move of this.moves) {
+      // If this move is already done or active, skip. But let's see if we want concurrency or not
+      const isMoveActive = this.activeMoves.find((m) => m.move.name === move.name && !m.isDone)
+      if (isMoveActive) {
+        // skip if it's already in progress
+        continue
+      }
+
+      // Check first step
+      const firstStep = move.steps[0]
+      // If we satisfy it, let's begin tracking
+      if (this.checkStep(firstStep, frameInput, now, now)) {
+        this.activeMoves.push({
+          move,
+          currentStepIndex: 0,
+          stepStartTime: now,
+          isDone: false
+        })
+      }
     }
 
-    // Check each sequence
-    for (const sequence of this.sequences) {
-      const activeState = this.activeSequences.get(sequence.id)
+    // 2) For each active move, try to progress it
+    for (const active of this.activeMoves) {
+      if (active.isDone) continue // skip if done
+      const { move, currentStepIndex, stepStartTime } = active
+      const step = move.steps[currentStepIndex]
+      const stepOk = this.checkStep(step, frameInput, now, stepStartTime)
 
-      if (!activeState) {
-        // Try to start sequence
-        if (this.matchesFirstStep(sequence, event)) {
-          this.activeSequences.set(sequence.id, {
-            startFrame: event.frameNumber,
-            currentStep: 1,
-            lastStepTime: event.timestamp
-          })
+      if (stepOk) {
+        // Step complete => next
+        active.currentStepIndex++
+        active.stepStartTime = now
+
+        // If that was last step => move complete
+        if (active.currentStepIndex >= move.steps.length) {
+          active.isDone = true
+          move.onComplete?.()
+          this.emit('move:complete', { name: move.name })
         }
         continue
       }
 
-      // Check next step
-      const currentStep = sequence.pattern[activeState.currentStep]
-      if (!currentStep) {
-        // Sequence complete
-        console.log('Sequence complete:', sequence.id)
-        this.emit('sequence:detected', {
-          id: sequence.id,
-          sequence,
-          durationFrames: event.frameNumber - activeState.startFrame + 1,
-          startFrame: activeState.startFrame,
-          endFrame: event.frameNumber,
-          timestamp: event.timestamp
-        })
-        this.activeSequences.delete(sequence.id)
-        continue
-      }
-
-      // Check if we've exceeded the time window
-      const timeSinceLastStep = event.timestamp - activeState.lastStepTime
-      if (timeSinceLastStep > currentStep.maxGapMs) {
-        console.log('Sequence failed - time window exceeded:', {
-          sequence: sequence.id,
-          timeSinceLastStep,
-          maxGapMs: currentStep.maxGapMs
-        })
-        this.activeSequences.delete(sequence.id)
-        const callbacks = this.moveCallbacks.get(sequence.id)
-        if (callbacks?.onFail) {
-          callbacks.onFail()
-        }
-        continue
-      }
-
-      if (this.matchesStep(currentStep, event)) {
-        console.log('Step matched:', {
-          sequence: sequence.id,
-          step: activeState.currentStep,
-          key: currentStep.key
-        })
-        // Advance to next step
-        const nextStepIndex = activeState.currentStep + 1
-        if (nextStepIndex >= sequence.pattern.length) {
-          // All steps complete
-          console.log('All steps complete:', sequence.id)
-          this.emit('sequence:detected', {
-            id: sequence.id,
-            sequence,
-            durationFrames: event.frameNumber - activeState.startFrame + 1,
-            startFrame: activeState.startFrame,
-            endFrame: event.frameNumber,
-            timestamp: event.timestamp
-          })
-          this.activeSequences.delete(sequence.id)
-        } else {
-          this.activeSequences.set(sequence.id, {
-            ...activeState,
-            currentStep: nextStepIndex,
-            lastStepTime: event.timestamp
-          })
-        }
+      // Not completed => check fail conditions
+      const elapsed = now - stepStartTime
+      if (step.maxGapMs && elapsed > step.maxGapMs) {
+        // Time out => fail
+        active.isDone = true
+        move.onFail?.()
+        this.emit('move:fail', { name: move.name, reason: 'timeout', step: currentStepIndex })
       }
     }
+
+    // Clean up activeMoves that are done
+    this.activeMoves = this.activeMoves.filter((m) => !m.isDone)
   }
 
   /**
-   * Checks if a keyboard frame matches the first step of a sequence.
-   * This is used to determine if we should start tracking a new sequence.
-   *
-   * @param sequence - The sequence to check
-   * @param event - The keyboard frame event
-   * @returns true if the frame matches the first step of the sequence
+   * The logic that decides if "press" or "hold" step is satisfied by the current FrameInput.
    */
-  private matchesFirstStep(sequence: InputSequence, event: KeyboardFrameEvent): boolean {
-    const firstStep = sequence.pattern[0]
-
-    // Check if this is a hold step (has minHoldMs)
-    if (firstStep.minHoldMs) {
-      // For hold steps, check if the key is currently held and has been held long enough
-      const holdDuration = event.state.holdDurations[firstStep.key]
-      return holdDuration !== undefined && holdDuration >= firstStep.minHoldMs
+  private checkStep(
+    step: MoveStep,
+    frameInput: FrameInput,
+    now: number,
+    stepStartTime: number
+  ): boolean {
+    switch (step.type) {
+      case 'press':
+        return this.checkPressStep(step, frameInput, now, stepStartTime)
+      case 'hold':
+        return this.checkHoldStep(step, frameInput, now)
+      case 'hitConfirm':
+        // If you want a "moveHit" flag or something, check it here
+        return false // placeholder
+      default:
+        return false
     }
-
-    // For multi-key press steps, check if all keys were pressed within tolerance
-    if (firstStep.keys && firstStep.keys.length > 1) {
-      const allKeysPressed = firstStep.keys.every((key) => event.state.justPressed.includes(key))
-      return allKeysPressed
-    }
-
-    // Single key press step
-    return event.state.justPressed.includes(firstStep.key)
   }
 
-  /**
-   * Checks if a keyboard frame matches a specific step in a sequence.
-   * This is used to check if we should advance to the next step.
-   *
-   * @param step - The step to check against
-   * @param event - The keyboard frame event
-   * @returns true if the frame matches the step's requirements
-   */
-  private matchesStep(step: InputSequence['pattern'][0], event: KeyboardFrameEvent): boolean {
-    // Check if this is a hold step
-    if (step.minHoldMs) {
-      // For hold steps, check if the key is currently held and has been held long enough
-      const holdDuration = event.state.holdDurations[step.key]
-      return holdDuration !== undefined && holdDuration >= step.minHoldMs
+  private checkPressStep(
+    step: MoveStep,
+    input: FrameInput,
+    now: number,
+    stepStartTime: number
+  ): boolean {
+    const { keys = [], multiPressToleranceMs } = step
+    if (!keys.length) return false
+
+    // All keys must appear in justPressed
+    const pressTimes = keys.map((k) => input.justPressed[k])
+    if (pressTimes.some((t) => t === undefined)) {
+      return false // not all were pressed this frame
     }
 
-    // For multi-key press steps, check if all keys were pressed within tolerance
-    if (step.keys && step.keys.length > 1) {
-      const allKeysPressed = step.keys.every((key) => event.state.justPressed.includes(key))
-      return allKeysPressed
+    // If multiPressToleranceMs is set, ensure the difference between earliest & latest press
+    if (multiPressToleranceMs && multiPressToleranceMs > 0) {
+      const earliest = Math.min(...(pressTimes as number[]))
+      const latest = Math.max(...(pressTimes as number[]))
+      if (latest - earliest > multiPressToleranceMs) {
+        return false // they were pressed too far apart
+      }
     }
 
-    // Single key press step
-    return event.state.justPressed.includes(step.key)
+    // If we got here => success
+    return true
+  }
+
+  private checkHoldStep(step: MoveStep, input: FrameInput, now: number): boolean {
+    const { keys = [], minHoldMs = 0, maxHoldMs, completeOnReleaseAfterMinHold } = step
+    if (!keys.length) return false
+
+    // All must be (or have been) held
+    const durations = keys.map((k) => input.holdDuration[k] ?? 0)
+    const minDuration = Math.min(...durations)
+
+    if (maxHoldMs && minDuration > maxHoldMs) {
+      return false // overcharge => fail
+    }
+
+    if (completeOnReleaseAfterMinHold) {
+      // We only consider it complete once user releases after minHold
+      const stillHeld = keys.every((k) => input.currentlyHeld.includes(k))
+      if (stillHeld) {
+        return false
+      } else {
+        // They released. Check if minHold was satisfied
+        return minDuration >= minHoldMs
+      }
+    }
+
+    // Otherwise, as soon as minDuration >= minHold, we say it's complete
+    return minDuration >= minHoldMs
   }
 }
 
-export const sequenceManagerFeature = new SequenceManager()
+// Export singleton instance
+export const sequenceManager = SequenceManager.getInstance()

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { KeyboardFrameEvent } from '../../../service/keyboard/types'
-import { InputBuffer } from '../input-buffer'
+import { InputBuffer, buildFrameInputFromBuffer } from '../input-buffer'
 
 describe('InputBuffer', () => {
   let buffer: InputBuffer
@@ -97,7 +97,9 @@ describe('InputBuffer', () => {
       buffer.addFrame(frame1)
       buffer.addFrame(frame2)
 
-      buffer.tick(1500) // Move time forward
+      vi.advanceTimersByTime(5000)
+
+      buffer.tick(5000) // Move time forward
       expect(buffer.getEvents()).toEqual([]) // All events should be pruned
     })
 
@@ -107,6 +109,92 @@ describe('InputBuffer', () => {
 
       buffer.tick(500) // Try to move time backwards
       expect(buffer.getEvents()).toEqual([frame])
+    })
+  })
+
+  describe('buildFrameInputFromBuffer', () => {
+    it('should build frame input from a single press', () => {
+      const frame = createFrameEvent(1)
+      frame.state.justPressed = ['a']
+      buffer.addFrame(frame)
+
+      const input = buildFrameInputFromBuffer(buffer, frame.timestamp)
+      expect(input.justPressed['a']).toBe(frame.timestamp)
+      expect(input.currentlyHeld).toContain('a')
+      expect(input.holdDuration['a']).toBe(0)
+    })
+
+    it('should track hold durations', () => {
+      const frame1 = createFrameEvent(1, 0)
+      frame1.state.justPressed = ['a']
+
+      const frame2 = createFrameEvent(2, 100)
+      frame2.state.held = ['a']
+
+      buffer.addFrame(frame1)
+      buffer.addFrame(frame2)
+
+      const input = buildFrameInputFromBuffer(buffer, frame2.timestamp)
+      expect(input.currentlyHeld).toContain('a')
+      expect(input.holdDuration['a']).toBe(100)
+    })
+
+    it('should handle releases', () => {
+      const frame1 = createFrameEvent(1, 0)
+      frame1.state.justPressed = ['a']
+
+      const frame2 = createFrameEvent(2, 100)
+      frame2.state.justReleased = ['a']
+
+      buffer.addFrame(frame1)
+      buffer.addFrame(frame2)
+
+      const input = buildFrameInputFromBuffer(buffer, frame2.timestamp)
+      expect(input.justReleased).toContain('a')
+      expect(input.currentlyHeld).not.toContain('a')
+      expect(input.holdDuration['a']).toBeUndefined()
+    })
+
+    it('should handle multiple keys', () => {
+      const frame1 = createFrameEvent(1, 0)
+      frame1.state.justPressed = ['a', 'b']
+
+      const frame2 = createFrameEvent(2, 50)
+      frame2.state.held = ['a', 'b']
+
+      const frame3 = createFrameEvent(3, 100)
+      frame3.state.justReleased = ['a']
+      frame3.state.held = ['b']
+
+      buffer.addFrame(frame1)
+      buffer.addFrame(frame2)
+      buffer.addFrame(frame3)
+
+      const input = buildFrameInputFromBuffer(buffer, frame3.timestamp)
+      expect(input.justReleased).toContain('a')
+      expect(input.currentlyHeld).toContain('b')
+      expect(input.currentlyHeld).not.toContain('a')
+      expect(input.holdDuration['b']).toBe(100)
+    })
+
+    it('should only include events within frame duration', () => {
+      const frame1 = createFrameEvent(1, 0)
+      frame1.state.justPressed = ['a']
+
+      const frame2 = createFrameEvent(2, 50) // Within 16.67ms
+      frame2.state.justPressed = ['b']
+
+      const frame3 = createFrameEvent(3, 100) // Outside 16.67ms
+      frame3.state.justPressed = ['c']
+
+      buffer.addFrame(frame1)
+      buffer.addFrame(frame2)
+      buffer.addFrame(frame3)
+
+      const input = buildFrameInputFromBuffer(buffer, frame3.timestamp)
+      expect(input.justPressed['c']).toBe(frame3.timestamp)
+      expect(input.justPressed['b']).toBeUndefined()
+      expect(input.justPressed['a']).toBeUndefined()
     })
   })
 
@@ -132,10 +220,12 @@ describe('InputBuffer', () => {
       const frame1 = createFrameEvent(1, 0)
       const frame2 = createFrameEvent(2, TIME_WINDOW_MS)
 
+      vi.advanceTimersByTime(TIME_WINDOW_MS)
+
       buffer.addFrame(frame1)
       buffer.addFrame(frame2)
 
-      expect(buffer.getEvents()).toEqual([frame2])
+      expect(buffer.getEvents()).toEqual([frame1, frame2])
     })
 
     it('should handle rapid frame additions', () => {

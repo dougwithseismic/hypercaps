@@ -1,4 +1,5 @@
 import type { KeyboardFrameEvent } from '../../service/keyboard/types'
+import type { FrameInput, KeyInput } from './types'
 
 /**
  * A rolling window buffer to store recent keyboard frame events.
@@ -11,76 +12,109 @@ import type { KeyboardFrameEvent } from '../../service/keyboard/types'
  */
 export class InputBuffer {
   private events: KeyboardFrameEvent[] = []
-  private readonly timeWindowMs: number
-  private lastFrameNumber: number = -1
-  private currentTime: number = 0
+  private lastTimestamp = 0
 
-  constructor(timeWindowMs: number) {
-    this.timeWindowMs = timeWindowMs
-  }
+  constructor(private maxWindowMs: number = 2000) {}
 
-  /**
-   * Add a single frame event to the buffer.
-   * Validates frame ordering and updates time tracking.
-   * @throws Error if frame is out of order
-   */
-  addFrame(frame: KeyboardFrameEvent): void {
-    if (frame.frameNumber <= this.lastFrameNumber) {
-      throw new Error(
-        `Frame number ${frame.frameNumber} is out of order. Last frame was ${this.lastFrameNumber}`
-      )
-    }
-
-    // Update our time tracking
-    if (frame.timestamp > this.currentTime) {
-      this.currentTime = frame.timestamp
-    }
-
-    this.events.push(frame)
-    this.lastFrameNumber = frame.frameNumber
+  /** Add a new frame to the buffer and prune old ones. */
+  public addFrame(event: KeyboardFrameEvent) {
+    this.events.push(event)
+    this.lastTimestamp = event.timestamp
     this.prune()
   }
 
-  /**
-   * Removes events older than the time window.
-   * Uses the current time as reference.
-   */
-  private prune(): void {
-    const cutoffTime = this.currentTime - this.timeWindowMs
-    const firstValidIndex = this.events.findIndex((event) => event.timestamp > cutoffTime)
-
-    if (firstValidIndex > 0) {
-      this.events = this.events.slice(firstValidIndex)
-    } else if (firstValidIndex === -1) {
-      // All events are too old
-      this.events = []
-    }
-  }
-
-  /**
-   * Get the current list of frames in the buffer (oldest to newest).
-   */
-  getEvents(): readonly KeyboardFrameEvent[] {
-    return this.events
-  }
-
-  /**
-   * Update the time window without adding new events.
-   * This allows pruning old events even when no new events are coming in.
-   */
-  tick(currentTime: number): void {
-    if (currentTime > this.currentTime) {
-      this.currentTime = currentTime
+  /** If time advanced but no new frames, we can still prune old frames. */
+  public tick(now: number) {
+    // If we want to prune based on an external clock:
+    if (now > this.lastTimestamp) {
+      this.lastTimestamp = now
       this.prune()
     }
   }
 
-  /**
-   * Clear all events from the buffer and reset frame tracking.
-   */
-  clear(): void {
+  private prune() {
+    const cutoff = this.lastTimestamp - this.maxWindowMs
+    while (this.events.length && this.events[0].timestamp < cutoff) {
+      this.events.shift()
+    }
+  }
+
+  public getEvents(): readonly KeyboardFrameEvent[] {
+    return this.events
+  }
+
+  public clear() {
     this.events = []
-    this.lastFrameNumber = -1
-    this.currentTime = 0
+  }
+}
+
+/**
+ * Utility function that merges the last ~frameDurationMs worth
+ * of press/release data into a single FrameInput snapshot.
+ *
+ * If you want more advanced partial detection (like building "downRight"
+ * if 'down' & 'right' were pressed within ~50ms of each other),
+ * you can do so here. Or handle diagonals at your own step logic.
+ */
+export function buildFrameInputFromBuffer(
+  buffer: InputBuffer,
+  now: number,
+  frameDurationMs = 16.67
+): FrameInput {
+  const frameStart = now - frameDurationMs
+  const events = buffer.getEvents()
+
+  // Initialize the result
+  const justPressed: Record<KeyInput, number | undefined> = {}
+  const justReleased: KeyInput[] = []
+  const currentlyHeld: KeyInput[] = []
+  const holdDuration: Record<KeyInput, number | undefined> = {}
+
+  // We'll track final key states and press times
+  const keyStateMap = new Map<KeyInput, { pressed: boolean; lastPressTime: number }>()
+
+  // 1) Identify which keys were pressed/released *during* this frame
+  //    i.e. events that occurred after frameStart
+  for (const e of events) {
+    if (e.timestamp < frameStart || e.timestamp > now) continue
+    const state = e.state
+    // justPressed
+    for (const k of state.justPressed) {
+      justPressed[k] = e.timestamp // store time
+    }
+    // justReleased
+    for (const k of state.justReleased) {
+      justReleased.push(k)
+    }
+  }
+
+  // 2) Reconstruct "currentlyHeld" by scanning the entire buffer from oldest to newest
+  //    The last mention of a key (pressed or released) determines if it's held
+  const keyPressTime: Record<KeyInput, number> = {}
+  for (const e of events) {
+    for (const k of e.state.justPressed) {
+      keyPressTime[k] = e.timestamp
+      keyStateMap.set(k, { pressed: true, lastPressTime: e.timestamp })
+    }
+    for (const k of e.state.justReleased) {
+      // Key is no longer pressed
+      keyStateMap.set(k, { pressed: false, lastPressTime: 0 })
+    }
+  }
+  // Now any key that is mapped to { pressed: true } is currently held
+  for (const [key, info] of keyStateMap) {
+    if (info.pressed) {
+      currentlyHeld.push(key)
+      // holdDuration = now - info.lastPressTime
+      holdDuration[key] = now - info.lastPressTime
+    }
+  }
+
+  // Return the final frame input
+  return {
+    justPressed,
+    justReleased,
+    currentlyHeld,
+    holdDuration
   }
 }

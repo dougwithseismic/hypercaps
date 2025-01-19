@@ -18,9 +18,12 @@ export type KeyInput = string // Any valid VK key code
  * FrameInput extends the keyboard service's frame state with
  * game-specific metadata like moveHit.
  */
-export interface FrameInput extends KeyboardFrameState {
-  // Game-specific flags or metadata
-  moveHit?: boolean // e.g. did the last move connect this frame?
+export interface FrameInput {
+  justPressed: Record<KeyInput, number | undefined> // key => press time if pressed this frame
+  justReleased: KeyInput[]
+  currentlyHeld: KeyInput[]
+  holdDuration: Record<KeyInput, number | undefined>
+  // optional: moveHit?: boolean; // for hitConfirm steps, if you want that
 }
 
 /**
@@ -43,22 +46,31 @@ export type StepType = 'press' | 'hold' | 'hitConfirm'
 export interface MoveStep {
   type: StepType
 
-  // For press/hold
+  /** The key(s) or direction(s). e.g. ['down'], or ['ctrl','space']. */
   keys?: KeyInput[]
-  minHoldMs?: number // must hold at least this long
-  maxHoldMs?: number // fail if held longer than this
-  maxGapMs?: number // must begin step within X ms of previous step
-  multiPressToleranceMs?: number // leniency for pressing multiple keys
-  onHoldMinReached?: () => void // callback once minHold is reached
-  completeOnReleaseAfterMinHold?: boolean // step only completes on release after minHoldMs
 
-  // For 'hitConfirm'
-  hitConfirmWindowMs?: number // must confirm hit within this window
+  /** For hold steps: must hold key(s) at least this many ms. */
+  minHoldMs?: number
+
+  /** If you hold beyond this, fail the move. (For charge moves, e.g. 3s max) */
+  maxHoldMs?: number
+
+  /** Must start this step within X ms from the previous step's completion. */
+  maxGapMs?: number
+
+  /** For multi-press steps: how close in time the keys need to be pressed. */
+  multiPressToleranceMs?: number
+
+  /** For hold steps: only completes once user releases after minHold is reached. */
+  completeOnReleaseAfterMinHold?: boolean
+
+  /** (Optional) for advanced usage: diagonal tolerance, or advanced logic. */
+  diagonalToleranceMs?: number
 }
 
 /**
- * MoveDefinition is a full move: a name, an ordered list of steps,
- * and optional callbacks for when the move completes or fails.
+ * A single move definition: "Hadouken", "QCF", "Sonic Boom" etc.
+ * onComplete / onFail are optional callbacks.
  */
 export interface MoveDefinition {
   name: string
@@ -68,36 +80,20 @@ export interface MoveDefinition {
 }
 
 /**
- * MoveState tracks the current progress within a move:
- *   - which move is active,
- *   - currentStepIndex,
- *   - when we started (or completed) the previous step,
- *   - whether we've already fired hold-based events (e.g., onHoldMinReached).
+ * Tracks each move's progress, including which step is active, start time, etc.
  */
-export interface MoveState {
+export interface ActiveMoveState {
   move: MoveDefinition
   currentStepIndex: number
   stepStartTime: number
-  isActive: boolean
-  firedHoldMinEvent?: boolean // track if we've already triggered onHoldMinReached
+  firedHoldMinEvent?: boolean
+  isDone: boolean // if the move is completed or failed
 }
 
 /**
- * BufferPatternStep defines a single key press requirement in a pattern,
- * with a maximum time gap allowed from the previous step.
+ * Events emitted by the sequence manager
  */
-export interface BufferPatternStep {
-  key: string
-  maxGapMs: number
-  // Hold duration constraints
-  minHoldMs?: number
-  maxHoldMs?: number
-  // Multi-key press support
-  keys?: string[]
-  multiPressToleranceMs?: number
-}
-
-export interface InputSequence {
-  id: string
-  pattern: BufferPatternStep[]
+export interface SequenceManagerEvents {
+  'move:complete': { name: string }
+  'move:fail': { name: string; reason: string; step: number }
 }

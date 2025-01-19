@@ -189,7 +189,6 @@ export class KeyboardService extends EventEmitter {
   private handleKeyboardFrame = (data: KeyboardFrame): void => {
     const processedFrame = processFrame(data)
     this.emit('keyboard:frame', processedFrame)
-
     // Handle validation errors if any
     if (processedFrame.validationErrors?.length) {
       this.emitError(
