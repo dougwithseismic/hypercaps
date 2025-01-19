@@ -19,6 +19,31 @@ export interface BaseStep {
 }
 
 /**
+ * Phase types for sequence execution
+ */
+export type ExecutionPhase = 'startup' | 'active' | 'recovery' | 'complete' | 'failed' | 'idle'
+
+/**
+ * Phase timing configuration
+ */
+export interface PhaseTiming {
+  startupMs?: number // Preparation phase duration
+  activeMs?: number // Execution phase duration
+  recoveryMs?: number // Cooldown phase duration
+  toleranceMs?: number // Allowed timing variance for each phase
+}
+
+/**
+ * Phase state tracking
+ */
+export interface PhaseState {
+  currentPhase: ExecutionPhase
+  phaseStartTime: number
+  phaseElapsedMs: number
+  phaseDurationMs: number
+}
+
+/**
  * Verifies specific keys are held in a frame.
  * The step will trigger exactly at triggerMs if specified, otherwise
  * it completes when keys are released after minMs (and before maxMs).
@@ -36,6 +61,8 @@ export interface StateStep extends BaseStep {
     minMs?: number // Minimum time state must be true
     maxMs?: number // Maximum time state can be true
     triggerMs?: number // If set, step triggers exactly at this duration
+    // New phase-based timing (optional for backward compatibility)
+    phases?: PhaseTiming
   }
 }
 
@@ -73,6 +100,8 @@ export interface SequenceState {
   confidence: number
   parentStates?: SequenceState[]
   childState?: SequenceState
+  // New phase tracking
+  phaseState?: PhaseState
 }
 
 /**
@@ -150,10 +179,19 @@ export interface SequenceMatchEvents {
       held: Set<number>
       released: Set<number>
     }
+    phaseState?: PhaseState
   }
   'sequence:failed': {
     id: string
-    reason: 'timeout' | 'invalid_input' | 'state_lost' | 'duration_exceeded'
+    reason: 'timeout' | 'invalid_input' | 'state_lost' | 'duration_exceeded' | 'phase_timeout'
     startTime: number
+    phaseState?: PhaseState
+  }
+  'sequence:phase_change': {
+    id: string
+    previousPhase: ExecutionPhase
+    currentPhase: ExecutionPhase
+    timestamp: number
+    elapsedMs: number
   }
 }
