@@ -1,3 +1,31 @@
 {
-	"isEnabled": true
+	"isEnabled": true,
+	"keyRemaps": {
+		"ShiftLeft": [
+			"Shift",
+			"ShiftRight"
+		],
+		"ShiftRight": [
+			"Shift",
+			"ShiftLeft"
+		],
+		"ControlLeft": [
+			"Control",
+			"ControlRight"
+		],
+		"ControlRight": [
+			"Control",
+			"ControlLeft"
+		],
+		"AltLeft": [
+			"Alt",
+			"AltRight"
+		],
+		"AltRight": [
+			"Alt",
+			"AltLeft"
+		]
+	},
+	"simultaneousPressWindow": 32,
+	"bufferWindowMs": 5000
 }

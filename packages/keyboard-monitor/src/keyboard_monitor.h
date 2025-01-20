@@ -51,7 +51,7 @@ private:
     // Configuration
     std::map<std::string, std::vector<std::string>> remaps;
     int maxRemapChainLength = 5;
-    int gateTimeout = 1000; // Default 1000ms timeout
+    int gateTimeout = 500; // Default 1000ms timeout
     
     // Frame management
     std::array<KeyboardFrame, BUFFER_SIZE> frameBuffer;

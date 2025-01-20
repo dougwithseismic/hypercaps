@@ -48,7 +48,7 @@ export const keyboardStore = createStore<KeyboardConfig, KeyboardEvents>({
   defaultConfig: {
     service: {
       enabled: true,
-      frameRate: 30,
+      frameRate: 60,
       frameBufferSize: 60,
       frameHistory: {
         maxSize: 100,

@@ -35,34 +35,34 @@
 import { EventEmitter } from 'events'
 import { keyboardService } from '../../service/keyboard/keyboard-service'
 import type { KeyboardFrameEvent } from '../../service/keyboard/types'
-import { InputBuffer, buildFrameInputFromBuffer } from './input-buffer'
-import type {
-  ActiveMoveState,
-  FrameInput,
-  MoveDefinition,
-  MoveStep,
-  SequenceManagerEvents
-} from './types'
+import { InputBuffer } from './input-buffer'
 import { sequenceStore } from './store'
+import type { ActiveMoveState, MoveDefinition, MoveStep } from './types'
 
 /**
- * The big SequenceManager that:
- *  - Listens for "keyboard:frame" events
- *  - Stores them in a rolling buffer
- *  - On each frame arrival, merges input into a FrameInput
- *  - Checks *all* moves (Street Fighter style). Each move can be partially active
- *    if you want to allow concurrency, or you can handle one active move at a time.
- *  - For each step, checks press vs hold logic, diagonal logic, multi-press tolerance, etc.
+ * The SequenceManager maintains a rolling buffer of keyboard inputs and provides
+ * a framework for detecting input sequences. This is a stripped down version
+ * that will be rebuilt with proper detection logic.
  */
 export class SequenceManager extends EventEmitter {
   private static instance: SequenceManager
   private inputBuffer: InputBuffer
   private moves: MoveDefinition[] = []
-  private activeMoves: ActiveMoveState[] = [] // track multiple simultaneously
+  private activeMoves: ActiveMoveState[] = []
   private isInitialized = false
   private config = sequenceStore.get()
+  private readonly FRAME_RATE = 60 // TODO: Get this from keyboard config
+  private readonly LENIENCY_MS = 200 // ~12 frames worth of leniency
+  private readonly SIMULTANEOUS_PRESS_MS = 32 // ~2 frames at 60fps for simultaneous press
+  private readonly COMPLETION_WINDOW_MS = 64 // Window to check for competing completed moves
 
-  private constructor(private bufferWindowMs = 2000) {
+  // Track moves that completed but are waiting for the completion window
+  private completionWindow: Array<{
+    move: MoveDefinition
+    completedAt: number
+  }> = []
+
+  private constructor(private bufferWindowMs = 5000) {
     super()
     this.inputBuffer = new InputBuffer(bufferWindowMs)
     this.setupStoreListeners()
@@ -89,177 +89,317 @@ export class SequenceManager extends EventEmitter {
   }
 
   /**
+   * Convert frame count to milliseconds based on frame rate
+   */
+  private framesToMs(frames: number): number {
+    return Math.floor((frames * 1000) / this.FRAME_RATE)
+  }
+
+  /**
+   * Check if keys were pressed within a small time window of each other
+   */
+  private wereKeysSimultaneous(frame: KeyboardFrameEvent, keys: string[]): boolean {
+    if (keys.length <= 1) return true
+
+    const events = this.inputBuffer.getEvents()
+    const cutoffTime = frame.timestamp - this.SIMULTANEOUS_PRESS_MS
+    const recentPresses = new Map<string, number>() // key -> timestamp
+
+    // Look back through recent frames
+    for (let i = events.length - 1; i >= 0; i--) {
+      const event = events[i]
+      if (event.timestamp < cutoffTime) break
+
+      event.state.justPressed.forEach((key) => {
+        if (!recentPresses.has(key)) {
+          recentPresses.set(key, event.timestamp)
+        }
+      })
+    }
+
+    // Check if all required keys were pressed and get their timestamps
+    const timestamps: number[] = []
+    for (const key of keys) {
+      const timestamp = recentPresses.get(key)
+      if (timestamp === undefined) return false
+      timestamps.push(timestamp)
+    }
+
+    // Check if max time difference between any two presses is within window
+    const maxTimeDiff = Math.max(...timestamps) - Math.min(...timestamps)
+    return maxTimeDiff <= this.SIMULTANEOUS_PRESS_MS
+  }
+
+  /**
+   * Check if a key has been held for the required duration
+   */
+  private checkHoldDuration(frame: KeyboardFrameEvent, key: string, minHoldMs: number): boolean {
+    const holdDuration = this.framesToMs(frame.state.holdDurations[key] ?? 0)
+    return holdDuration >= minHoldMs
+  }
+
+  /**
+   * Check if a sequence of keys was pressed in order within the leniency window
+   */
+  private checkSequence(frame: KeyboardFrameEvent, keys: string[], maxGapMs: number): boolean {
+    const events = this.inputBuffer.getEvents()
+    const cutoffTime = frame.timestamp - maxGapMs
+    let currentKeyIndex = keys.length - 1
+    let lastMatchTime = frame.timestamp
+    const foundKeys = new Set<string>()
+    const extraInputTimes = new Set<number>()
+
+    // Work backwards through the buffer
+    for (let i = events.length - 1; i >= 0 && currentKeyIndex >= 0; i--) {
+      const event = events[i]
+      if (event.timestamp < cutoffTime) break
+
+      // Track all inputs we see for leniency
+      event.state.justPressed.forEach((key) => {
+        if (!keys.includes(key)) {
+          extraInputTimes.add(event.timestamp)
+        }
+        foundKeys.add(key)
+      })
+
+      // If this frame has our current target key
+      if (event.state.justPressed.includes(keys[currentKeyIndex])) {
+        // Check if the gap between this and the last match is within maxGap
+        if (lastMatchTime - event.timestamp > maxGapMs) return false
+        lastMatchTime = event.timestamp
+        currentKeyIndex--
+      }
+    }
+
+    // Basic sequence match
+    if (currentKeyIndex >= 0) return false
+
+    // Leniency check - allow extra inputs within the leniency window
+    const requiredKeys = new Set(keys)
+    const hasAllRequired = [...requiredKeys].every((k) => foundKeys.has(k))
+
+    // Group extra inputs by time windows
+    let leniencyViolations = 0
+    const sortedTimes = [...extraInputTimes].sort((a, b) => a - b)
+
+    // Count how many separate leniency windows were violated
+    let lastTime = 0
+    for (const time of sortedTimes) {
+      if (time - lastTime > this.LENIENCY_MS) {
+        leniencyViolations++
+      }
+      lastTime = time
+    }
+
+    return hasAllRequired && leniencyViolations === 0
+  }
+
+  /**
+   * Check if a step's conditions are met
+   */
+  private checkStep(
+    step: MoveStep,
+    frame: KeyboardFrameEvent,
+    now: number,
+    stepStartTime: number
+  ): boolean {
+    const { type, keys = [], maxGapMs = 200 } = step
+
+    switch (type) {
+      case 'press': {
+        // For single key or simultaneous presses
+        if (step.multiPressToleranceMs) {
+          return this.wereKeysSimultaneous(frame, keys)
+        }
+        // For sequences (like down, down-forward, forward)
+        return this.checkSequence(frame, keys, maxGapMs)
+      }
+
+      case 'hold': {
+        const { minHoldMs = 0, maxHoldMs, completeOnReleaseAfterMinHold } = step
+
+        // Check each key meets the hold duration
+        for (const key of keys) {
+          const holdDuration = this.framesToMs(frame.state.holdDurations[key] ?? 0)
+
+          // Fail if we've held too long
+          if (maxHoldMs && holdDuration > maxHoldMs) return false
+
+          // For release-after-hold moves
+          if (completeOnReleaseAfterMinHold) {
+            const isHeld = frame.state.held.includes(key)
+            const meetsMinHold = holdDuration >= minHoldMs
+
+            // If still held, only complete if we want to wait for release
+            if (isHeld) return !completeOnReleaseAfterMinHold && meetsMinHold
+
+            // If released, complete only if we met the min hold time
+            return meetsMinHold
+          }
+
+          // Normal hold - just check duration
+          if (holdDuration < minHoldMs) return false
+        }
+        return true
+      }
+
+      case 'hitConfirm': {
+        // Not implemented for shortcut manager
+        return false
+      }
+    }
+  }
+
+  /**
    * Start listening to keyboard frames from your electron "keyboardService."
    * Each time we get a new frame, we add it to the buffer and call `update`.
    */
-  public initialize() {
+  public initialize(): void {
     if (this.isInitialized) return
     this.isInitialized = true
 
     keyboardService.on('keyboard:frame', (frameEvent: KeyboardFrameEvent) => {
       if (!this.config.isEnabled) return
-      // 1) add to buffer
       this.inputBuffer.addFrame(frameEvent)
-      // 2) call update with the event's timestamp
-      this.update(frameEvent.timestamp)
+      this.update(frameEvent)
     })
 
     console.log('[SequenceManager] Initialized. Buffer window =', this.bufferWindowMs, 'ms')
   }
 
   /**
-   * Add a move (e.g., QCF, SonicBoom, hold ctrl+space, etc.)
-   * with optional onComplete/onFail handlers.
+   * Add a move definition to be detected.
    */
-  public addMove(move: MoveDefinition) {
+  public addMove(move: MoveDefinition): void {
     this.moves.push(move)
+    // Sort moves by priority (highest first) and strength (highest first)
+    this.moves.sort((a, b) => {
+      if (a.priority !== b.priority) return b.priority - a.priority
+      return b.strength - a.strength
+    })
+    console.debug(
+      `[SequenceManager] Added move "${move.name}" (priority: ${move.priority}, strength: ${move.strength})`
+    )
   }
 
   /**
-   * Called each time we want to process the buffer (like after each keyboard frame).
-   * If you want, you can also call it from setInterval or any other trigger.
+   * Called each time we want to process the buffer
    */
-  public update(now: number) {
+  public update(currentFrame: KeyboardFrameEvent): void {
     if (!this.isInitialized || !this.config.isEnabled) return
 
-    // prune old events if needed
-    this.inputBuffer.tick(now)
+    const now = currentFrame.timestamp
 
-    // Build a single snapshot for this moment
-    const frameInput = buildFrameInputFromBuffer(this.inputBuffer, now)
+    // First, check if we can resolve any moves in the completion window
+    if (this.completionWindow.length > 0) {
+      const oldestCompletion = Math.min(...this.completionWindow.map((c) => c.completedAt))
+      if (now - oldestCompletion >= this.COMPLETION_WINDOW_MS) {
+        // Time to resolve the completion window
+        if (this.completionWindow.length === 1) {
+          // Single move - just complete it
+          const { move } = this.completionWindow[0]
+          console.debug(`[SequenceManager] Completed sequence "${move.name}"`)
+          move.onComplete?.()
+          this.emit('move:complete', { name: move.name })
+        } else {
+          // Multiple moves - find highest priority/strength
+          const sorted = [...this.completionWindow].sort((a, b) => {
+            if (a.move.priority !== b.move.priority) {
+              return b.move.priority - a.move.priority
+            }
+            return b.move.strength - a.move.strength
+          })
 
-    // 1) Attempt to START any moves that are not active if their first step is satisfied
-    for (const move of this.moves) {
-      // If this move is already done or active, skip. But let's see if we want concurrency or not
-      const isMoveActive = this.activeMoves.find((m) => m.move.name === move.name && !m.isDone)
-      if (isMoveActive) {
-        // skip if it's already in progress
+          // Complete the winner, fail the others
+          const winner = sorted[0]
+          console.debug(
+            `[SequenceManager] Completed highest priority sequence "${winner.move.name}"`
+          )
+          winner.move.onComplete?.()
+          this.emit('move:complete', { name: winner.move.name })
+
+          // Fail other moves that were in contention
+          sorted.slice(1).forEach(({ move }) => {
+            console.debug(
+              `[SequenceManager] Failed sequence "${move.name}" - lost priority contest`
+            )
+            move.onFail?.()
+            this.emit('move:fail', {
+              name: move.name,
+              reason: 'lost_priority_contest',
+              step: move.steps.length - 1
+            })
+          })
+        }
+
+        // Clear the window
+        this.completionWindow = []
+      }
+    }
+
+    // Process active moves - check if they've progressed or failed
+    for (let i = this.activeMoves.length - 1; i >= 0; i--) {
+      const active = this.activeMoves[i]
+      const { move, currentStepIndex, stepStartTime } = active
+
+      // Skip completed moves
+      if (active.isDone) {
+        this.activeMoves.splice(i, 1)
         continue
       }
 
+      const step = move.steps[currentStepIndex]
+      const stepOk = this.checkStep(step, currentFrame, now, stepStartTime)
+
+      if (stepOk) {
+        // Move to next step
+        active.currentStepIndex++
+        active.stepStartTime = now
+
+        // Check if move is complete
+        if (active.currentStepIndex >= move.steps.length) {
+          active.isDone = true
+          // Instead of completing immediately, add to completion window
+          this.completionWindow.push({
+            move: active.move,
+            completedAt: now
+          })
+          this.activeMoves.splice(i, 1)
+        }
+      } else {
+        // Check for timeout
+        const elapsed = now - stepStartTime
+        if (step.maxGapMs && elapsed > step.maxGapMs) {
+          console.debug(`[SequenceManager] Failed sequence "${move.name}" - timeout`)
+          move.onFail?.()
+          this.emit('move:fail', { name: move.name, reason: 'timeout', step: currentStepIndex })
+          this.activeMoves.splice(i, 1)
+        }
+      }
+    }
+
+    // Try to start new moves (already sorted by priority)
+    for (const move of this.moves) {
+      // Skip if already active
+      if (this.activeMoves.some((am) => am.move.name === move.name)) continue
+
       // Check first step
       const firstStep = move.steps[0]
-      // If we satisfy it, let's begin tracking
-      if (this.checkStep(firstStep, frameInput, now, now)) {
+      if (this.checkStep(firstStep, currentFrame, now, now)) {
+        console.debug(`[SequenceManager] Starting sequence "${move.name}"`)
         this.activeMoves.push({
           move,
           currentStepIndex: 0,
           stepStartTime: now,
           isDone: false
         })
-      }
-    }
-
-    // 2) For each active move, try to progress it
-    for (const active of this.activeMoves) {
-      if (active.isDone) continue // skip if done
-      const { move, currentStepIndex, stepStartTime } = active
-      const step = move.steps[currentStepIndex]
-      const stepOk = this.checkStep(step, frameInput, now, stepStartTime)
-
-      if (stepOk) {
-        // Step complete => next
-        active.currentStepIndex++
-        active.stepStartTime = now
-
-        // If that was last step => move complete
-        if (active.currentStepIndex >= move.steps.length) {
-          active.isDone = true
-          move.onComplete?.()
-          this.emit('move:complete', { name: move.name })
-        }
+        // Allow multiple moves to start - they'll be resolved by priority only if they complete together
         continue
       }
-
-      // Not completed => check fail conditions
-      const elapsed = now - stepStartTime
-      if (step.maxGapMs && elapsed > step.maxGapMs) {
-        // Time out => fail
-        active.isDone = true
-        move.onFail?.()
-        this.emit('move:fail', { name: move.name, reason: 'timeout', step: currentStepIndex })
-      }
     }
 
-    // Clean up activeMoves that are done
-    this.activeMoves = this.activeMoves.filter((m) => !m.isDone)
-  }
-
-  /**
-   * The logic that decides if "press" or "hold" step is satisfied by the current FrameInput.
-   */
-  private checkStep(
-    step: MoveStep,
-    frameInput: FrameInput,
-    now: number,
-    stepStartTime: number
-  ): boolean {
-    switch (step.type) {
-      case 'press':
-        return this.checkPressStep(step, frameInput, now, stepStartTime)
-      case 'hold':
-        return this.checkHoldStep(step, frameInput, now)
-      case 'hitConfirm':
-        // If you want a "moveHit" flag or something, check it here
-        return false // placeholder
-      default:
-        return false
-    }
-  }
-
-  private checkPressStep(
-    step: MoveStep,
-    input: FrameInput,
-    now: number,
-    stepStartTime: number
-  ): boolean {
-    const { keys = [], multiPressToleranceMs } = step
-    if (!keys.length) return false
-
-    // All keys must appear in justPressed
-    const pressTimes = keys.map((k) => input.justPressed[k])
-    if (pressTimes.some((t) => t === undefined)) {
-      return false // not all were pressed this frame
-    }
-
-    // If multiPressToleranceMs is set, ensure the difference between earliest & latest press
-    if (multiPressToleranceMs && multiPressToleranceMs > 0) {
-      const earliest = Math.min(...(pressTimes as number[]))
-      const latest = Math.max(...(pressTimes as number[]))
-      if (latest - earliest > multiPressToleranceMs) {
-        return false // they were pressed too far apart
-      }
-    }
-
-    // If we got here => success
-    return true
-  }
-
-  private checkHoldStep(step: MoveStep, input: FrameInput, now: number): boolean {
-    const { keys = [], minHoldMs = 0, maxHoldMs, completeOnReleaseAfterMinHold } = step
-    if (!keys.length) return false
-
-    // All must be (or have been) held
-    const durations = keys.map((k) => input.holdDuration[k] ?? 0)
-    const minDuration = Math.min(...durations)
-
-    if (maxHoldMs && minDuration > maxHoldMs) {
-      return false // overcharge => fail
-    }
-
-    if (completeOnReleaseAfterMinHold) {
-      // We only consider it complete once user releases after minHold
-      const stillHeld = keys.every((k) => input.currentlyHeld.includes(k))
-      if (stillHeld) {
-        return false
-      } else {
-        // They released. Check if minHold was satisfied
-        return minDuration >= minHoldMs
-      }
-    }
-
-    // Otherwise, as soon as minDuration >= minHold, we say it's complete
-    return minDuration >= minHoldMs
+    // Keep the buffer pruned
+    this.inputBuffer.tick(now)
   }
 }
 

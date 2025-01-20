@@ -418,6 +418,15 @@ void KeyboardMonitor::UpdateGateState() {
         now - lastKeyEventTime
     ).count();
 
+    auto& currentFrame = frameBuffer[currentFrameIndex];
+    
+    // Keep gate open if any keys are still held
+    if (!currentFrame.held.empty()) {
+        lastKeyEventTime = now;  // Reset timer while keys are held
+        return;
+    }
+
+    // Only close gate if no keys are held AND timeout has elapsed
     if (timeSinceLastEvent >= gateTimeout) {
         isGateOpen = false;
     }

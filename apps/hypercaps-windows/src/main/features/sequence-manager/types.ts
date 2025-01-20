@@ -69,12 +69,35 @@ export interface MoveStep {
 }
 
 /**
+ * Parameters for creating a move using the moveFactory.
+ * Uses RORO (Receive Object, Return Object) pattern.
+ */
+export interface MoveFactoryParams {
+  /** Unique name of the move */
+  name: string
+  /** Sequence of steps that make up the move */
+  steps: MoveStep[]
+  /** Priority of the move (higher number = higher priority) */
+  priority?: number
+  /** Strength of the move (light=1, medium=2, heavy=3) */
+  strength?: number
+  /** Called when move completes successfully */
+  onComplete?: () => void
+  /** Called when move fails or is canceled */
+  onFail?: () => void
+}
+
+/**
  * A single move definition: "Hadouken", "QCF", "Sonic Boom" etc.
  * onComplete / onFail are optional callbacks.
  */
 export interface MoveDefinition {
   name: string
   steps: MoveStep[]
+  /** Priority of the move (higher number = higher priority). Used for move canceling and conflicts. */
+  priority: number
+  /** Strength of the move (e.g. light=1, medium=2, heavy=3). Used with priority for advanced canceling. */
+  strength: number
   onComplete?: () => void
   onFail?: () => void
 }
