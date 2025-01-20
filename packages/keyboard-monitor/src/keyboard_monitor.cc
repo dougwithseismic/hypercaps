@@ -55,21 +55,10 @@ void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
     std::string keyName = KeyMapping::GetKeyName(vkCode);
     if (keyName.empty()) return;
 
-    // Open gate and update last key event time on any key event
+    // ALWAYS create a new frame for key events to ensure we don't miss any
+    CreateNewFrame();
     OpenGate();
 
-    auto now = std::chrono::steady_clock::now();
-    auto frameDelta = std::chrono::duration_cast<std::chrono::microseconds>(
-        now - lastFrameTime
-    ).count();
-
-    // Create new frame if needed
-    if (frameDelta >= FRAME_TIME_MICROS) {
-        CreateNewFrame();
-    }
-
-    auto& currentFrame = frameBuffer[currentFrameIndex];
-    
     // Handle remapping if enabled
     if (isRemapperEnabled && !KeyMapping::IsKeyRemapped(vkCode)) {
         KeyMapping::ProcessRemaps(remaps, vkCode, isKeyDown, maxRemapChainLength);
@@ -80,35 +69,39 @@ void KeyboardMonitor::ProcessKeyEvent(DWORD vkCode, bool isKeyDown) {
     }
     
     if (isKeyDown) {
-        if (currentFrame.held.find(vkCode) == currentFrame.held.end()) {
-            currentFrame.justPressed.insert(vkCode);
-            currentFrame.held.insert(vkCode);
+        if (!currentFrame.held[vkCode]) {
+            currentFrame.justPressed[vkCode] = true;
+            currentFrame.held[vkCode] = true;
             keyPressStartFrames[vkCode] = totalFrames;
             
             // Update event info
             currentFrame.event.type = "keydown";
             currentFrame.event.key = vkCode;
+            
+            // Important: Emit the press frame immediately
+            EmitFrame(currentFrame);
         }
     } else {
-        if (currentFrame.held.find(vkCode) != currentFrame.held.end()) {
-            currentFrame.justReleased.insert(vkCode);
-            currentFrame.held.erase(vkCode);
-            keyPressStartFrames.erase(vkCode);
+        if (currentFrame.held[vkCode]) {
+            currentFrame.justReleased[vkCode] = true;
+            currentFrame.held[vkCode] = false;
+            keyPressStartFrames[vkCode] = 0;
             
             // Update event info
             currentFrame.event.type = "keyup";
             currentFrame.event.key = vkCode;
+            
+            // Important: Emit the release frame even if it's very close to the press
+            EmitFrame(currentFrame);
         }
     }
 
-    // Update hold durations in frames
-    for (const auto& key : currentFrame.held) {
-        if (keyPressStartFrames.find(key) != keyPressStartFrames.end()) {
+    // Update hold durations
+    for (size_t key = 0; key < 256; key++) {
+        if (currentFrame.held[key]) {
             currentFrame.holdDurations[key] = GetFramesSince(keyPressStartFrames[key]);
         }
     }
-
-    EmitFrame(currentFrame);
 }
 
 void KeyboardMonitor::PollKeyboardState() {
@@ -127,8 +120,7 @@ void KeyboardMonitor::PollKeyboardState() {
         CreateNewFrame();
     }
 
-    auto& currentFrame = frameBuffer[currentFrameIndex];
-    std::set<DWORD> currentKeys;
+    bool shouldEmitFrame = false;
 
     // Check all possible virtual key codes
     for (int vk = 0; vk < 256; vk++) {
@@ -147,38 +139,45 @@ void KeyboardMonitor::PollKeyboardState() {
         }
 
         SHORT keyState = GetAsyncKeyState(vk);
-        if (keyState & 0x8000) { // Key is pressed
-            std::string keyName = KeyMapping::GetKeyName(vk);
-            if (!keyName.empty()) {
-                if (vk == VK_CAPITAL && !KeyMapping::ShouldReportCapsLock()) {
-                    continue;
-                }
-                
-                currentKeys.insert(vk);
-                if (currentFrame.held.find(vk) == currentFrame.held.end()) {
-                    currentFrame.justPressed.insert(vk);
-                    currentFrame.held.insert(vk);
-                    keyPressStartFrames[vk] = totalFrames;
-                    OpenGate(); // Open gate on new key press
-                }
+        bool isPressed = (keyState & 0x8000) != 0;
+        
+        std::string keyName = KeyMapping::GetKeyName(vk);
+        if (keyName.empty()) continue;
+
+        if (vk == VK_CAPITAL && !KeyMapping::ShouldReportCapsLock()) {
+            continue;
+        }
+
+        // Key is pressed
+        if (isPressed) {
+            if (!currentFrame.held[vk]) {
+                // This is a new press
+                currentFrame.justPressed[vk] = true;
+                currentFrame.held[vk] = true;
+                keyPressStartFrames[vk] = totalFrames;
+                OpenGate();
+                shouldEmitFrame = true;
             }
-        } else if (currentFrame.held.find(vk) != currentFrame.held.end()) {
-            currentFrame.justReleased.insert(vk);
-            currentFrame.held.erase(vk);
-            keyPressStartFrames.erase(vk);
-            OpenGate(); // Open gate on key release
+        } 
+        // Key is released
+        else if (currentFrame.held[vk]) {
+            currentFrame.justReleased[vk] = true;
+            currentFrame.held[vk] = false;
+            keyPressStartFrames[vk] = 0;
+            OpenGate();
+            shouldEmitFrame = true;
         }
     }
 
-    // Update hold durations in frames
-    for (const auto& key : currentFrame.held) {
-        if (keyPressStartFrames.find(key) != keyPressStartFrames.end()) {
+    // Update hold durations
+    for (size_t key = 0; key < 256; key++) {
+        if (currentFrame.held[key]) {
             currentFrame.holdDurations[key] = GetFramesSince(keyPressStartFrames[key]);
         }
     }
 
-    // Emit frame if gate is open and we've reached the frame time
-    if (isGateOpen && frameDelta >= FRAME_TIME_MICROS) {
+    // Emit frame if we have new presses/releases or if enough time has passed
+    if (shouldEmitFrame || (isGateOpen && frameDelta >= FRAME_TIME_MICROS)) {
         EmitFrame(currentFrame);
     }
 
@@ -186,29 +185,22 @@ void KeyboardMonitor::PollKeyboardState() {
 }
 
 void KeyboardMonitor::CreateNewFrame() {
-    // Move to next frame in circular buffer
-    currentFrameIndex = (currentFrameIndex + 1) % BUFFER_SIZE;
     totalFrames++;
 
-    // Initialize new frame
-    auto& newFrame = frameBuffer[currentFrameIndex];
-    newFrame = KeyboardFrame(); // Clear previous frame data
-    newFrame.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+    // Clear previous frame data but maintain held keys
+    auto heldKeys = currentFrame.held;
+    currentFrame = KeyboardFrame();
+    currentFrame.held = heldKeys;
+    currentFrame.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()
     ).count();
-    newFrame.frameNumber = totalFrames;
-    newFrame.gateOpen = isGateOpen;
+    currentFrame.frameNumber = totalFrames;
+    currentFrame.gateOpen = isGateOpen;
 
-    // Copy held keys from previous frame
-    if (totalFrames > 1) {
-        int prevIndex = (currentFrameIndex - 1 + BUFFER_SIZE) % BUFFER_SIZE;
-        newFrame.held = frameBuffer[prevIndex].held;
-        
-        // Copy hold durations for held keys
-        for (const auto& key : newFrame.held) {
-            if (keyPressStartFrames.find(key) != keyPressStartFrames.end()) {
-                newFrame.holdDurations[key] = GetFramesSince(keyPressStartFrames[key]);
-            }
+    // Update hold durations for held keys
+    for (size_t key = 0; key < 256; key++) {
+        if (currentFrame.held[key]) {
+            currentFrame.holdDurations[key] = GetFramesSince(keyPressStartFrames[key]);
         }
     }
 
@@ -222,7 +214,6 @@ int KeyboardMonitor::GetFramesSince(int startFrame) const {
 void KeyboardMonitor::EmitFrame(const KeyboardFrame& frame) {
     if (!tsfn || !isEnabled) return;
 
-    // Convert VK codes to key names
     auto jsCallback = [this, frame](Napi::Env env, Napi::Function jsCallback) {
         Napi::Object frameObj = Napi::Object::New(env);
         Napi::Object stateObj = Napi::Object::New(env);
@@ -231,38 +222,46 @@ void KeyboardMonitor::EmitFrame(const KeyboardFrame& frame) {
         Napi::Array justReleasedArr = Napi::Array::New(env);
         Napi::Object holdDurationsObj = Napi::Object::New(env);
 
-        // Convert justPressed VK codes to key names
+        // Convert justPressed bits to key names
         uint32_t pressedIndex = 0;
-        for (const auto& vk : frame.justPressed) {
-            std::string keyName = KeyMapping::GetKeyName(vk);
-            if (!keyName.empty()) {
-                justPressedArr.Set(pressedIndex++, Napi::String::New(env, keyName));
+        for (size_t i = 0; i < 256; i++) {
+            if (frame.justPressed[i]) {
+                std::string keyName = KeyMapping::GetKeyName(i);
+                if (!keyName.empty()) {
+                    justPressedArr.Set(pressedIndex++, Napi::String::New(env, keyName));
+                }
             }
         }
 
-        // Convert held VK codes to key names
+        // Convert held bits to key names
         uint32_t heldIndex = 0;
-        for (const auto& vk : frame.held) {
-            std::string keyName = KeyMapping::GetKeyName(vk);
-            if (!keyName.empty()) {
-                heldArr.Set(heldIndex++, Napi::String::New(env, keyName));
+        for (size_t i = 0; i < 256; i++) {
+            if (frame.held[i]) {
+                std::string keyName = KeyMapping::GetKeyName(i);
+                if (!keyName.empty()) {
+                    heldArr.Set(heldIndex++, Napi::String::New(env, keyName));
+                }
             }
         }
 
-        // Convert justReleased VK codes to key names
+        // Convert justReleased bits to key names
         uint32_t releasedIndex = 0;
-        for (const auto& vk : frame.justReleased) {
-            std::string keyName = KeyMapping::GetKeyName(vk);
-            if (!keyName.empty()) {
-                justReleasedArr.Set(releasedIndex++, Napi::String::New(env, keyName));
+        for (size_t i = 0; i < 256; i++) {
+            if (frame.justReleased[i]) {
+                std::string keyName = KeyMapping::GetKeyName(i);
+                if (!keyName.empty()) {
+                    justReleasedArr.Set(releasedIndex++, Napi::String::New(env, keyName));
+                }
             }
         }
 
         // Convert hold durations
-        for (const auto& [vk, duration] : frame.holdDurations) {
-            std::string keyName = KeyMapping::GetKeyName(vk);
-            if (!keyName.empty()) {
-                holdDurationsObj.Set(keyName, Napi::Number::New(env, duration));
+        for (size_t i = 0; i < 256; i++) {
+            if (frame.holdDurations[i] > 0) {
+                std::string keyName = KeyMapping::GetKeyName(i);
+                if (!keyName.empty()) {
+                    holdDurationsObj.Set(keyName, Napi::Number::New(env, frame.holdDurations[i]));
+                }
             }
         }
 
@@ -418,10 +417,8 @@ void KeyboardMonitor::UpdateGateState() {
         now - lastKeyEventTime
     ).count();
 
-    auto& currentFrame = frameBuffer[currentFrameIndex];
-    
     // Keep gate open if any keys are still held
-    if (!currentFrame.held.empty()) {
+    if (!currentFrame.held.any()) {
         lastKeyEventTime = now;  // Reset timer while keys are held
         return;
     }

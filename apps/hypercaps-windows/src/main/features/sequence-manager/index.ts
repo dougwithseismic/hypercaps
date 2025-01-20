@@ -52,7 +52,7 @@ export class SequenceManager extends EventEmitter {
   private isInitialized = false
   private config = sequenceStore.get()
   private readonly FRAME_RATE = 60 // TODO: Get this from keyboard config
-  private readonly LENIENCY_MS = 200 // ~12 frames worth of leniency
+  private readonly LENIENCY_MS = 32 // ~2 frames worth of leniency
   private readonly SIMULTANEOUS_PRESS_MS = 32 // ~2 frames at 60fps for simultaneous press
   private readonly COMPLETION_WINDOW_MS = 64 // Window to check for competing completed moves
 
@@ -149,10 +149,10 @@ export class SequenceManager extends EventEmitter {
     const foundKeys = new Set<string>()
     const extraInputTimes = new Set<number>()
 
-    // Work backwards through the buffer
+    // Work backwards through the buffer with leniency
     for (let i = events.length - 1; i >= 0 && currentKeyIndex >= 0; i--) {
       const event = events[i]
-      if (event.timestamp < cutoffTime) break
+      if (event.timestamp < cutoffTime - this.LENIENCY_MS) break
 
       // Track all inputs we see for leniency
       event.state.justPressed.forEach((key) => {
@@ -165,7 +165,7 @@ export class SequenceManager extends EventEmitter {
       // If this frame has our current target key
       if (event.state.justPressed.includes(keys[currentKeyIndex])) {
         // Check if the gap between this and the last match is within maxGap
-        if (lastMatchTime - event.timestamp > maxGapMs) return false
+        if (lastMatchTime - event.timestamp > maxGapMs + this.LENIENCY_MS) return false
         lastMatchTime = event.timestamp
         currentKeyIndex--
       }
@@ -209,26 +209,31 @@ export class SequenceManager extends EventEmitter {
       case 'press': {
         // For single key or simultaneous presses
         if (step.multiPressToleranceMs) {
-          return this.wereKeysSimultaneous(frame, keys)
+          // Check recent frames within leniency window
+          const recentFrames = this.inputBuffer.getRecentEvents(this.LENIENCY_MS)
+
+          // Consider the press successful if all keys were pressed
+          // in any recent frame within the leniency window
+          return recentFrames.some((f) => keys.every((k) => f.state.justPressed.includes(k)))
         }
         // For sequences (like down, down-forward, forward)
-        return this.checkSequence(frame, keys, maxGapMs)
+        return this.checkSequence(frame, keys, maxGapMs + this.LENIENCY_MS)
       }
 
       case 'hold': {
         const { minHoldMs = 0, maxHoldMs, completeOnReleaseAfterMinHold } = step
 
-        // Check each key meets the hold duration
+        // Check each key meets the hold duration with leniency
         for (const key of keys) {
-          const holdDuration = this.framesToMs(frame.state.holdDurations[key] ?? 0)
+          const holdDuration = frame.state.holdDurations[key] ?? 0
 
           // Fail if we've held too long
-          if (maxHoldMs && holdDuration > maxHoldMs) return false
+          if (maxHoldMs && holdDuration > maxHoldMs + this.LENIENCY_MS) return false
 
           // For release-after-hold moves
           if (completeOnReleaseAfterMinHold) {
             const isHeld = frame.state.held.includes(key)
-            const meetsMinHold = holdDuration >= minHoldMs
+            const meetsMinHold = holdDuration >= minHoldMs - this.LENIENCY_MS
 
             // If still held, only complete if we want to wait for release
             if (isHeld) return !completeOnReleaseAfterMinHold && meetsMinHold
@@ -237,8 +242,8 @@ export class SequenceManager extends EventEmitter {
             return meetsMinHold
           }
 
-          // Normal hold - just check duration
-          if (holdDuration < minHoldMs) return false
+          // Normal hold - just check duration with leniency
+          if (holdDuration < minHoldMs - this.LENIENCY_MS) return false
         }
         return true
       }

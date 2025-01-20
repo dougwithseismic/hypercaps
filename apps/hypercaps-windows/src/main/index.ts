@@ -20,6 +20,7 @@ import {
   lightSonicBoom,
   mediumSonicBoom
 } from './features/sequence-manager/moves/sonic-boom'
+import { ginAndTonic } from './features/sequence-manager/moves/gin-and-tonic'
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -86,6 +87,7 @@ app.whenReady().then(async () => {
   sequenceManager.addMove(lightSonicBoom)
   sequenceManager.addMove(mediumSonicBoom)
   sequenceManager.addMove(heavySonicBoom)
+  sequenceManager.addMove(ginAndTonic)
 
   // sequenceManager.addMove({
   //   name: 'Hold G + Triple H',

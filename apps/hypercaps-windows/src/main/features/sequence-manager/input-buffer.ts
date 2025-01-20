@@ -18,16 +18,33 @@ export class InputBuffer {
 
   /** Add a new frame to the buffer and prune old ones. */
   public addFrame(event: KeyboardFrameEvent): void {
-    // Ensure frames are added in order
-    if (event.frameNumber <= this.lastFrameNumber) {
-      throw new Error(
+    // Log frame timing for debugging
+    const timeSinceLastFrame =
+      this.lastFrameNumber >= 0
+        ? event.timestamp - this.events[this.events.length - 1].timestamp
+        : 0
+
+    console.debug(
+      `Frame ${event.frameNumber}:`,
+      `Δt=${timeSinceLastFrame}ms,`,
+      `Press:[${event.state.justPressed.join(',')}]`,
+      `Release:[${event.state.justReleased.join(',')}]`,
+      `Held:[${event.state.held.join(',')}]`,
+      `Durations:`,
+      event.state.holdDurations
+    )
+
+    // Ensure frames are added in order with some leniency
+    if (event.frameNumber < this.lastFrameNumber - 1) {
+      console.warn(
         `Frame ${event.frameNumber} added out of order (last was ${this.lastFrameNumber})`
       )
+      return // Skip out-of-order frames
     }
-    this.lastFrameNumber = event.frameNumber
 
     this.prune()
     this.events.push(event)
+    this.lastFrameNumber = event.frameNumber
     this.lastTimestamp = event.timestamp
   }
 
@@ -49,6 +66,12 @@ export class InputBuffer {
 
   public getEvents(): readonly KeyboardFrameEvent[] {
     return this.events
+  }
+
+  /** Get recent events within a specific time window */
+  public getRecentEvents(windowMs: number): readonly KeyboardFrameEvent[] {
+    const cutoff = this.lastTimestamp - windowMs
+    return this.events.filter((e) => e.timestamp >= cutoff)
   }
 
   public clear(): void {

@@ -1,6 +1,6 @@
 import { moveFactory } from '../move-factory'
 
-const DIFFICULTY_SCALING_FACTOR = 1.5
+const DIFFICULTY_SCALING_FACTOR = 1
 
 const HADOUKEN_ASCII = `
     ██╗  ██╗ █████╗ ██████╗  ██████╗ ██╗   ██╗██╗  ██╗███████╗███╗   ██╗██╗

@@ -9,15 +9,16 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <bitset>
 
 // Forward declare the polling thread function
 DWORD WINAPI PollingThreadProc(LPVOID param);
 
 struct KeyboardFrame {
-    std::set<DWORD> justPressed;
-    std::set<DWORD> held;
-    std::set<DWORD> justReleased;
-    std::map<DWORD, int> holdDurations;
+    std::bitset<256> justPressed;
+    std::bitset<256> held;
+    std::bitset<256> justReleased;
+    std::array<int, 256> holdDurations;
     long long timestamp;
     int frameNumber;
     struct {
@@ -36,8 +37,7 @@ public:
 private:
     static KeyboardMonitor* instance;
     int FRAME_TIME_MICROS = 16667;  // Default to 60 FPS (1/60th second in microseconds)
-    static const int BUFFER_SIZE = 60;
-    static const int POLLING_INTERVAL = 1;
+    static const int POLLING_INTERVAL = 8; // 8ms polling (~120Hz) is more reasonable
 
     // Thread-safe function for callbacks
     Napi::ThreadSafeFunction tsfn;
@@ -48,19 +48,19 @@ private:
     bool isPolling = false;
     HANDLE pollingThread = NULL;
     
+    // oka!
     // Configuration
     std::map<std::string, std::vector<std::string>> remaps;
     int maxRemapChainLength = 5;
-    int gateTimeout = 500; // Default 1000ms timeout
+    int gateTimeout = 32; // 2 frames at 60fps
     
-    // Frame management
-    std::array<KeyboardFrame, BUFFER_SIZE> frameBuffer;
-    int currentFrameIndex = 0;
+    // Current frame state
+    KeyboardFrame currentFrame;
     int totalFrames = 0;
     std::chrono::steady_clock::time_point lastFrameTime;
     std::chrono::steady_clock::time_point lastPollTime;
     std::chrono::steady_clock::time_point lastKeyEventTime;
-    std::map<DWORD, int> keyPressStartFrames;
+    std::array<int, 256> keyPressStartFrames;
 
     // Gate state
     bool isGateOpen = false;
